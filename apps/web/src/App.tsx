@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, LayersControl, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -8,19 +8,49 @@ import "./App.css";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
+import {
+  createFeature,
+  deleteFeature,
+  listFeatures,
+  updateFeature,
+  type ApiFeature,
+  type GeomType,
+} from "./api";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
+// imagePath = "" กัน Leaflet เอา path ที่เดาจาก CSS ไปต่อหน้า URL ที่ import มา (ทำให้รูปหมุดหาย)
+L.Icon.Default.imagePath = "";
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
 
-type GeomType = "Point" | "LineString" | "Polygon";
 type Item = { id: number; name: string; type: GeomType; layer: L.Layer };
+type SetItems = (fn: (items: Item[]) => Item[]) => void;
+type GeoLayer = L.Layer & { toGeoJSON(): GeoJSON.Feature };
 
 const FILTERS: (GeomType | "All")[] = ["All", "Point", "LineString", "Polygon"];
 
-function DrawTools({ onChange }: { onChange: (fn: (items: Item[]) => Item[]) => void }) {
+// id / ชื่อ / ชนิด / รูปทรงล่าสุดที่บันทึกแล้ว ของแต่ละ layer บนแผนที่ (ตรงกับข้อมูลใน database)
+type Meta = { id: number; name: string; type: GeomType; saved: GeoJSON.Geometry };
+const meta = new WeakMap<L.Layer, Meta>();
+
+const geometryOf = (layer: L.Layer) => (layer as GeoLayer).toGeoJSON().geometry;
+
+// คืนรูปทรงของ layer กลับเป็นค่าที่บันทึกไว้ (ใช้ตอน API ไม่รับการแก้ไข)
+function restoreGeometry(layer: L.Layer, geometry: GeoJSON.Geometry) {
+  if (layer instanceof L.Marker && geometry.type === "Point") {
+    layer.setLatLng(L.GeoJSON.coordsToLatLng(geometry.coordinates as [number, number]));
+  } else if (layer instanceof L.Polygon && geometry.type === "Polygon") {
+    layer.setLatLngs(L.GeoJSON.coordsToLatLngs(geometry.coordinates, 1));
+  } else if (layer instanceof L.Polyline && geometry.type === "LineString") {
+    layer.setLatLngs(L.GeoJSON.coordsToLatLngs(geometry.coordinates, 0));
+  }
+}
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+function FeatureLayers({ setItems, onError }: { setItems: SetItems; onError: (err: unknown) => void }) {
   const map = useMap();
 
   useEffect(() => {
+    (map.pm.Draw.Polygon as L.PM.DrawShape).setOptions({ allowSelfIntersection: false });
     map.pm.addControls({
       position: "topleft",
       drawMarker: true,
@@ -34,36 +64,87 @@ function DrawTools({ onChange }: { onChange: (fn: (items: Item[]) => Item[]) => 
       rotateMode: false,
     });
 
-    const handleCreate = (e: { layer: L.Layer }) => {
-      const layer = e.layer as L.Layer & { toGeoJSON(): GeoJSON.Feature };
-      const type = layer.toGeoJSON().geometry.type as GeomType;
-      const name = window.prompt("ตั้งชื่อ", type) || type;
-      const id = L.Util.stamp(layer);
-      layer.bindPopup(name);
-      layer.on("pm:remove", () => onChange((items) => items.filter((i) => i.id !== id)));
-      onChange((items) => [...items, { id, name, type, layer }]);
-      console.log(layer.toGeoJSON());
+    const group = L.featureGroup().addTo(map);
+    let alive = true;
+
+    // คืนรูปทรงเดิมแล้ว sync จุดแก้ไขของ Geoman ให้ตรงกับรูปทรงใหม่
+    const revert = (layer: L.Path | L.Marker) => {
+      const editing = layer.pm.enabled();
+      if (editing) layer.pm.disable();
+      restoreGeometry(layer, meta.get(layer)!.saved);
+      if (editing) layer.pm.enable();
     };
+
+    // ผูก layer กับ feature ใน database: แก้รูปทรง → PUT, ลบด้วยเครื่องมือบนแผนที่ → DELETE
+    const register = (layer: L.Layer, f: ApiFeature) => {
+      const info: Meta = { id: f.id, name: f.properties.name, type: f.geometry.type as GeomType, saved: f.geometry };
+      meta.set(layer, info);
+      layer.bindPopup(info.name);
+      // Polygon ที่ขอบตัดกันเองบันทึกไม่ได้ (PostGIS ถือว่า invalid) → ให้ Geoman ห้ามตั้งแต่ตอนลากจุด
+      if (layer instanceof L.Polygon) layer.pm.setOptions({ allowSelfIntersection: false });
+      // pm:edit ยิงทุกครั้งที่ลากจุด/เพิ่ม-ลบจุด/ย้าย layer เสร็จ → บันทึกทันที ไม่ต้องรอกด Finish
+      layer.on("pm:edit", () => {
+        const m = meta.get(layer)!;
+        const geometry = geometryOf(layer);
+        updateFeature(m.id, geometry, m.name)
+          .then(() => meta.set(layer, { ...meta.get(layer)!, saved: geometry }))
+          .catch((err) => {
+            revert(layer as L.Path | L.Marker);
+            onError(err);
+          });
+      });
+      layer.on("pm:remove", () => {
+        const m = meta.get(layer)!;
+        group.removeLayer(layer);
+        deleteFeature(m.id)
+          .then(() => setItems((items) => items.filter((i) => i.id !== m.id)))
+          .catch((err) => {
+            group.addLayer(layer);
+            onError(err);
+          });
+      });
+      group.addLayer(layer);
+      setItems((items) => [...items, { ...info, layer }]);
+    };
+
+    const handleCreate = async (e: { layer: L.Layer }) => {
+      const geometry = geometryOf(e.layer);
+      const name = window.prompt("ตั้งชื่อ", geometry.type) || geometry.type;
+      try {
+        register(e.layer, await createFeature(geometry, name));
+      } catch (err) {
+        map.removeLayer(e.layer);
+        onError(err);
+      }
+    };
+
+    listFeatures()
+      .then((features) => {
+        if (!alive) return;
+        for (const f of features) register(L.GeoJSON.geometryToLayer(f), f);
+      })
+      .catch(onError);
 
     map.on("pm:create", handleCreate);
     return () => {
+      alive = false;
       map.off("pm:create", handleCreate);
       map.pm.removeControls();
+      group.remove();
+      setItems(() => []);
     };
-  }, [map, onChange]);
+  }, [map, setItems, onError]);
 
-  return null;
-}
-
-function MapRef({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
-  mapRef.current = useMap();
   return null;
 }
 
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
+  const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+
+  const onError = useCallback((err: unknown) => setError(message(err)), []);
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
 
@@ -75,9 +156,27 @@ export default function App() {
     item.layer.openPopup();
   };
 
-  const remove = (item: Item) => {
-    mapRef.current?.removeLayer(item.layer);
-    setItems((list) => list.filter((i) => i.id !== item.id));
+  const rename = async (item: Item) => {
+    const name = window.prompt("เปลี่ยนชื่อ", item.name)?.trim();
+    if (!name || name === item.name) return;
+    try {
+      await updateFeature(item.id, geometryOf(item.layer), name);
+      meta.set(item.layer, { ...meta.get(item.layer)!, name });
+      item.layer.setPopupContent(name);
+      setItems((list) => list.map((i) => (i.id === item.id ? { ...i, name } : i)));
+    } catch (err) {
+      onError(err);
+    }
+  };
+
+  const remove = async (item: Item) => {
+    try {
+      await deleteFeature(item.id);
+      mapRef.current?.removeLayer(item.layer);
+      setItems((list) => list.filter((i) => i.id !== item.id));
+    } catch (err) {
+      onError(err);
+    }
   };
 
   return (
@@ -86,6 +185,15 @@ export default function App() {
         <h1>🗺️ Web Mapping</h1>
         <span className="count">{items.length} features</span>
       </header>
+
+      {error && (
+        <div className="error" role="alert">
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)} title="ปิด">
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="body">
         <aside className="sidebar">
@@ -103,7 +211,17 @@ export default function App() {
                 <span className={`badge ${item.type}`}>{item.type}</span>
                 <span className="name">{item.name}</span>
                 <button
-                  className="del"
+                  className="icon"
+                  title="เปลี่ยนชื่อ"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    rename(item);
+                  }}
+                >
+                  ✎
+                </button>
+                <button
+                  className="icon del"
                   title="ลบ"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -117,7 +235,7 @@ export default function App() {
           </ul>
         </aside>
 
-        <MapContainer className="map" center={[13.75, 100.5]} zoom={6}>
+        <MapContainer ref={mapRef} className="map" center={[13.75, 100.5]} zoom={6}>
           <LayersControl position="topright">
             <LayersControl.BaseLayer checked name="OpenStreetMap">
               <TileLayer
@@ -138,8 +256,7 @@ export default function App() {
               />
             </LayersControl.BaseLayer>
           </LayersControl>
-          <DrawTools onChange={setItems} />
-          <MapRef mapRef={mapRef} />
+          <FeatureLayers setItems={setItems} onError={onError} />
         </MapContainer>
       </div>
     </div>
