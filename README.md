@@ -3,7 +3,7 @@
 Web Application สำหรับสร้าง แก้ไข และลบข้อมูลเชิงพื้นที่ (Point, LineString, Polygon) บนแผนที่ พร้อม REST API ที่รับส่งข้อมูลเป็น GeoJSON
 
 - **Frontend:** React + Vite + react-leaflet + Leaflet-Geoman
-- **Backend:** Elysia.js (Bun) + postgres.js
+- **Backend:** Elysia.js (Bun) + Drizzle ORM (postgres.js)
 - **Database:** Supabase (PostgreSQL + PostGIS)
 - **Deploy:** Vercel (project เดียว — web + `/api`)
 
@@ -13,7 +13,7 @@ Web Application สำหรับสร้าง แก้ไข และล�
 
 1. ติดตั้ง [Bun](https://bun.sh) แล้วรัน `bun install`
 2. คัดลอก `.env.example` เป็น `.env` แล้วใส่ connection string ของ Supabase (Transaction pooler, port 6543)
-3. รัน `apps/server/sql/schema.sql` ใน Supabase SQL Editor ครั้งเดียว
+3. รัน `apps/server/sql/schema.sql` (เปิด PostGIS) ใน Supabase SQL Editor ครั้งเดียว แล้ว `bun run db:push` เพื่อสร้างตาราง
 4. `bun run dev` แล้วเปิด
    - เว็บ: http://localhost:5173
    - API docs: http://localhost:3000/api/openapi
@@ -27,6 +27,8 @@ Web Application สำหรับสร้าง แก้ไข และล�
 | `bun run dev:web` | เว็บที่ `localhost:5173` (ส่ง `/api` ต่อไปที่ API) |
 | `bun run build` | type check + build เว็บ |
 | `bun run lint` | ESLint |
+| `bun run db:push` | สร้าง/อัปเดตตารางตาม `apps/server/src/db/schema.ts` |
+| `bun run db:studio` | เปิด Drizzle Studio ดูข้อมูลในตาราง |
 
 ## API
 

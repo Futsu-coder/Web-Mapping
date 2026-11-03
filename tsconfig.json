@@ -22,5 +22,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["apps", "api", "vite.config.ts"]
+  "include": ["apps", "api", "vite.config.ts", "drizzle.config.ts"]
 }

@@ -1,58 +1,70 @@
 import { Elysia, t } from 'elysia'
-import { sql } from '../db'
-import { FeatureIn, GeomType, IdParams, type FeatureInput } from '../schema'
-
-type Row = {
-  id: string
-  name: string
-  geom_type: string
-  geometry: unknown
-  properties: Record<string, unknown>
-  created_at: Date
-  updated_at: Date
-}
+import { asc, eq, sql } from 'drizzle-orm'
+import { db } from '../db'
+import { features } from '../db/schema'
+import { FeatureIn, GeomType, IdParams, type FeatureInput } from '../validation'
 
 class InvalidGeometry extends Error {}
 
-const columns = sql`
-  id, name, geom_type, ST_AsGeoJSON(geom)::json as geometry, properties, created_at, updated_at
-`
+// คอลัมน์ขาออก: แปลง geom เป็น GeoJSON ใน database เลย
+const columns = {
+  id: features.id,
+  name: features.name,
+  geomType: features.geomType,
+  geometry: sql<unknown>`ST_AsGeoJSON(${features.geom})::json`,
+  properties: features.properties,
+  createdAt: features.createdAt,
+  updatedAt: features.updatedAt
+}
+
+type Row = {
+  id: number
+  name: string
+  geomType: string
+  geometry: unknown
+  properties: Record<string, unknown>
+  createdAt: Date
+  updatedAt: Date
+}
 
 function toGeoJSON(row: Row) {
   return {
     type: 'Feature',
-    id: Number(row.id),
+    id: row.id,
     geometry: row.geometry,
     properties: {
       ...row.properties,
       name: row.name,
-      geom_type: row.geom_type,
-      created_at: row.created_at.toISOString(),
-      updated_at: row.updated_at.toISOString()
+      geom_type: row.geomType,
+      created_at: row.createdAt.toISOString(),
+      updated_at: row.updatedAt.toISOString()
     }
   }
 }
 
+const geomFromGeoJSON = (geojson: string) => sql`ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)`
+
 /** แปลง GeoJSON เป็นค่าที่เก็บลง DB พร้อมตรวจรูปทรงด้วย PostGIS */
 async function parseInput(body: FeatureInput) {
-  const geometry = JSON.stringify(body.geometry)
-  let check: { valid: boolean; reason: string }
+  const geojson = JSON.stringify(body.geometry)
+  let check: { valid: boolean; reason: string } | undefined
   try {
-    ;[check] = await sql<{ valid: boolean; reason: string }[]>`
+    ;[check] = await db.execute<{ valid: boolean; reason: string }>(sql`
       select ST_IsValid(g) as valid, ST_IsValidReason(g) as reason
-      from (select ST_GeomFromGeoJSON(${geometry}) as g) s
-    `
+      from (select ST_GeomFromGeoJSON(${geojson}) as g) s
+    `)
   } catch (e) {
-    throw new InvalidGeometry((e as Error).message)
+    const err = e as Error & { cause?: Error }
+    throw new InvalidGeometry(err.cause?.message ?? err.message)
   }
-  if (!check.valid) throw new InvalidGeometry(check.reason)
+  if (!check?.valid) throw new InvalidGeometry(check?.reason ?? 'unknown')
 
-  const props = { ...(body.properties ?? {}) }
-  const name = String(props.name || body.geometry.type)
+  const properties = { ...(body.properties ?? {}) }
+  const name = String(properties.name || body.geometry.type)
   // ฟิลด์ที่ระบบสร้างเอง ไม่ให้ client เขียนทับ
-  for (const key of ['name', 'geom_type', 'created_at', 'updated_at']) delete props[key]
+  for (const key of ['name', 'geom_type', 'created_at', 'updated_at']) delete properties[key]
 
-  return { name, geomType: body.geometry.type, geometry, properties: JSON.stringify(props) }
+  return { name, geomType: body.geometry.type, geom: geomFromGeoJSON(geojson), properties }
 }
 
 export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features'] })
@@ -64,11 +76,11 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
   .get(
     '/',
     async ({ query }) => {
-      const rows = await sql<Row[]>`
-        select ${columns} from features
-        ${query.type ? sql`where geom_type = ${query.type}` : sql``}
-        order by created_at
-      `
+      const rows = await db
+        .select(columns)
+        .from(features)
+        .where(query.type ? eq(features.geomType, query.type) : undefined)
+        .orderBy(asc(features.createdAt))
       return { type: 'FeatureCollection', features: rows.map(toGeoJSON) }
     },
     { query: t.Object({ type: t.Optional(GeomType) }) }
@@ -77,7 +89,7 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
   .get(
     '/:id',
     async ({ params, status }) => {
-      const [row] = await sql<Row[]>`select ${columns} from features where id = ${params.id}`
+      const [row] = await db.select(columns).from(features).where(eq(features.id, params.id))
       return row ? toGeoJSON(row) : status(404, { detail: 'Feature not found' })
     },
     { params: IdParams }
@@ -86,12 +98,10 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
   .post(
     '/',
     async ({ body, status }) => {
-      const f = await parseInput(body)
-      const [row] = await sql<Row[]>`
-        insert into features (name, geom_type, geom, properties)
-        values (${f.name}, ${f.geomType}, ST_SetSRID(ST_GeomFromGeoJSON(${f.geometry}), 4326), ${f.properties}::jsonb)
-        returning ${columns}
-      `
+      const [row] = await db
+        .insert(features)
+        .values(await parseInput(body))
+        .returning(columns)
       return status(201, toGeoJSON(row))
     },
     { body: FeatureIn }
@@ -100,17 +110,11 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
   .put(
     '/:id',
     async ({ params, body, status }) => {
-      const f = await parseInput(body)
-      const [row] = await sql<Row[]>`
-        update features set
-          name = ${f.name},
-          geom_type = ${f.geomType},
-          geom = ST_SetSRID(ST_GeomFromGeoJSON(${f.geometry}), 4326),
-          properties = ${f.properties}::jsonb,
-          updated_at = now()
-        where id = ${params.id}
-        returning ${columns}
-      `
+      const [row] = await db
+        .update(features)
+        .set({ ...(await parseInput(body)), updatedAt: sql`now()` })
+        .where(eq(features.id, params.id))
+        .returning(columns)
       return row ? toGeoJSON(row) : status(404, { detail: 'Feature not found' })
     },
     { params: IdParams, body: FeatureIn }
@@ -119,8 +123,11 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
   .delete(
     '/:id',
     async ({ params, status }) => {
-      const deleted = await sql`delete from features where id = ${params.id}`
-      return deleted.count ? status(204) : status(404, { detail: 'Feature not found' })
+      const deleted = await db
+        .delete(features)
+        .where(eq(features.id, params.id))
+        .returning({ id: features.id })
+      return deleted.length ? status(204) : status(404, { detail: 'Feature not found' })
     },
     { params: IdParams }
   )
