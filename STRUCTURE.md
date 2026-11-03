@@ -29,9 +29,11 @@ Web-Mapping/
         ├── public/
         └── src/
             ├── main.tsx
-            ├── App.tsx     # แผนที่ + เครื่องมือวาด + sidebar
-            ├── App.css
-            ├── index.css
+            ├── App.tsx     # layout หลัก: Navbar + แผนที่ + Toolbar + FeaturePanel
+            ├── api.ts      # เรียก /api/features (list/create/update/delete)
+            ├── index.css   # Tailwind v4 + base styles
+            ├── components/ # Navbar, Toolbar (icon sidebar), FeaturePanel, DrawTools (sync กับ API) ฯลฯ
+            ├── lib/        # baseLayers, types, featureMeta (helper ของ layer ↔ feature)
             └── assets/
 ```
 
