@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { MapContainer, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -7,6 +7,7 @@ import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
+import { deleteFeature, updateFeature } from "./api";
 import DrawTools from "./components/DrawTools";
 import MapRef from "./components/MapRef";
 import Navbar from "./components/Navbar";
@@ -14,9 +15,12 @@ import Toolbar from "./components/Toolbar";
 import FeaturePanel from "./components/FeaturePanel";
 import SidebarToggleIcon from "./components/SidebarToggleIcon";
 import { BASE_LAYERS, type BaseLayerId } from "./lib/baseLayers";
+import { geometryOf, message, meta } from "./lib/featureMeta";
 import type { DrawShape, GeomType, Item } from "./lib/types";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
+// imagePath = "" กัน Leaflet เอา path ที่เดาจาก CSS ไปต่อหน้า URL ที่ import มา (ทำให้รูปหมุดหาย)
+L.Icon.Default.imagePath = "";
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
 
 export default function App() {
@@ -25,7 +29,10 @@ export default function App() {
   const [activeTool, setActiveTool] = useState<DrawShape | null>(null);
   const [baseLayerId, setBaseLayerId] = useState<BaseLayerId>("osm");
   const [panelOpen, setPanelOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+
+  const onError = useCallback((err: unknown) => setError(message(err)), []);
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
   const activeBaseLayer = BASE_LAYERS.find((l) => l.id === baseLayerId)!;
@@ -38,14 +45,50 @@ export default function App() {
     item.layer.openPopup();
   };
 
-  const remove = (item: Item) => {
-    mapRef.current?.removeLayer(item.layer);
-    setItems((list) => list.filter((i) => i.id !== item.id));
+  const rename = async (item: Item) => {
+    const name = window.prompt("เปลี่ยนชื่อ", item.name)?.trim();
+    if (!name || name === item.name) return;
+    try {
+      await updateFeature(item.id, geometryOf(item.layer), name);
+      meta.set(item.layer, { ...meta.get(item.layer)!, name });
+      item.layer.setPopupContent(name);
+      setItems((list) => list.map((i) => (i.id === item.id ? { ...i, name } : i)));
+    } catch (err) {
+      onError(err);
+    }
+  };
+
+  const remove = async (item: Item) => {
+    try {
+      await deleteFeature(item.id);
+      mapRef.current?.removeLayer(item.layer);
+      setItems((list) => list.filter((i) => i.id !== item.id));
+    } catch (err) {
+      onError(err);
+    }
   };
 
   return (
     <div className="flex flex-col h-full">
       <Navbar />
+
+      {error && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 px-4 py-2 shrink-0 bg-red-50 text-red-800 border-b border-red-200 text-sm z-30"
+        >
+          <span className="flex-1">⚠️ {error}</span>
+          <button
+            type="button"
+            title="ปิด"
+            aria-label="ปิด"
+            onClick={() => setError(null)}
+            className="text-base leading-none hover:text-red-950"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <MapContainer
@@ -55,7 +98,7 @@ export default function App() {
           zoomControl={false}
         >
           <TileLayer key={activeBaseLayer.id} url={activeBaseLayer.url} attribution={activeBaseLayer.attribution} />
-          <DrawTools onItemsChange={setItems} onActiveToolChange={setActiveTool} />
+          <DrawTools onItemsChange={setItems} onActiveToolChange={setActiveTool} onError={onError} />
           <MapRef mapRef={mapRef} />
         </MapContainer>
 
@@ -84,6 +127,7 @@ export default function App() {
           filter={filter}
           onFilterChange={setFilter}
           onFocus={focus}
+          onRename={rename}
           onRemove={remove}
         />
       </div>

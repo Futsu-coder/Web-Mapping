@@ -11,6 +11,7 @@ export default function FeaturePanel({
   filter,
   onFilterChange,
   onFocus,
+  onRename,
   onRemove,
   open,
 }: {
@@ -18,6 +19,7 @@ export default function FeaturePanel({
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
   onFocus: (item: Item) => void;
+  onRename: (item: Item) => void;
   onRemove: (item: Item) => void;
   open: boolean;
 }) {
@@ -64,6 +66,18 @@ export default function FeaturePanel({
               {item.type}
             </span>
             <span className="flex-1 text-sm text-slate-800 truncate">{item.name}</span>
+            <button
+              type="button"
+              title="เปลี่ยนชื่อ"
+              aria-label="เปลี่ยนชื่อ"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename(item);
+              }}
+              className="text-slate-500 hover:text-teal-700 text-base leading-none px-1"
+            >
+              ✎
+            </button>
             <button
               type="button"
               title="ลบ"

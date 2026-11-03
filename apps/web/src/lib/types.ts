@@ -1,6 +1,7 @@
 import type L from "leaflet";
+import type { GeomType } from "../api";
 
-export type GeomType = "Point" | "LineString" | "Polygon";
+export type { GeomType };
 export type Item = { id: number; name: string; type: GeomType; layer: L.Layer };
 
 export const FILTERS: (GeomType | "All")[] = ["All", "Point", "LineString", "Polygon"];
