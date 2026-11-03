@@ -117,7 +117,5 @@ out
 .yarn/install-state.gz
 .pnp.*
 
-# Backend (Python)
-.env
-.venv/
-__pycache__/
+# Vercel
+.vercel

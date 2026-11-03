@@ -1,7 +1,0 @@
-fastapi[standard]
-sqlalchemy>=2.0
-geoalchemy2
-shapely
-geojson-pydantic
-psycopg[binary]
-python-dotenv

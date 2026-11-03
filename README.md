@@ -1,75 +1,45 @@
-# React + TypeScript + Vite
+# Web Mapping & Geospatial API
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Web Application สำหรับสร้าง แก้ไข และลบข้อมูลเชิงพื้นที่ (Point, LineString, Polygon) บนแผนที่ พร้อม REST API ที่รับส่งข้อมูลเป็น GeoJSON
 
-Currently, two official plugins are available:
+- **Frontend:** React + Vite + react-leaflet + Leaflet-Geoman
+- **Backend:** Elysia.js (Bun) + postgres.js
+- **Database:** Supabase (PostgreSQL + PostGIS)
+- **Deploy:** Vercel (project เดียว — web + `/api`)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+โครงสร้างโฟลเดอร์ดูที่ [STRUCTURE.md](STRUCTURE.md)
 
-## React Compiler
+## เริ่มต้น
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. ติดตั้ง [Bun](https://bun.sh) แล้วรัน `bun install`
+2. คัดลอก `.env.example` เป็น `.env` แล้วใส่ connection string ของ Supabase (Transaction pooler, port 6543)
+3. รัน `apps/server/sql/schema.sql` ใน Supabase SQL Editor ครั้งเดียว
+4. `bun run dev` แล้วเปิด
+   - เว็บ: http://localhost:5173
+   - API docs: http://localhost:3000/api/openapi
 
-## Expanding the ESLint configuration
+## Scripts
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `bun run dev` | รัน API + เว็บพร้อมกัน |
+| `bun run dev:api` | API ที่ `localhost:3000` |
+| `bun run dev:web` | เว็บที่ `localhost:5173` (ส่ง `/api` ต่อไปที่ API) |
+| `bun run build` | type check + build เว็บ |
+| `bun run lint` | ESLint |
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## API
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| Method | Path | ผลลัพธ์ |
+|---|---|---|
+| GET | `/api/features?type=Point\|LineString\|Polygon` | FeatureCollection |
+| GET | `/api/features/:id` | Feature / 404 |
+| POST | `/api/features` | 201 + Feature |
+| PUT | `/api/features/:id` | Feature / 404 |
+| DELETE | `/api/features/:id` | 204 / 404 |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+geometry ที่ไม่ใช่ 3 ชนิดนี้ หรือรูปทรงไม่ถูกต้อง (เช่น Polygon ตัดกันเอง) → 422
 
-```
+## Deploy (Vercel)
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+Import repo นี้เป็น project เดียว แล้วตั้ง Environment Variable `DATABASE_URL` — ค่าอื่นอ่านจาก `vercel.json`
