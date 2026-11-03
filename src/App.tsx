@@ -1,71 +1,34 @@
-import { useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, LayersControl, useMap } from "react-leaflet";
+import { useRef, useState } from "react";
+import { MapContainer, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
-import "./App.css";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
+import DrawTools from "./components/DrawTools";
+import MapRef from "./components/MapRef";
+import Navbar from "./components/Navbar";
+import Toolbar from "./components/Toolbar";
+import FeaturePanel from "./components/FeaturePanel";
+import SidebarToggleIcon from "./components/SidebarToggleIcon";
+import { BASE_LAYERS, type BaseLayerId } from "./lib/baseLayers";
+import type { DrawShape, GeomType, Item } from "./lib/types";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
 
-type GeomType = "Point" | "LineString" | "Polygon";
-type Item = { id: number; name: string; type: GeomType; layer: L.Layer };
-
-const FILTERS: (GeomType | "All")[] = ["All", "Point", "LineString", "Polygon"];
-
-function DrawTools({ onChange }: { onChange: (fn: (items: Item[]) => Item[]) => void }) {
-  const map = useMap();
-
-  useEffect(() => {
-    map.pm.addControls({
-      position: "topleft",
-      drawMarker: true,
-      drawPolyline: true,
-      drawPolygon: true,
-      drawCircle: false,
-      drawCircleMarker: false,
-      drawRectangle: false,
-      drawText: false,
-      cutPolygon: false,
-      rotateMode: false,
-    });
-
-    const handleCreate = (e: { layer: L.Layer }) => {
-      const layer = e.layer as L.Layer & { toGeoJSON(): GeoJSON.Feature };
-      const type = layer.toGeoJSON().geometry.type as GeomType;
-      const name = window.prompt("ตั้งชื่อ", type) || type;
-      const id = L.Util.stamp(layer);
-      layer.bindPopup(name);
-      layer.on("pm:remove", () => onChange((items) => items.filter((i) => i.id !== id)));
-      onChange((items) => [...items, { id, name, type, layer }]);
-      console.log(layer.toGeoJSON());
-    };
-
-    map.on("pm:create", handleCreate);
-    return () => {
-      map.off("pm:create", handleCreate);
-      map.pm.removeControls();
-    };
-  }, [map, onChange]);
-
-  return null;
-}
-
-function MapRef({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
-  mapRef.current = useMap();
-  return null;
-}
-
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
+  const [activeTool, setActiveTool] = useState<DrawShape | null>(null);
+  const [baseLayerId, setBaseLayerId] = useState<BaseLayerId>("osm");
+  const [panelOpen, setPanelOpen] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
+  const activeBaseLayer = BASE_LAYERS.find((l) => l.id === baseLayerId)!;
 
   const focus = (item: Item) => {
     const map = mapRef.current;
@@ -81,66 +44,48 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <h1>🗺️ Web Mapping</h1>
-        <span className="count">{items.length} features</span>
-      </header>
+    <div className="flex flex-col h-full">
+      <Navbar />
 
-      <div className="body">
-        <aside className="sidebar">
-          <div className="filters">
-            {FILTERS.map((f) => (
-              <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
-                {f}
-              </button>
-            ))}
-          </div>
-          <ul className="list">
-            {shown.length === 0 && <li className="empty">ยังไม่มีข้อมูล — ใช้เครื่องมือซ้ายบนวาดบนแผนที่</li>}
-            {shown.map((item) => (
-              <li key={item.id} onClick={() => focus(item)}>
-                <span className={`badge ${item.type}`}>{item.type}</span>
-                <span className="name">{item.name}</span>
-                <button
-                  className="del"
-                  title="ลบ"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remove(item);
-                  }}
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-
-        <MapContainer className="map" center={[13.75, 100.5]} zoom={6}>
-          <LayersControl position="topright">
-            <LayersControl.BaseLayer checked name="OpenStreetMap">
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-              />
-            </LayersControl.BaseLayer>
-            <LayersControl.BaseLayer name="ดาวเทียม (Esri)">
-              <TileLayer
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                attribution="Tiles &copy; Esri"
-              />
-            </LayersControl.BaseLayer>
-            <LayersControl.BaseLayer name="CARTO Light">
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                attribution="&copy; OpenStreetMap &copy; CARTO"
-              />
-            </LayersControl.BaseLayer>
-          </LayersControl>
-          <DrawTools onChange={setItems} />
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        <MapContainer
+          className="absolute inset-0 w-full h-full z-0"
+          center={[13.75, 100.5]}
+          zoom={6}
+          zoomControl={false}
+        >
+          <TileLayer key={activeBaseLayer.id} url={activeBaseLayer.url} attribution={activeBaseLayer.attribution} />
+          <DrawTools onItemsChange={setItems} onActiveToolChange={setActiveTool} />
           <MapRef mapRef={mapRef} />
         </MapContainer>
+
+        <Toolbar
+          mapRef={mapRef}
+          activeTool={activeTool}
+          baseLayerId={baseLayerId}
+          onBaseLayerChange={setBaseLayerId}
+        />
+
+        <button
+          type="button"
+          title={panelOpen ? "ปิดพาเนลรายการ" : "เปิดพาเนลรายการ"}
+          aria-label={panelOpen ? "ปิดพาเนลรายการ" : "เปิดพาเนลรายการ"}
+          onClick={() => setPanelOpen((o) => !o)}
+          className={`absolute top-4 z-30 w-10 h-10 flex items-center justify-center bg-white rounded-lg shadow-md border border-slate-200 text-slate-700 hover:bg-slate-50 transition-[right] duration-300 ease-in-out ${
+            panelOpen ? "right-[21rem] sm:right-[25rem]" : "right-4"
+          }`}
+        >
+          <SidebarToggleIcon direction={panelOpen ? "right" : "left"} className="w-5 h-5" />
+        </button>
+
+        <FeaturePanel
+          open={panelOpen}
+          items={shown}
+          filter={filter}
+          onFilterChange={setFilter}
+          onFocus={focus}
+          onRemove={remove}
+        />
       </div>
     </div>
   );
