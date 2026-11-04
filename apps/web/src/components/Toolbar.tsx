@@ -36,11 +36,13 @@ function ToolButton({
 export default function Toolbar({
   mapRef,
   activeTool,
+  moveActive,
   baseLayerId,
   onBaseLayerChange,
 }: {
   mapRef: React.MutableRefObject<L.Map | null>;
   activeTool: DrawShape | null;
+  moveActive: boolean;
   baseLayerId: BaseLayerId;
   onBaseLayerChange: (id: BaseLayerId) => void;
 }) {
@@ -62,8 +64,24 @@ export default function Toolbar({
     const map = mapRef.current;
     if (!map) return;
     const pm = map.pm as unknown as { enableDraw: (shape: DrawShape) => void; disableDraw: () => void };
-    if (activeTool === shape) pm.disableDraw();
-    else pm.enableDraw(shape);
+    if (activeTool === shape) {
+      pm.disableDraw();
+    } else {
+      if (map.pm.globalDragModeEnabled()) map.pm.disableGlobalDragMode(); // วาดกับ Move เปิดพร้อมกันไม่ได้
+      pm.enableDraw(shape);
+    }
+  };
+
+  // Move = ย้ายทั้งก้อน (global drag mode ของ Geoman)
+  const toggleMove = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (map.pm.globalDragModeEnabled()) {
+      map.pm.disableGlobalDragMode();
+    } else {
+      map.pm.disableDraw();
+      map.pm.enableGlobalDragMode();
+    }
   };
 
   return (
@@ -74,6 +92,7 @@ export default function Toolbar({
       <ToolButton icon="location_on" label="Draw Point" active={activeTool === "Marker"} onClick={() => toggleDraw("Marker")} />
       <ToolButton icon="timeline" label="Draw Polyline" active={activeTool === "Line"} onClick={() => toggleDraw("Line")} />
       <ToolButton icon="polyline" label="Draw Polygon" active={activeTool === "Polygon"} onClick={() => toggleDraw("Polygon")} />
+      <ToolButton icon="open_with" label="Move Feature" active={moveActive} onClick={toggleMove} />
 
       <div className="w-full h-px bg-slate-200 my-1" />
 

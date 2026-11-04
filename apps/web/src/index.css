@@ -25,3 +25,18 @@
       "opsz" 20;
   }
 }
+
+/* toast แจ้งผลการบันทึก: เลื่อนขึ้นมาครั้งเดียว */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 200ms ease-out;
+}

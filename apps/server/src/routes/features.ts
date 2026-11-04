@@ -59,8 +59,8 @@ async function parseInput(body: FeatureInput) {
   }
   if (!check?.valid) throw new InvalidGeometry(check?.reason ?? 'unknown')
 
-  const properties = { ...(body.properties ?? {}) }
-  const name = String(properties.name || body.geometry.type)
+  const properties: Record<string, unknown> = { ...body.properties }
+  const name = body.properties.name.trim() || body.geometry.type
   // ฟิลด์ที่ระบบสร้างเอง ไม่ให้ client เขียนทับ
   for (const key of ['name', 'geom_type', 'created_at', 'updated_at']) delete properties[key]
 
