@@ -1,8 +1,8 @@
 import type L from "leaflet";
-import type { GeomType } from "../api";
+import type { FeatureProps, GeomType } from "../api";
 
 export type { GeomType };
-export type Item = { id: number; name: string; type: GeomType; layer: L.Layer };
+export type Item = { id: number; type: GeomType; props: FeatureProps; layer: L.Layer };
 
 export const FILTERS: (GeomType | "All")[] = ["All", "Point", "LineString", "Polygon"];
 
@@ -14,3 +14,14 @@ export const SHAPE_TO_GEOM_TYPE: Record<DrawShape, GeomType> = {
   Line: "LineString",
   Polygon: "Polygon",
 };
+
+/**
+ * feature ที่เลือกอยู่
+ * - view: คลิกแถว/คลิกบนแผนที่ = อ่านอย่างเดียว
+ * - edit: กดปุ่มปากกา = แก้ฟอร์ม + ลากรูปทรงได้
+ * - create: เพิ่งวาด ยังไม่บันทึก
+ */
+export type Selection =
+  | { mode: "view"; id: number }
+  | { mode: "edit"; id: number }
+  | { mode: "create"; layer: L.Layer; type: GeomType };
