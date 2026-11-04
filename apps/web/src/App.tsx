@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -14,8 +14,9 @@ import Navbar from "./components/Navbar";
 import Toolbar from "./components/Toolbar";
 import FeaturePanel from "./components/FeaturePanel";
 import SidebarToggleIcon from "./components/SidebarToggleIcon";
+import SearchBox from "./components/SearchBox";
 import { BASE_LAYERS, type BaseLayerId } from "./lib/baseLayers";
-import { geometryOf, message, meta } from "./lib/featureMeta";
+import { detach, geometryOf, message, meta, setHighlight } from "./lib/featureMeta";
 import type { DrawShape, GeomType, Item } from "./lib/types";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
@@ -30,6 +31,7 @@ export default function App() {
   const [baseLayerId, setBaseLayerId] = useState<BaseLayerId>("osm");
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
   const mapRef = useRef<L.Map | null>(null);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
@@ -37,11 +39,25 @@ export default function App() {
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
   const activeBaseLayer = BASE_LAYERS.find((l) => l.id === baseLayerId)!;
 
+  // hover จากรายการหรือบนแผนที่ → ไฮไลต์รูปบนแผนที่
+  useEffect(() => {
+    const item = items.find((i) => i.id === hoveredId);
+    if (!item) return;
+    setHighlight(item.layer, true);
+    return () => setHighlight(item.layer, false);
+  }, [hoveredId, items]);
+
   const focus = (item: Item) => {
     const map = mapRef.current;
     if (!map) return;
-    if (item.layer instanceof L.Marker) map.flyTo(item.layer.getLatLng(), 15);
-    else if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { maxZoom: 16 });
+    if (item.layer instanceof L.Marker) {
+      // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด) แล้วค่อยเปิด popup
+      const marker = item.layer;
+      map.flyTo(marker.getLatLng(), 17);
+      map.once("moveend", () => marker.openPopup());
+      return;
+    }
+    if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { maxZoom: 16 });
     item.layer.openPopup();
   };
 
@@ -61,7 +77,7 @@ export default function App() {
   const remove = async (item: Item) => {
     try {
       await deleteFeature(item.id);
-      mapRef.current?.removeLayer(item.layer);
+      detach(item.layer);
       setItems((list) => list.filter((i) => i.id !== item.id));
     } catch (err) {
       onError(err);
@@ -98,7 +114,12 @@ export default function App() {
           zoomControl={false}
         >
           <TileLayer key={activeBaseLayer.id} url={activeBaseLayer.url} attribution={activeBaseLayer.attribution} />
-          <DrawTools onItemsChange={setItems} onActiveToolChange={setActiveTool} onError={onError} />
+          <DrawTools
+            onItemsChange={setItems}
+            onActiveToolChange={setActiveTool}
+            onHover={setHoveredId}
+            onError={onError}
+          />
           <MapRef mapRef={mapRef} />
         </MapContainer>
 
@@ -108,6 +129,8 @@ export default function App() {
           baseLayerId={baseLayerId}
           onBaseLayerChange={setBaseLayerId}
         />
+
+        <SearchBox mapRef={mapRef} />
 
         <button
           type="button"
@@ -126,6 +149,8 @@ export default function App() {
           items={shown}
           filter={filter}
           onFilterChange={setFilter}
+          hoveredId={hoveredId}
+          onHover={setHoveredId}
           onFocus={focus}
           onRename={rename}
           onRemove={remove}

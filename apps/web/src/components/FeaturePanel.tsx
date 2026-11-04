@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
 
 const BADGE_COLOR: Record<GeomType, string> = {
@@ -10,6 +11,8 @@ export default function FeaturePanel({
   items,
   filter,
   onFilterChange,
+  hoveredId,
+  onHover,
   onFocus,
   onRename,
   onRemove,
@@ -18,11 +21,18 @@ export default function FeaturePanel({
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
+  hoveredId: number | null;
+  onHover: (id: number | null) => void;
   onFocus: (item: Item) => void;
   onRename: (item: Item) => void;
   onRemove: (item: Item) => void;
   open: boolean;
 }) {
+  // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
+  useEffect(() => {
+    if (hoveredId != null) document.getElementById(`feature-${hoveredId}`)?.scrollIntoView({ block: "nearest" });
+  }, [hoveredId]);
+
   return (
     <div
       className={`absolute inset-y-0 right-0 z-20 w-80 sm:w-96 flex flex-col bg-white border-l border-slate-200 shadow-xl transition-transform duration-300 ease-in-out ${
@@ -59,8 +69,13 @@ export default function FeaturePanel({
         {items.map((item) => (
           <li
             key={item.id}
+            id={`feature-${item.id}`}
             onClick={() => onFocus(item)}
-            className="flex items-center gap-2 px-2.5 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer hover:border-teal-600 transition-colors"
+            onMouseEnter={() => onHover(item.id)}
+            onMouseLeave={() => onHover(null)}
+            className={`flex items-center gap-2 px-2.5 py-2 border rounded-lg cursor-pointer transition-colors ${
+              hoveredId === item.id ? "bg-amber-50 border-amber-500" : "bg-white border-slate-200"
+            }`}
           >
             <span className={`text-[11px] px-1.5 py-0.5 rounded text-white shrink-0 ${BADGE_COLOR[item.type]}`}>
               {item.type}

@@ -25,3 +25,9 @@
       "opsz" 20;
   }
 }
+
+/* หมุดที่ถูก hover (จากรายการหรือบนแผนที่) */
+.leaflet-marker-icon.marker-hover {
+  filter: hue-rotate(160deg) saturate(2) drop-shadow(0 0 6px #f59e0b);
+  z-index: 1000 !important;
+}
