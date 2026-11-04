@@ -1,6 +1,11 @@
+import type { Category } from "../../shared/categories";
+
 export type GeomType = "Point" | "LineString" | "Polygon";
 
-export type ApiFeature = GeoJSON.Feature<GeoJSON.Geometry, { name: string; geom_type: GeomType }> & {
+/** ฟิลด์ที่ผู้ใช้กรอก — เก็บใน properties ของ GeoJSON Feature */
+export type FeatureProps = { name: string; category?: Category; description?: string };
+
+export type ApiFeature = GeoJSON.Feature<GeoJSON.Geometry, FeatureProps & { geom_type: GeomType }> & {
   id: number;
 };
 
@@ -19,17 +24,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
-const toBody = (geometry: GeoJSON.Geometry, name: string) =>
-  JSON.stringify({ type: "Feature", geometry, properties: { name } });
+// ขาเข้าเป็น GeoJSON Feature เสมอ
+const toBody = (geometry: GeoJSON.Geometry, properties: FeatureProps) =>
+  JSON.stringify({ type: "Feature", geometry, properties });
 
 export const listFeatures = () =>
   request<GeoJSON.FeatureCollection>(BASE).then((c) => c.features as ApiFeature[]);
 
-export const createFeature = (geometry: GeoJSON.Geometry, name: string) =>
-  request<ApiFeature>(BASE, { method: "POST", body: toBody(geometry, name) });
+export const createFeature = (geometry: GeoJSON.Geometry, props: FeatureProps) =>
+  request<ApiFeature>(BASE, { method: "POST", body: toBody(geometry, props) });
 
-export const updateFeature = (id: number, geometry: GeoJSON.Geometry, name: string) =>
-  request<ApiFeature>(`${BASE}/${id}`, { method: "PUT", body: toBody(geometry, name) });
+export const updateFeature = (id: number, geometry: GeoJSON.Geometry, props: FeatureProps) =>
+  request<ApiFeature>(`${BASE}/${id}`, { method: "PUT", body: toBody(geometry, props) });
 
 export const deleteFeature = (id: number) => request<void>(`${BASE}/${id}`, { method: "DELETE" });
 

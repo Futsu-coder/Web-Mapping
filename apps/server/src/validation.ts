@@ -1,4 +1,5 @@
 import { t } from 'elysia'
+import { CATEGORIES } from '../../shared/categories'
 
 // รับเฉพาะ 3 ชนิดตามโจทย์ ชนิดอื่นจะได้ 422 อัตโนมัติ
 export const GeomType = t.Union([t.Literal('Point'), t.Literal('LineString'), t.Literal('Polygon')])
@@ -11,24 +12,33 @@ const Geometry = t.Union([
   t.Object({ type: t.Literal('Polygon'), coordinates: t.Array(t.Array(Position, { minItems: 4 }), { minItems: 1 }) })
 ])
 
-// ขาเข้า: GeoJSON Feature, ชื่อเก็บใน properties.name
+const Category = t.Union(CATEGORIES.map((c) => t.Literal(c)))
+
+// ขาเข้า: GeoJSON Feature, name / category / description เก็บใน properties
 export const FeatureIn = t.Object(
   {
     type: t.Literal('Feature'),
     geometry: Geometry,
-    properties: t.Optional(t.Nullable(t.Record(t.String(), t.Any())))
+    properties: t.Object(
+      {
+        name: t.String({ minLength: 1, maxLength: 100 }),
+        category: t.Optional(Category),
+        description: t.Optional(t.String({ maxLength: 2000 }))
+      },
+      { additionalProperties: true }
+    )
   },
   {
     examples: [
       {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [100.5018, 13.7563] },
-        properties: { name: 'Bangkok' }
+        properties: { name: 'Bangkok', category: 'Other', description: 'เมืองหลวง' }
       },
       {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: [[100.49, 13.75], [100.52, 13.74]] },
-        properties: { name: 'ถนนตัวอย่าง' }
+        properties: { name: 'ถนนตัวอย่าง', category: 'Transport', description: 'เส้นทางตัวอย่าง' }
       },
       {
         type: 'Feature',
@@ -36,7 +46,7 @@ export const FeatureIn = t.Object(
           type: 'Polygon',
           coordinates: [[[100.49, 13.74], [100.51, 13.74], [100.51, 13.76], [100.49, 13.76], [100.49, 13.74]]]
         },
-        properties: { name: 'พื้นที่ตัวอย่าง' }
+        properties: { name: 'พื้นที่ตัวอย่าง', category: 'Environment', description: 'พื้นที่สีเขียว' }
       }
     ]
   }
