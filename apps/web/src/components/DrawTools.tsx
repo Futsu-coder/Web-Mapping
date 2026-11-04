@@ -1,8 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
-import { listFeatures, type ApiFeature } from "../api";
-import { geometryOf, meta, propsOf, type Meta } from "../lib/featureMeta";
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+import { getFeature, listFeatures, type ApiFeature } from "../api";
+import { detach, geometryOf, meta, ownerGroup, propsOf, restoreGeometry, sameGeometry, type Meta } from "../lib/featureMeta";
+import { subscribeFeatures, type FeatureChange } from "../lib/realtime";
 import type { DrawShape, GeomType, Item } from "../lib/types";
 
 export type RegisterFn = (layer: L.Layer, f: ApiFeature) => void;
@@ -10,6 +14,7 @@ export type RegisterFn = (layer: L.Layer, f: ApiFeature) => void;
 type Callbacks = {
   onItemsChange: (fn: (items: Item[]) => Item[]) => void;
   onActiveToolChange: (shape: DrawShape | null) => void;
+  onHover: (id: number | null) => void;
   onError: (err: unknown) => void;
   onLayerClick: (id: number) => void;
   onMapClick: () => void;
@@ -23,9 +28,11 @@ type Callbacks = {
 /**
  * ผูก layer บนแผนที่กับ feature ใน database
  * - โหลด feature ทั้งหมดตอน mount (GeoJSON FeatureCollection จาก API)
+ * - Point รวมเป็น cluster เมื่ออยู่ใกล้กัน (Line/Polygon อยู่ใน featureGroup ปกติ)
  * - คลิก layer = เลือก (ยังไม่เปิดให้ลากแก้จนกว่าจะเลือก — App เป็นคนเปิด pm.enable)
  * - แก้/ย้ายเสร็จ = แจ้ง App ให้บันทึกตำแหน่งใหม่
  * - วาดเสร็จ = ส่ง layer ที่ยังไม่บันทึกขึ้นไปให้ App เปิดฟอร์ม (บันทึกเมื่อกด Save)
+ * - ฟัง Realtime: browser อื่นเพิ่ม/แก้/ลบ → อัปเดตแผนที่ตาม
  * - ไม่ mount toolbar ของ Geoman เอง (ใช้ Toolbar ของเราสั่ง enableDraw แทน)
  */
 export default function DrawTools({
@@ -43,17 +50,25 @@ export default function DrawTools({
     // Polygon ที่ขอบตัดกันเองบันทึกไม่ได้ (PostGIS ถือว่า invalid)
     (map.pm.Draw.Polygon as L.PM.DrawShape).setOptions({ allowSelfIntersection: false });
 
-    const group = L.featureGroup().addTo(map);
+    const shapes = L.featureGroup().addTo(map);
+    // ซูมถึงระดับ 17 แล้วหมุดแยกออกหมด
+    const points = L.markerClusterGroup({ disableClusteringAtZoom: 17, showCoverageOnHover: false }).addTo(map);
+    const byId = new Map<number, L.Layer>();
     let alive = true;
 
     const register: RegisterFn = (layer, f) => {
+      // id นี้มีบนแผนที่แล้ว (เช่น Realtime ส่ง INSERT ของเราเองมาก่อน) → ไม่วาดซ้ำ
+      if (byId.has(f.id)) return;
       const info: Meta = {
         id: f.id,
         type: f.geometry.type as GeomType,
         props: propsOf(f),
         saved: f.geometry,
       };
+      const group = layer instanceof L.Marker ? points : shapes;
       meta.set(layer, info);
+      ownerGroup.set(layer, group);
+      byId.set(f.id, layer);
       layer.bindPopup(info.props.name);
       if (layer instanceof L.Polygon) layer.pm.setOptions({ allowSelfIntersection: false });
       layer.on("click", (e) => {
@@ -61,12 +76,56 @@ export default function DrawTools({
         if (map.pm.globalDrawModeEnabled()) return;
         cb.current.onLayerClick(info.id);
       });
+      layer.on("mouseover", () => cb.current.onHover(info.id));
+      layer.on("mouseout", () => cb.current.onHover(null));
       // pm:edit ยิงทั้งหลังแก้จุดและหลังลากทั้งก้อน (Geoman ยิง pm:dragend ตามด้วย pm:edit) จึงฟังแค่ pm:edit กัน PUT ซ้ำ
       layer.on("pm:edit", () => cb.current.onGeometryChange(info.id, layer));
       group.addLayer(layer);
       cb.current.onItemsChange((items) => [...items, { id: info.id, type: info.type, props: info.props, layer }]);
     };
     registerRef.current = register;
+
+    // การเปลี่ยนแปลงจาก Realtime (รวมของเราเองที่สะท้อนกลับมา — ข้ามถ้าตรงกับที่มีอยู่แล้ว)
+    const applyChange = async ({ type, id }: FeatureChange) => {
+      if (type === "DELETE") {
+        const layer = byId.get(id);
+        if (!layer) return;
+        byId.delete(id);
+        detach(layer);
+        cb.current.onItemsChange((items) => items.filter((i) => i.id !== id));
+        return;
+      }
+
+      let f: ApiFeature;
+      try {
+        f = await getFeature(id);
+      } catch {
+        return; // ถูกลบไปแล้วระหว่างรอ
+      }
+      if (!alive) return;
+
+      const layer = byId.get(id);
+      if (!layer) {
+        register(L.GeoJSON.geometryToLayer(f), f);
+        return;
+      }
+      const m = meta.get(layer)!;
+      const props = propsOf(f);
+      if (JSON.stringify(m.props) !== JSON.stringify(props)) {
+        meta.set(layer, { ...meta.get(layer)!, props });
+        layer.setPopupContent(props.name);
+        cb.current.onItemsChange((items) => items.map((i) => (i.id === id ? { ...i, props } : i)));
+      }
+      if (!sameGeometry(m.saved, f.geometry)) {
+        meta.set(layer, { ...meta.get(layer)!, saved: f.geometry });
+        // ปิดโหมดแก้จุดก่อน แล้วเปิดใหม่ ให้จุดแก้ไขของ Geoman ตรงกับรูปทรงใหม่
+        const l = layer as L.Path | L.Marker;
+        const editing = l.pm.enabled();
+        if (editing) l.pm.disable();
+        restoreGeometry(layer, f.geometry);
+        if (editing) l.pm.enable();
+      }
+    };
 
     const handleCreate = (e: { layer: L.Layer }) => {
       cb.current.onDraft(e.layer, geometryOf(e.layer).type as GeomType);
@@ -87,6 +146,7 @@ export default function DrawTools({
         for (const f of features) register(L.GeoJSON.geometryToLayer(f), f);
       })
       .catch((err) => cb.current.onError(err));
+    const unsubscribe = subscribeFeatures((change) => void applyChange(change));
 
     map.on("pm:create", handleCreate);
     map.on("pm:drawstart", drawStartHandler);
@@ -95,13 +155,15 @@ export default function DrawTools({
     map.on("pm:globaldragmodetoggled", handleMoveToggled);
     return () => {
       alive = false;
+      unsubscribe();
       registerRef.current = null;
       map.off("pm:create", handleCreate);
       map.off("pm:drawstart", drawStartHandler);
       map.off("pm:drawend", handleDrawEnd);
       map.off("click", handleMapClick);
       map.off("pm:globaldragmodetoggled", handleMoveToggled);
-      group.remove();
+      shapes.remove();
+      points.remove();
       cb.current.onItemsChange(() => []);
     };
   }, [map, registerRef]);

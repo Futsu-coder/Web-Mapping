@@ -37,3 +37,35 @@ export function restoreGeometry(layer: L.Layer, geometry: GeoJSON.Geometry) {
 }
 
 export const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// กลุ่มที่ layer อยู่ (Point อยู่ใน cluster, Line/Polygon อยู่ใน featureGroup) — ลบต้องลบออกจากกลุ่ม ไม่ใช่จากแผนที่
+export const ownerGroup = new WeakMap<L.Layer, L.LayerGroup>();
+
+export function detach(layer: L.Layer) {
+  const group = ownerGroup.get(layer);
+  if (group) group.removeLayer(layer);
+  else layer.remove();
+}
+
+// ใส่ layer คืนกลุ่มเดิม (ใช้ตอนกดแสดง feature ที่ซ่อนไว้)
+export function attach(layer: L.Layer) {
+  ownerGroup.get(layer)?.addLayer(layer);
+}
+
+// ไฮไลต์ตอน hover: เส้น/รูปเปลี่ยนสีและหนาขึ้น, หมุดใช้ class ใน index.css
+const HIGHLIGHT: L.PathOptions = { color: "#f59e0b", weight: 6 };
+const beforeHighlight = new WeakMap<L.Path, L.PathOptions>();
+
+export function setHighlight(layer: L.Layer, on: boolean) {
+  if (layer instanceof L.Path) {
+    if (on) {
+      beforeHighlight.set(layer, { color: layer.options.color, weight: layer.options.weight });
+      layer.setStyle(HIGHLIGHT);
+      layer.bringToFront();
+    } else {
+      layer.setStyle(beforeHighlight.get(layer) ?? {});
+    }
+  } else if (layer instanceof L.Marker) {
+    layer.getElement()?.classList.toggle("marker-hover", on);
+  }
+}
