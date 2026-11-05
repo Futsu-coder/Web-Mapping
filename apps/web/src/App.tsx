@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { MapContainer, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -15,8 +15,14 @@ import Navbar from "./components/Navbar";
 import Toast, { type ToastData } from "./components/Toast";
 import Toolbar from "./components/Toolbar";
 import FeaturePanel from "./components/FeaturePanel";
-import SidebarToggleIcon from "./components/SidebarToggleIcon";
 import SearchBox from "./components/SearchBox";
+import CrosshairDraw, { Crosshair, MobileScale } from "./components/mobile/CrosshairDraw";
+import DrawSheet from "./components/mobile/DrawSheet";
+import MobileFeatureList from "./components/mobile/MobileFeatureList";
+import MobileHeader from "./components/mobile/MobileHeader";
+import MobileSheet from "./components/mobile/MobileSheet";
+import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
+import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
 import { BASE_LAYERS, type BaseLayerId } from "./lib/baseLayers";
 import {
   attach,
@@ -30,7 +36,7 @@ import {
   sameGeometry,
   setHighlight,
 } from "./lib/featureMeta";
-import type { DrawShape, GeomType, Item, Selection } from "./lib/types";
+import { SHAPE_TO_GEOM_TYPE, type DrawShape, type GeomType, type Item, type Selection } from "./lib/types";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
 // imagePath = "" กัน Leaflet เอา path ที่เดาจาก CSS ไปต่อหน้า URL ที่ import มา (ทำให้รูปหมุดหาย)
@@ -53,6 +59,8 @@ function reveal(layer: L.Layer, then: () => void) {
   else then();
 }
 
+const noop = () => {};
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
@@ -66,6 +74,14 @@ export default function App() {
   const [moveMode, setMoveMode] = useState(false);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const isMobile = useIsMobile();
+  // hover มีจริงเฉพาะอุปกรณ์ที่มีเมาส์ — จอสัมผัสยิง mouseover จำลองตอนแตะแต่ไม่ยิง mouseout ทำให้สีส้มค้าง
+  const canHover = useMediaQuery("(hover: hover)");
+  const hoverEnabled = !isMobile && canHover;
+  const crosshair = useCrosshairDraw();
+  // วาดด้วยกากบาทกลางจอ (มือถือเท่านั้น) — ขยายจอเป็นจอคอมระหว่างวาด = ยกเลิกโหมดนี้
+  if (!isMobile && crosshair.draw) crosshair.cancel();
+  const mobileDraw = isMobile ? crosshair.draw : null;
   const registerRef = useRef<RegisterFn | null>(null);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
@@ -76,7 +92,9 @@ export default function App() {
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
   const selectedItem = selectedId !== null ? items.find((i) => i.id === selectedId) : undefined;
-  const hoveredLayer = hoveredId !== null ? items.find((i) => i.id === hoveredId)?.layer : undefined;
+  const activeHoverId = hoverEnabled ? hoveredId : null;
+  const onHover = useCallback((id: number | null) => setHoveredId(id), []);
+  const hoveredLayer = activeHoverId !== null ? items.find((i) => i.id === activeHoverId)?.layer : undefined;
   // เปิดให้ลากแก้ทีละจุดได้เฉพาะ draft ที่เพิ่งวาด หรือ feature ที่กดปากกา (edit)
   // โหมดดู (view) ลากไม่ได้ — ย้ายทั้งก้อนใช้เครื่องมือ Move ใน toolbar แทน
   // feature ที่ซ่อนอยู่ไม่อยู่บนแผนที่ จึงเปิด pm ไม่ได้
@@ -86,6 +104,21 @@ export default function App() {
       : selection?.mode === "edit" && selectedItem && !hiddenIds.has(selectedItem.id)
         ? selectedItem.layer
         : undefined;
+
+  // ย่อจอเป็นมือถือระหว่างวาดแบบ Geoman อยู่ → ปิดโหมดนั้น
+  useEffect(() => {
+    if (isMobile) mapRef.current?.pm.disableDraw();
+  }, [isMobile]);
+
+  const drawingMobile = !!mobileDraw;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !drawingMobile) return;
+    map.closePopup();
+    const closeAny = () => map.closePopup();
+    map.on("popupopen", closeAny);
+    return () => void map.off("popupopen", closeAny);
+  }, [drawingMobile]);
 
   // hover จากรายการหรือบนแผนที่ → ไฮไลต์รูปบนแผนที่ (ต้องอยู่ก่อน effect ด้านล่างที่ตั้งความหนาเส้นตามการเลือก)
   useEffect(() => {
@@ -128,7 +161,10 @@ export default function App() {
   // เครื่องมือ Move เปิด/ปิด: ตอนเปิดต้องทิ้งสิ่งที่ค้างอยู่ เพราะ layer-drag ของ Geoman จะปิดโหมดลากจุดของ layer นั้น
   const onMoveModeChange = (enabled: boolean) => {
     setMoveMode(enabled);
-    if (enabled) closeSelection();
+    if (enabled) {
+      crosshair.cancel();
+      closeSelection();
+    }
   };
 
   // ย้ายทั้งก้อนเสร็จ (เฉพาะตอนเปิดเครื่องมือ Move) → บันทึกตำแหน่งทันที
@@ -197,7 +233,7 @@ export default function App() {
 
   // คลิก feature บนแผนที่ = ดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
   const onLayerClick = (id: number) => {
-    if (selection?.mode === "edit" || selection?.mode === "create") return;
+    if (mobileDraw || selection?.mode === "edit" || selection?.mode === "create") return;
     view(id);
   };
 
@@ -218,16 +254,47 @@ export default function App() {
     setActiveTool(shape);
   };
 
+  /** มือถือ: เลือกเครื่องมือวาด = เริ่มโหมดกากบาท (เลือกชนิดเดิมซ้ำ = ยกเลิก) */
+  const onMobileDrawSelect = (shape: DrawShape) => {
+    if (mobileDraw?.shape === shape) return crosshair.cancel();
+    closeSelection();
+    if (mapRef.current?.pm.globalDragModeEnabled()) mapRef.current.pm.disableGlobalDragMode();
+    crosshair.start(shape);
+  };
+
+  /** ปุ่ม Next: สร้าง layer จากจุดที่วางไว้ แล้วเข้าขั้นตอนกรอกข้อมูลเดียวกับที่วาดด้วย Geoman */
+  const finishMobileDraw = () => {
+    const map = mapRef.current;
+    if (!map || !mobileDraw || mobileDraw.points.length < MIN_POINTS[mobileDraw.shape]) return;
+    const { shape, points } = mobileDraw;
+    const layer: L.Layer =
+      shape === "Marker" ? L.marker(points[0]) : shape === "Line" ? L.polyline(points) : L.polygon(points);
+    layer.addTo(map);
+    crosshair.cancel();
+    onDraft(layer, SHAPE_TO_GEOM_TYPE[shape]);
+    // แผ่นฟอร์มกินล่าง 60% ของจอ → เลื่อนรูปที่วาดขึ้นมาอยู่ในส่วนที่ยังมองเห็น
+    map.fitBounds(L.latLngBounds(points), {
+      paddingTopLeft: [40, 40],
+      paddingBottomRight: [40, map.getSize().y * 0.6 + 16],
+      maxZoom: shape === "Marker" ? map.getZoom() : 18,
+    });
+  };
+
   const focus = (item: Item) => {
     const map = mapRef.current;
     if (map && !hiddenIds.has(item.id)) {
+      // มือถือ: แผ่นล่างกาง 60% ของจอ → เว้นขอบล่างให้รูปไปอยู่ในส่วนที่ยังมองเห็น
+      const pad: L.FitBoundsOptions = isMobile
+        ? { paddingTopLeft: [40, 40], paddingBottomRight: [40, map.getSize().y * 0.6 + 16] }
+        : {};
       if (item.layer instanceof L.Marker) {
         // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด) แล้วค่อยเปิด popup
         const marker = item.layer;
-        map.flyTo(marker.getLatLng(), 17);
+        const p = marker.getLatLng();
+        map.flyToBounds(L.latLngBounds([p, p]), { ...pad, maxZoom: 17 });
         map.once("moveend", () => marker.openPopup());
       } else {
-        if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { maxZoom: 16 });
+        if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { ...pad, maxZoom: 16 });
         item.layer.openPopup();
       }
     }
@@ -294,6 +361,8 @@ export default function App() {
         type={selection.type}
         layer={selection.layer}
         initial={{ name: "" }}
+        variant={isMobile ? "mobile" : "desktop"}
+        formId="fe-form"
         onSave={save}
         onCancel={cancel}
         onDelete={async () => cancel()}
@@ -305,15 +374,38 @@ export default function App() {
         type={selectedItem.type}
         layer={selectedItem.layer}
         initial={selectedItem.props}
+        variant={isMobile ? "mobile" : "desktop"}
+        formId="fe-form"
+        onEdit={() => startEdit(selectedItem)}
         onSave={save}
         onCancel={selection.mode === "edit" ? cancel : closeSelection}
         onDelete={() => removeItem(selectedItem)}
       />
     ) : null;
 
+  const creating = selection?.mode === "create";
+  const selectionKey = selection ? (selection.mode === "create" ? "create" : `${selection.mode}-${selection.id}`) : null;
+  const panelVars = { "--panel-w": "clamp(20rem, 28vw, 26rem)" } as CSSProperties;
+
   return (
-    <div className="flex flex-col h-full">
-      <Navbar />
+    <div className="flex flex-col h-full" style={panelVars}>
+      {isMobile ? (
+        <MobileHeader
+          mode={mobileDraw ? "drawing" : creating ? "form" : "idle"}
+          mapRef={mapRef}
+          formId="fe-form"
+          onCancel={mobileDraw ? crosshair.cancel : cancel}
+          onUndo={crosshair.undo}
+          onRedo={crosshair.redo}
+          onClear={crosshair.clear}
+          onNext={finishMobileDraw}
+          canUndo={!!mobileDraw && mobileDraw.points.length > 0}
+          canRedo={!!mobileDraw && mobileDraw.redo.length > 0}
+          canNext={!!mobileDraw && mobileDraw.points.length >= MIN_POINTS[mobileDraw.shape]}
+        />
+      ) : (
+        <Navbar />
+      )}
 
       {error && (
         <div
@@ -333,7 +425,14 @@ export default function App() {
         </div>
       )}
 
-      <div className="relative flex-1 min-h-0 overflow-hidden">
+      <div
+        className="map-area relative flex-1 min-h-0 overflow-hidden"
+        style={
+          {
+            "--map-bottom-inset": `calc(${mobileDraw ? "8rem" : "5.5rem"} + env(safe-area-inset-bottom, 0px))`,
+          } as CSSProperties
+        }
+      >
         <MapContainer
           className="absolute inset-0 w-full h-full z-0"
           center={[13.75, 100.5]}
@@ -345,7 +444,7 @@ export default function App() {
             registerRef={registerRef}
             onItemsChange={setItems}
             onActiveToolChange={onActiveToolChange}
-            onHover={setHoveredId}
+            onHover={hoverEnabled ? onHover : noop}
             onError={onError}
             onLayerClick={onLayerClick}
             onMapClick={onMapClick}
@@ -354,46 +453,77 @@ export default function App() {
             onMoveModeChange={onMoveModeChange}
           />
           <MapRef mapRef={mapRef} />
+          <CrosshairDraw draw={mobileDraw} />
+          {isMobile && <MobileScale />}
         </MapContainer>
+
+        {mobileDraw && <Crosshair />}
 
         <Toolbar
           mapRef={mapRef}
-          activeTool={activeTool}
+          activeTool={isMobile ? (mobileDraw?.shape ?? null) : activeTool}
           moveActive={moveMode}
           baseLayerId={baseLayerId}
           onBaseLayerChange={setBaseLayerId}
+          collapsible={isMobile}
+          onDrawSelect={isMobile ? onMobileDrawSelect : undefined}
         />
 
-        <SearchBox mapRef={mapRef} />
+        {isMobile ? (
+          mobileDraw ? (
+            <DrawSheet draw={mobileDraw} mapRef={mapRef} onAdd={crosshair.addPoint} onError={onError} />
+          ) : (
+            <MobileSheet
+              open={panelOpen}
+              onOpenChange={setPanelOpen}
+              featureCount={items.length}
+              hasDetails={!!editor && !creating}
+              creating={creating}
+              selectionKey={selectionKey}
+              details={editor}
+              list={
+                <MobileFeatureList
+                  items={items}
+                  filter={filter}
+                  onFilterChange={setFilter}
+                  selectedId={selectedId}
+                  hiddenIds={hiddenIds}
+                  onFocus={focus}
+                  onToggleVisible={toggleVisible}
+                  onRemove={(item) => removeItem(item).catch(onError)}
+                />
+              }
+            />
+          )
+        ) : (
+          <>
+            {/* ช่องค้นหาหดหลบพาเนลที่เปิดอยู่ (ปุ่มเปิด/ปิดพาเนลเกาะขอบพาเนลเอง) */}
+            <SearchBox
+              mapRef={mapRef}
+              className={`absolute top-4 left-16 z-20 ${
+                panelOpen ? "w-[min(20rem,calc(100%_-_var(--panel-w)_-_8rem))]" : "w-[min(20rem,calc(100%_-_8rem))]"
+              }`}
+            />
 
-        <button
-          type="button"
-          title={panelOpen ? "ปิดพาเนลรายการ" : "เปิดพาเนลรายการ"}
-          aria-label={panelOpen ? "ปิดพาเนลรายการ" : "เปิดพาเนลรายการ"}
-          onClick={() => setPanelOpen((o) => !o)}
-          className={`absolute top-4 z-30 w-10 h-10 flex items-center justify-center bg-white rounded-lg shadow-md border border-slate-200 text-slate-700 hover:bg-slate-50 transition-[right] duration-300 ease-in-out ${
-            panelOpen ? "right-[21rem] sm:right-[25rem]" : "right-4"
-          }`}
-        >
-          <SidebarToggleIcon direction={panelOpen ? "right" : "left"} className="w-5 h-5" />
-        </button>
-
-        <FeaturePanel
-          open={panelOpen}
-          items={shown}
-          filter={filter}
-          onFilterChange={setFilter}
-          onFocus={focus}
-          onEdit={startEdit}
-          onToggleVisible={toggleVisible}
-          onRemove={(item) => removeItem(item).catch(onError)}
-          selectedId={selectedId}
-          editingId={selection?.mode === "edit" ? selection.id : null}
-          hiddenIds={hiddenIds}
-          hoveredId={hoveredId}
-          onHover={setHoveredId}
-          editor={editor}
-        />
+            <FeaturePanel
+              open={panelOpen}
+              onToggle={() => setPanelOpen((o) => !o)}
+              items={shown}
+              filter={filter}
+              onFilterChange={setFilter}
+              onFocus={focus}
+              onEdit={startEdit}
+              onToggleVisible={toggleVisible}
+              onRemove={(item) => removeItem(item).catch(onError)}
+              selectedId={selectedId}
+              editingId={selection?.mode === "edit" ? selection.id : null}
+              hiddenIds={hiddenIds}
+              hoveredId={activeHoverId}
+              onHover={onHover}
+              editor={editor}
+            />
+          </>
+        )}
 
         {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
       </div>

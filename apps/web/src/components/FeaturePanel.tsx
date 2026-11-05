@@ -1,6 +1,8 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CATEGORY_STYLE } from "../lib/categories";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
+import SidebarToggleIcon from "./SidebarToggleIcon";
 
 const BADGE_COLOR: Record<GeomType, string> = {
   Point: "bg-blue-600",
@@ -49,6 +51,7 @@ export default function FeaturePanel({
   editingId,
   hiddenIds,
   open,
+  onToggle,
   editor,
 }: {
   items: Item[];
@@ -66,9 +69,17 @@ export default function FeaturePanel({
   /** feature ที่ถูกซ่อนจากแผนที่ */
   hiddenIds: Set<number>;
   open: boolean;
+  /** ปุ่มเปิด/ปิดพาเนล (เกาะขอบซ้ายของพาเนล เลื่อนตามพาเนลเอง) */
+  onToggle: () => void;
   /** ฟอร์ม Edit Feature Properties — แสดงครึ่งล่างของ panel เมื่อมี feature ที่เลือก/กำลังสร้าง */
   editor: ReactNode;
 }) {
+  // จอเตี้ย (เช่น notebook ที่ scaling 150%): ตอนมีฟอร์มให้ยุบรายการอัตโนมัติ เพื่อให้ฟอร์มเห็นครบ — กดหัวรายการเพื่อสลับเอง
+  const short = useMediaQuery("(max-height: 760px)");
+  const hasEditor = !!editor;
+  const [manual, setManual] = useState<{ forEditor: boolean; collapsed: boolean } | null>(null);
+  const collapsed = manual && manual.forEditor === hasEditor ? manual.collapsed : hasEditor && short;
+
   // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
   useEffect(() => {
     if (hoveredId != null) document.getElementById(`feature-${hoveredId}`)?.scrollIntoView({ block: "nearest" });
@@ -76,16 +87,42 @@ export default function FeaturePanel({
 
   return (
     <div
-      className={`absolute inset-y-0 right-0 z-20 w-80 sm:w-96 flex flex-col bg-white border-l border-slate-200 shadow-xl transition-transform duration-300 ease-in-out ${
+      className={`absolute inset-y-0 right-0 z-20 w-[var(--panel-w)] flex flex-col bg-white border-l border-slate-200 shadow-xl transition-transform duration-300 ease-in-out ${
         open ? "translate-x-0" : "translate-x-full"
       }`}
     >
-      <div className={`flex flex-col min-h-0 ${editor ? "h-[45%] border-b border-slate-200" : "flex-1"}`}>
-        <div className="flex items-center px-3 py-2 border-b border-slate-200 shrink-0">
+      <button
+        type="button"
+        title={open ? "ปิดพาเนลรายการ" : "เปิดพาเนลรายการ"}
+        aria-label={open ? "ปิดพาเนลรายการ" : "เปิดพาเนลรายการ"}
+        onClick={onToggle}
+        className="absolute top-4 right-full mr-4 w-10 h-10 flex items-center justify-center bg-white rounded-lg shadow-md border border-slate-200 text-slate-700 hover:bg-slate-50"
+      >
+        <SidebarToggleIcon direction={open ? "right" : "left"} className="w-5 h-5" />
+      </button>
+
+      <div
+        className={`flex flex-col min-h-0 ${
+          !editor ? "flex-1" : collapsed ? "shrink-0 border-b border-slate-200" : "h-[clamp(8rem,40%,24rem)] border-b border-slate-200"
+        }`}
+      >
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 shrink-0">
           <span className="text-sm font-semibold text-slate-900">{items.length} features</span>
+          {editor && (
+            <button
+              type="button"
+              title={collapsed ? "แสดงรายการ" : "ซ่อนรายการ"}
+              aria-label={collapsed ? "แสดงรายการ" : "ซ่อนรายการ"}
+              aria-expanded={!collapsed}
+              onClick={() => setManual({ forEditor: hasEditor, collapsed: !collapsed })}
+              className="p-0.5 rounded text-slate-500 hover:bg-slate-100 flex items-center"
+            >
+              <span className="material-symbols-outlined text-[20px]">{collapsed ? "expand_more" : "expand_less"}</span>
+            </button>
+          )}
         </div>
 
-        <div className="flex gap-1 p-2 flex-wrap shrink-0 border-b border-slate-200">
+        <div className={`flex gap-1 p-2 flex-wrap shrink-0 border-b border-slate-200 ${collapsed ? "hidden" : ""}`}>
           {FILTERS.map((f) => (
             <button
               key={f}
@@ -102,7 +139,7 @@ export default function FeaturePanel({
           ))}
         </div>
 
-        <ul className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1.5">
+        <ul className={`flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1.5 ${collapsed ? "hidden" : ""}`}>
           {items.length === 0 && (
             <li className="text-sm text-slate-500 px-2 py-4 text-center">
               ยังไม่มีข้อมูล — ใช้เครื่องมือซ้ายบนวาดบนแผนที่
