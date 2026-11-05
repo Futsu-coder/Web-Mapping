@@ -16,8 +16,20 @@ import Toast, { type ToastData } from "./components/Toast";
 import Toolbar from "./components/Toolbar";
 import FeaturePanel from "./components/FeaturePanel";
 import SidebarToggleIcon from "./components/SidebarToggleIcon";
+import SearchBox from "./components/SearchBox";
 import { BASE_LAYERS, type BaseLayerId } from "./lib/baseLayers";
-import { geometryOf, message, meta, propsOf, restoreGeometry, sameGeometry } from "./lib/featureMeta";
+import {
+  attach,
+  detach,
+  geometryOf,
+  message,
+  meta,
+  ownerGroup,
+  propsOf,
+  restoreGeometry,
+  sameGeometry,
+  setHighlight,
+} from "./lib/featureMeta";
 import type { DrawShape, GeomType, Item, Selection } from "./lib/types";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
@@ -34,6 +46,13 @@ function releaseLayer(layer: L.Layer) {
   if (l.pm.layerDragEnabled()) l.pm.disableLayerDrag();
 }
 
+/** หมุดที่ถูกรวมใน cluster ยังไม่อยู่บนแผนที่ → ซูมให้ cluster แตกก่อน แล้วค่อยทำต่อ */
+function reveal(layer: L.Layer, then: () => void) {
+  const group = ownerGroup.get(layer);
+  if (layer instanceof L.Marker && group instanceof L.MarkerClusterGroup) group.zoomToShowLayer(layer, then);
+  else then();
+}
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
@@ -45,6 +64,7 @@ export default function App() {
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<ToastData | null>(null);
   const [moveMode, setMoveMode] = useState(false);
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const registerRef = useRef<RegisterFn | null>(null);
 
@@ -56,6 +76,7 @@ export default function App() {
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
   const selectedItem = selectedId !== null ? items.find((i) => i.id === selectedId) : undefined;
+  const hoveredLayer = hoveredId !== null ? items.find((i) => i.id === hoveredId)?.layer : undefined;
   // เปิดให้ลากแก้ทีละจุดได้เฉพาะ draft ที่เพิ่งวาด หรือ feature ที่กดปากกา (edit)
   // โหมดดู (view) ลากไม่ได้ — ย้ายทั้งก้อนใช้เครื่องมือ Move ใน toolbar แทน
   // feature ที่ซ่อนอยู่ไม่อยู่บนแผนที่ จึงเปิด pm ไม่ได้
@@ -66,21 +87,30 @@ export default function App() {
         ? selectedItem.layer
         : undefined;
 
+  // hover จากรายการหรือบนแผนที่ → ไฮไลต์รูปบนแผนที่ (ต้องอยู่ก่อน effect ด้านล่างที่ตั้งความหนาเส้นตามการเลือก)
+  useEffect(() => {
+    if (!hoveredLayer) return;
+    setHighlight(hoveredLayer, true);
+    return () => setHighlight(hoveredLayer, false);
+  }, [hoveredLayer]);
+
   useEffect(() => {
     for (const { layer } of items) {
       const l = layer as Editable;
       const on = layer === activeLayer;
       if (on && !l.pm.enabled()) l.pm.enable();
       else if (!on && l.pm.enabled()) l.pm.disable();
-      // เส้นขอบหนาขึ้นเป็นตัวบอกว่า feature นี้ถูกเลือกอยู่
-      if (layer instanceof L.Path) layer.setStyle({ weight: layer === selectedItem?.layer ? 5 : 3 });
+      // เส้นขอบหนาขึ้นเป็นตัวบอกว่า feature นี้ถูกเลือกอยู่ (ตัวที่ hover อยู่ใช้สไตล์ไฮไลต์แทน)
+      if (layer instanceof L.Path && layer !== hoveredLayer) {
+        layer.setStyle({ weight: layer === selectedItem?.layer ? 5 : 3 });
+      }
     }
     // draft ที่เพิ่งวาด ยังไม่อยู่ใน items
     if (activeLayer && !items.some((i) => i.layer === activeLayer)) {
       const l = activeLayer as Editable;
       if (!l.pm.enabled()) l.pm.enable();
     }
-  }, [items, activeLayer, selectedItem]);
+  }, [items, activeLayer, selectedItem, hoveredLayer]);
 
   /** ทิ้งสิ่งที่ค้างอยู่: draft = ลบออกจากแผนที่, โหมดปากกา = คืนรูปทรงที่ยังไม่ได้กด Save (ไม่แตะ state) */
   const discardPending = () => {
@@ -132,7 +162,7 @@ export default function App() {
   };
 
   const showItem = (item: Item) => {
-    mapRef.current?.addLayer(item.layer);
+    attach(item.layer); // ใส่คืนกลุ่มเดิม (หมุดกลับเข้า cluster)
     setHiddenIds((s) => {
       const next = new Set(s);
       next.delete(item.id);
@@ -145,8 +175,9 @@ export default function App() {
     discardPending();
     if (mapRef.current?.pm.globalDragModeEnabled()) mapRef.current.pm.disableGlobalDragMode(); // Move กับแก้ทีละจุดเปิดพร้อมกันไม่ได้
     if (hiddenIds.has(item.id)) showItem(item); // แก้ไขต้องเห็นรูปทรงบนแผนที่
-    setSelection({ mode: "edit", id: item.id });
     setPanelOpen(true);
+    // หมุดต้องอยู่บนแผนที่ (ไม่ถูกรวมใน cluster) ก่อน Geoman จะเปิดให้ลากได้
+    reveal(item.layer, () => setSelection({ mode: "edit", id: item.id }));
   };
 
   /** ปุ่ม Cancel ในฟอร์ม: edit = คืนค่าเดิมแล้วกลับไปโหมดดู, create = ทิ้ง shape */
@@ -160,7 +191,7 @@ export default function App() {
     if (hiddenIds.has(item.id)) return showItem(item);
     if (selection?.mode === "edit" && selection.id === item.id) cancel();
     releaseLayer(item.layer); // ปิดโหมดแก้ไข/ลากก่อนเอาออกจากแผนที่
-    mapRef.current?.removeLayer(item.layer);
+    detach(item.layer);
     setHiddenIds((s) => new Set(s).add(item.id));
   };
 
@@ -190,9 +221,15 @@ export default function App() {
   const focus = (item: Item) => {
     const map = mapRef.current;
     if (map && !hiddenIds.has(item.id)) {
-      if (item.layer instanceof L.Marker) map.flyTo(item.layer.getLatLng(), 15);
-      else if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { maxZoom: 16 });
-      item.layer.openPopup();
+      if (item.layer instanceof L.Marker) {
+        // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด) แล้วค่อยเปิด popup
+        const marker = item.layer;
+        map.flyTo(marker.getLatLng(), 17);
+        map.once("moveend", () => marker.openPopup());
+      } else {
+        if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { maxZoom: 16 });
+        item.layer.openPopup();
+      }
     }
     view(item.id);
   };
@@ -239,7 +276,7 @@ export default function App() {
   const removeItem = async (item: Item) => {
     await deleteFeature(item.id);
     releaseLayer(item.layer);
-    mapRef.current?.removeLayer(item.layer);
+    detach(item.layer);
     setItems((list) => list.filter((i) => i.id !== item.id));
     setHiddenIds((s) => {
       const next = new Set(s);
@@ -308,6 +345,7 @@ export default function App() {
             registerRef={registerRef}
             onItemsChange={setItems}
             onActiveToolChange={onActiveToolChange}
+            onHover={setHoveredId}
             onError={onError}
             onLayerClick={onLayerClick}
             onMapClick={onMapClick}
@@ -325,6 +363,8 @@ export default function App() {
           baseLayerId={baseLayerId}
           onBaseLayerChange={setBaseLayerId}
         />
+
+        <SearchBox mapRef={mapRef} />
 
         <button
           type="button"
@@ -350,6 +390,8 @@ export default function App() {
           selectedId={selectedId}
           editingId={selection?.mode === "edit" ? selection.id : null}
           hiddenIds={hiddenIds}
+          hoveredId={hoveredId}
+          onHover={setHoveredId}
           editor={editor}
         />
 

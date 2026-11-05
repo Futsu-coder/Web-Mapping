@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { CATEGORY_STYLE } from "../lib/categories";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
 
@@ -39,6 +39,8 @@ export default function FeaturePanel({
   items,
   filter,
   onFilterChange,
+  hoveredId,
+  onHover,
   onFocus,
   onEdit,
   onToggleVisible,
@@ -52,6 +54,8 @@ export default function FeaturePanel({
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
+  hoveredId: number | null;
+  onHover: (id: number | null) => void;
   onFocus: (item: Item) => void;
   onEdit: (item: Item) => void;
   onToggleVisible: (item: Item) => void;
@@ -65,6 +69,11 @@ export default function FeaturePanel({
   /** ฟอร์ม Edit Feature Properties — แสดงครึ่งล่างของ panel เมื่อมี feature ที่เลือก/กำลังสร้าง */
   editor: ReactNode;
 }) {
+  // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
+  useEffect(() => {
+    if (hoveredId != null) document.getElementById(`feature-${hoveredId}`)?.scrollIntoView({ block: "nearest" });
+  }, [hoveredId]);
+
   return (
     <div
       className={`absolute inset-y-0 right-0 z-20 w-80 sm:w-96 flex flex-col bg-white border-l border-slate-200 shadow-xl transition-transform duration-300 ease-in-out ${
@@ -102,14 +111,20 @@ export default function FeaturePanel({
           {items.map((item) => {
             const selected = item.id === selectedId;
             const hidden = hiddenIds.has(item.id);
+            const hovered = item.id === hoveredId;
             return (
               <li
                 key={item.id}
+                id={`feature-${item.id}`}
                 onClick={() => onFocus(item)}
+                onMouseEnter={() => onHover(item.id)}
+                onMouseLeave={() => onHover(null)}
                 className={`flex items-center gap-2 px-2.5 py-2 border rounded-lg cursor-pointer transition-colors ${
                   selected
-                    ? "bg-teal-50 border-teal-600 border-l-4"
-                    : "bg-white border-slate-200 hover:border-teal-600"
+                    ? `border-teal-600 border-l-4 ${hovered ? "bg-amber-50" : "bg-teal-50"}`
+                    : hovered
+                      ? "bg-amber-50 border-amber-500"
+                      : "bg-white border-slate-200 hover:border-teal-600"
                 } ${hidden ? "opacity-60" : ""}`}
               >
                 <span className={`text-[11px] px-1.5 py-0.5 rounded text-white shrink-0 ${BADGE_COLOR[item.type]}`}>

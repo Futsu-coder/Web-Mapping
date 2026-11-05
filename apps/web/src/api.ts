@@ -44,3 +44,5 @@ export const patchFeature = (id: number, patch: FeaturePatch) =>
   request<ApiFeature>(`${BASE}/${id}`, { method: "PATCH", body: JSON.stringify({ type: "Feature", ...patch }) });
 
 export const deleteFeature = (id: number) => request<void>(`${BASE}/${id}`, { method: "DELETE" });
+
+export const getFeature = (id: number) => request<ApiFeature>(`${BASE}/${id}`);
