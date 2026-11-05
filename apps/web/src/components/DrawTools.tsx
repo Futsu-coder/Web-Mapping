@@ -5,7 +5,17 @@ import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { getFeature, listFeatures, type ApiFeature } from "../api";
-import { detach, geometryOf, meta, ownerGroup, propsOf, restoreGeometry, sameGeometry, type Meta } from "../lib/featureMeta";
+import {
+  detach,
+  geometryOf,
+  meta,
+  ownerGroup,
+  propsOf,
+  restoreGeometry,
+  sameGeometry,
+  setEditable,
+  type Meta,
+} from "../lib/featureMeta";
 import { subscribeFeatures, type FeatureChange } from "../lib/realtime";
 import type { DrawShape, GeomType, Item } from "../lib/types";
 
@@ -23,6 +33,8 @@ type Callbacks = {
   onGeometryChange: (id: number, layer: L.Layer) => void;
   /** เครื่องมือ Move (ย้ายทั้งก้อน) เปิด/ปิด */
   onMoveModeChange: (enabled: boolean) => void;
+  /** แก้ feature ของเจ้าของคนนี้ได้ไหม — ไม่ได้ = Geoman ไม่แตะ layer นี้ (ลาก/Move ไม่ได้) */
+  canModify: (ownerId: string | null) => boolean;
 };
 
 /**
@@ -37,8 +49,9 @@ type Callbacks = {
  */
 export default function DrawTools({
   registerRef,
+  guest,
   ...callbacks
-}: Callbacks & { registerRef: React.MutableRefObject<RegisterFn | null> }) {
+}: Callbacks & { registerRef: React.MutableRefObject<RegisterFn | null>; guest: boolean }) {
   const map = useMap();
   // เก็บ callback ล่าสุดไว้ใน ref เพื่อไม่ให้ effect โหลดข้อมูลซ้ำทุกครั้งที่ state ใน App เปลี่ยน
   const cb = useRef<Callbacks>(callbacks);
@@ -70,6 +83,8 @@ export default function DrawTools({
       ownerGroup.set(layer, group);
       byId.set(f.id, layer);
       layer.bindPopup(info.props.name);
+      // ต้องตั้งก่อนใส่ลงแผนที่ เผื่อเครื่องมือ Move เปิดอยู่ (App อัปเดตค่านี้อีกทีเมื่อสิทธิ์เปลี่ยน)
+      setEditable(layer, cb.current.canModify(f.properties.owner_id ?? null));
       if (layer instanceof L.Polygon) layer.pm.setOptions({ allowSelfIntersection: false });
       layer.on("click", (e) => {
         L.DomEvent.stopPropagation(e); // ไม่ให้ไปเข้า map click (ยกเลิกการเลือก)
@@ -81,7 +96,8 @@ export default function DrawTools({
       // pm:edit ยิงทั้งหลังแก้จุดและหลังลากทั้งก้อน (Geoman ยิง pm:dragend ตามด้วย pm:edit) จึงฟังแค่ pm:edit กัน PUT ซ้ำ
       layer.on("pm:edit", () => cb.current.onGeometryChange(info.id, layer));
       group.addLayer(layer);
-      cb.current.onItemsChange((items) => [...items, { id: info.id, type: info.type, props: info.props, layer }]);
+      const owner = { ownerId: f.properties.owner_id ?? null, ownerName: f.properties.owner_name ?? null };
+      cb.current.onItemsChange((items) => [...items, { id: info.id, type: info.type, props: info.props, layer, ...owner }]);
     };
     registerRef.current = register;
 
@@ -140,13 +156,16 @@ export default function DrawTools({
     const handleMoveToggled = ((e: { enabled: boolean }) =>
       cb.current.onMoveModeChange(e.enabled)) as unknown as L.LeafletEventHandlerFn;
 
-    listFeatures()
-      .then((features) => {
-        if (!alive) return;
-        for (const f of features) register(L.GeoJSON.geometryToLayer(f), f);
-      })
-      .catch((err) => cb.current.onError(err));
-    const unsubscribe = subscribeFeatures((change) => void applyChange(change));
+    // โหมดทดลอง (ยังไม่ login): ไม่โหลดจาก API และไม่ฟัง Realtime — feature อยู่แค่ในหน้านี้
+    if (!guest) {
+      listFeatures()
+        .then((features) => {
+          if (!alive) return;
+          for (const f of features) register(L.GeoJSON.geometryToLayer(f), f);
+        })
+        .catch((err) => cb.current.onError(err));
+    }
+    const unsubscribe = guest ? () => {} : subscribeFeatures((change) => void applyChange(change));
 
     map.on("pm:create", handleCreate);
     map.on("pm:drawstart", drawStartHandler);
@@ -166,7 +185,7 @@ export default function DrawTools({
       points.remove();
       cb.current.onItemsChange(() => []);
     };
-  }, [map, registerRef]);
+  }, [map, registerRef, guest]);
 
   return null;
 }

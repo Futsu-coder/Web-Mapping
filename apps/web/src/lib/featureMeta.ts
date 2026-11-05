@@ -47,6 +47,11 @@ export function detach(layer: L.Layer) {
   else layer.remove();
 }
 
+/** แก้ไม่ได้ = ให้ Geoman ข้าม layer นี้ (เครื่องมือ Move / ลากจุด ใช้กับ layer นี้ไม่ได้) */
+export function setEditable(layer: L.Layer, editable: boolean) {
+  (layer.options as { pmIgnore?: boolean }).pmIgnore = !editable;
+}
+
 // ใส่ layer คืนกลุ่มเดิม (ใช้ตอนกดแสดง feature ที่ซ่อนไว้)
 export function attach(layer: L.Layer) {
   ownerGroup.get(layer)?.addLayer(layer);

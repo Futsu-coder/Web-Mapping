@@ -1,6 +1,9 @@
 import { Elysia } from 'elysia'
 import { openapi } from '@elysiajs/openapi'
+import { authRoutes } from './routes/auth'
 import { featuresRoutes } from './routes/features'
+import { groupRoutes } from './routes/groups'
+import { notificationRoutes } from './routes/notifications'
 
 // หน้า docs (/api/openapi) เปิดเฉพาะตอน dev — บน Vercel (NODE_ENV=production) ปิดไว้
 // ถ้าต้องการเปิดชั่วคราว (เช่น ตอนนำเสนอ) ตั้ง ENABLE_DOCS=true
@@ -17,4 +20,7 @@ const docs = docsEnabled
 export const app = new Elysia({ prefix: '/api' })
   .use(docs)
   .get('/health', () => ({ status: 'ok' }))
+  .use(authRoutes)
   .use(featuresRoutes)
+  .use(groupRoutes)
+  .use(notificationRoutes)

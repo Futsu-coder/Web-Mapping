@@ -2,7 +2,15 @@ import type L from "leaflet";
 import type { FeatureProps, GeomType } from "../api";
 
 export type { GeomType };
-export type Item = { id: number; type: GeomType; props: FeatureProps; layer: L.Layer };
+/** ownerId/ownerName = null สำหรับ feature ในโหมดทดลอง (ยังไม่ login) */
+export type Item = {
+  id: number;
+  type: GeomType;
+  props: FeatureProps;
+  layer: L.Layer;
+  ownerId: string | null;
+  ownerName: string | null;
+};
 
 export const FILTERS: (GeomType | "All")[] = ["All", "Point", "LineString", "Polygon"];
 
