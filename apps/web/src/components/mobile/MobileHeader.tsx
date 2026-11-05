@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type L from "leaflet";
-import SearchBox from "../SearchBox";
 
 type Props = {
-  /** idle = โลโก้ + ค้นหา, drawing = Cancel/undo/redo/Next, form = Cancel/Done (กรอกข้อมูลหลังวาด) */
-  mode: "idle" | "drawing" | "form";
-  mapRef: React.MutableRefObject<L.Map | null>;
+  /** drawing = Cancel/undo/redo/Next, form = Cancel/Done (กรอกข้อมูลหลังวาด) — โหมดปกติใช้ Navbar */
+  mode: "drawing" | "form";
   formId: string;
   onCancel: () => void;
   onUndo: () => void;
@@ -48,14 +45,12 @@ const primaryCls =
   "px-4 py-2 rounded-lg bg-teal-700 text-white font-semibold text-[13px] shadow-sm active:scale-95 transition-all ml-1 disabled:opacity-40";
 
 export default function MobileHeader(p: Props) {
-  const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [prevMode, setPrevMode] = useState(p.mode);
   if (prevMode !== p.mode) {
     setPrevMode(p.mode);
     setMenuOpen(false);
   }
-  const searchRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // แตะนอกเมนู "..." = ปิดเมนู
@@ -68,41 +63,8 @@ export default function MobileHeader(p: Props) {
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [menuOpen]);
 
-  const toggleSearch = () => {
-    const next = !searchOpen;
-    setSearchOpen(next);
-    if (next) requestAnimationFrame(() => searchRef.current?.querySelector("input")?.focus());
-  };
-
   return (
     <header className="relative shrink-0 z-40 bg-white border-b border-slate-200 shadow-[0_1px_4px_rgba(0,0,0,0.03)] pt-safe">
-      {p.mode === "idle" && (
-        <>
-          <div className="h-14 px-4 flex items-center gap-3">
-            <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-teal-700 text-white shadow-sm shrink-0">
-              <span className="material-symbols-outlined text-[22px]">map</span>
-            </span>
-            <span className="flex-1 min-w-0 font-semibold text-slate-900 tracking-tight truncate">Web Mapping</span>
-            <button
-              type="button"
-              aria-label="ค้นหาสถานที่"
-              title="ค้นหาสถานที่"
-              aria-pressed={searchOpen}
-              onClick={toggleSearch}
-              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                searchOpen ? "bg-teal-700 text-white" : "text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              <span className="material-symbols-outlined text-[22px]">{searchOpen ? "close" : "search"}</span>
-            </button>
-          </div>
-          {/* ไม่ unmount ตอนปิด เพื่อให้หมุดผลค้นหาไม่หาย */}
-          <div ref={searchRef} className={`absolute inset-x-0 top-full z-50 px-3 pt-2 ${searchOpen ? "" : "hidden"}`}>
-            <SearchBox mapRef={p.mapRef} className="relative w-full" onPicked={() => setSearchOpen(false)} />
-          </div>
-        </>
-      )}
-
       {p.mode === "drawing" && (
         <div className="h-14 px-3 flex items-center justify-between gap-2">
           <button type="button" className={cancelCls} onClick={p.onCancel}>

@@ -7,6 +7,7 @@ Web-Mapping/
 ├── bun.lock                # lockfile เดียว (bun install ที่ root)
 ├── tsconfig.json           # TypeScript config เดียว
 ├── eslint.config.js
+├── drizzle.config.ts       # drizzle-kit: schema → apps/server/src/db/schema.ts
 ├── vite.config.ts          # root: 'apps/web', envDir = root, proxy /api → localhost:3000 ตอน dev
 ├── vercel.json             # bunVersion, build web → apps/web/dist, rewrite /api/* → api/index.ts
 ├── .env                    # ค่าจริงสำหรับรัน local (ห้าม commit)
@@ -16,14 +17,16 @@ Web-Mapping/
 └── apps/
     ├── server/             # Backend — Elysia.js (Bun)
     │   ├── src/
-    │   │   ├── index.ts    # สร้าง app (prefix /api), openapi docs, /health
+    │   │   ├── index.ts    # สร้าง app (prefix /api), openapi docs (เฉพาะ dev), /health
     │   │   ├── server.ts   # รัน local: app.listen(3000)
-    │   │   ├── db.ts       # postgres.js ต่อ Supabase pooler (6543, prepare:false)
-    │   │   ├── schema.ts   # t (TypeBox) schema ของ GeoJSON Feature + ตัวอย่าง
+    │   │   ├── db/
+    │   │   │   ├── index.ts    # Drizzle + postgres.js ต่อ Supabase pooler (6543, prepare:false)
+    │   │   │   └── schema.ts   # ตาราง features (Drizzle pgTable + geometry PostGIS)
+    │   │   ├── validation.ts   # t (TypeBox) ตรวจ GeoJSON Feature ขาเข้า + ตัวอย่าง
     │   │   └── routes/
     │   │       └── features.ts   # GET/POST/PUT/PATCH/DELETE /api/features
     │   └── sql/
-    │       └── schema.sql  # create extension postgis + ตาราง features
+    │       └── schema.sql  # create extension postgis (รันครั้งเดียวก่อน db:push)
     └── web/                # Frontend — React + Vite + react-leaflet + Geoman
         ├── index.html
         ├── public/
@@ -39,7 +42,7 @@ Web-Mapping/
 
 ## Flow ข้อมูล
 ```
-web (App.tsx) → /api/features → [Vercel: api/index.ts] → Elysia routes → db.ts → Supabase PostGIS
+web (App.tsx) → /api/features → [Vercel: api/index.ts] → Elysia routes → Drizzle (db/) → Supabase PostGIS
 ```
 ข้อมูลที่รับส่งเป็น GeoJSON ทั้งหมด พิกัดเรียงแบบ `[lon, lat]`
 

@@ -7,8 +7,21 @@ import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
-import { createFeature, deleteFeature, patchFeature, type FeaturePatch, type FeatureProps } from "./api";
+import type { Session } from "@supabase/supabase-js";
+import {
+  createFeature,
+  deleteFeature,
+  getMe,
+  patchFeature,
+  type ApiFeature,
+  type FeaturePatch,
+  type FeatureProps,
+  type Me,
+} from "./api";
+import AuthDialog from "./components/AuthDialog";
 import DrawTools, { type RegisterFn } from "./components/DrawTools";
+import InvitationToasts from "./components/InvitationToasts";
+import NotificationBell from "./components/NotificationBell";
 import FeatureEditor from "./components/FeatureEditor";
 import MapRef from "./components/MapRef";
 import Navbar from "./components/Navbar";
@@ -20,6 +33,7 @@ import CrosshairDraw, { Crosshair, MobileScale } from "./components/mobile/Cross
 import DrawSheet from "./components/mobile/DrawSheet";
 import MobileFeatureList from "./components/mobile/MobileFeatureList";
 import MobileHeader from "./components/mobile/MobileHeader";
+import MobileSearch from "./components/mobile/MobileSearch";
 import MobileSheet from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
@@ -34,8 +48,12 @@ import {
   propsOf,
   restoreGeometry,
   sameGeometry,
+  setEditable,
   setHighlight,
 } from "./lib/featureMeta";
+import { isIdleExpired, watchIdle } from "./lib/idleLogout";
+import { supabase } from "./lib/supabase";
+import { useInvitations } from "./lib/useInvitations";
 import { SHAPE_TO_GEOM_TYPE, type DrawShape, type GeomType, type Item, type Selection } from "./lib/types";
 
 // Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
@@ -61,6 +79,14 @@ function reveal(layer: L.Layer, then: () => void) {
 
 const noop = () => {};
 
+/** feature ในโหมดทดลอง: สร้างในเครื่อง ไม่ผ่าน API (id ติดลบ ไม่ชนกับ id จริง) */
+const localFeature = (id: number, type: GeomType, geometry: GeoJSON.Geometry, props: FeatureProps): ApiFeature => ({
+  type: "Feature",
+  id,
+  geometry,
+  properties: { ...props, geom_type: type, owner_id: null, owner_name: null },
+});
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
@@ -73,6 +99,11 @@ export default function App() {
   const [toast, setToast] = useState<ToastData | null>(null);
   const [moveMode, setMoveMode] = useState(false);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  // สมาชิกที่ซ่อน feature ไว้ (ซ่อนแค่บนจอเรา)
+  const [hiddenOwners, setHiddenOwners] = useState<Set<string>>(new Set());
   const mapRef = useRef<L.Map | null>(null);
   const isMobile = useIsMobile();
   // hover มีจริงเฉพาะอุปกรณ์ที่มีเมาส์ — จอสัมผัสยิง mouseover จำลองตอนแตะแต่ไม่ยิง mouseout ทำให้สีส้มค้าง
@@ -83,11 +114,61 @@ export default function App() {
   if (!isMobile && crosshair.draw) crosshair.cancel();
   const mobileDraw = isMobile ? crosshair.draw : null;
   const registerRef = useRef<RegisterFn | null>(null);
+  const nextLocalId = useRef(-1);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
   const closeToast = useCallback(() => setToast(null), []);
 
+  // ---------- บัญชีผู้ใช้ ----------
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const userId = session?.user.id;
+
+  // ไม่ได้ใช้งานเกิน 1 วัน → ออกจากระบบอัตโนมัติ (ตรวจตั้งแต่เปิดหน้าเว็บ ก่อนโหลดข้อมูล)
+  useEffect(() => {
+    if (!userId) return;
+    return watchIdle(() => {
+      setError("ออกจากระบบอัตโนมัติ เพราะไม่ได้ใช้งานเกิน 1 วัน — กรุณาเข้าสู่ระบบใหม่");
+      void supabase?.auth.signOut();
+    });
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || isIdleExpired()) return;
+    getMe().then(setMe).catch(onError);
+  }, [userId, onError]);
+
+  // me ที่ตรงกับ session ปัจจุบันเท่านั้น (logout แล้ว me เก่าไม่ถูกใช้)
+  const activeMe = userId && me?.user.id === userId ? me : null;
+  const guest = !activeMe;
+  const myId = activeMe?.user.id ?? null;
+  const groupOwner = !!activeMe && activeMe.group.ownerId === activeMe.user.id;
+
+  /** แก้/ลบได้: โหมดทดลอง, เจ้าของ feature, หรือเจ้าของ group */
+  const canModifyOwner = (ownerId: string | null) => guest || groupOwner || (ownerId !== null && ownerId === myId);
+  const canModify = (item: Item) => canModifyOwner(item.ownerId);
+
+  // เปลี่ยนบัญชี / ย้าย group → DrawTools โหลดใหม่ (key เปลี่ยน) และล้างสถานะที่ผูกกับ feature ชุดเก่า
+  const viewKey = activeMe ? `group-${activeMe.group.id}` : "guest";
+  const [shownKey, setShownKey] = useState(viewKey);
+  if (shownKey !== viewKey) {
+    setShownKey(viewKey);
+    setSelection(null);
+    setHiddenIds(new Set());
+    setHiddenOwners(new Set());
+    setHoveredId(null);
+  }
+
+  const isHidden = (item: Item) =>
+    hiddenIds.has(item.id) || (item.ownerId !== null && hiddenOwners.has(item.ownerId));
+
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
+  const hiddenSet = new Set(items.filter(isHidden).map((i) => i.id));
   const activeBaseLayer = BASE_LAYERS.find((l) => l.id === baseLayerId)!;
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
@@ -101,7 +182,7 @@ export default function App() {
   const activeLayer =
     selection?.mode === "create"
       ? selection.layer
-      : selection?.mode === "edit" && selectedItem && !hiddenIds.has(selectedItem.id)
+      : selection?.mode === "edit" && selectedItem && !isHidden(selectedItem)
         ? selectedItem.layer
         : undefined;
 
@@ -145,6 +226,30 @@ export default function App() {
     }
   }, [items, activeLayer, selectedItem, hoveredLayer]);
 
+  // สิทธิ์เปลี่ยนได้ (login / ย้าย group / ได้เป็นเจ้าของ group) → feature ที่แก้ไม่ได้ให้ Geoman ข้าม (Move ลากไม่ได้)
+  useEffect(() => {
+    for (const { layer, ownerId } of items) {
+      const editable = guest || groupOwner || (ownerId !== null && ownerId === myId);
+      setEditable(layer, editable);
+    }
+  }, [items, guest, groupOwner, myId]);
+
+  // ซ่อนของสมาชิกทั้งคน (รวมที่เพิ่งเข้ามาทาง Realtime) — ซ่อนทีละ feature ทำใน toggleVisible อยู่แล้ว
+  useEffect(() => {
+    for (const item of items) {
+      if (item.ownerId === null || hiddenIds.has(item.id)) continue;
+      const group = ownerGroup.get(item.layer);
+      const onMap = group?.hasLayer(item.layer) ?? false;
+      const hide = hiddenOwners.has(item.ownerId);
+      if (hide && onMap) {
+        releaseLayer(item.layer);
+        detach(item.layer);
+      } else if (!hide && !onMap) {
+        attach(item.layer);
+      }
+    }
+  }, [items, hiddenOwners, hiddenIds]);
+
   /** ทิ้งสิ่งที่ค้างอยู่: draft = ลบออกจากแผนที่, โหมดปากกา = คืนรูปทรงที่ยังไม่ได้กด Save (ไม่แตะ state) */
   const discardPending = () => {
     if (selection?.mode === "create") {
@@ -175,6 +280,10 @@ export default function App() {
     if (!m) return;
     const geometry = geometryOf(layer);
     if (sameGeometry(geometry, m.saved)) return; // กดลากแต่ไม่ได้ขยับจริง
+    if (guest) {
+      meta.set(layer, { ...m, saved: geometry }); // โหมดทดลอง: จำตำแหน่งในเครื่องอย่างเดียว
+      return;
+    }
     patchFeature(id, { geometry })
       .then((f) => {
         meta.set(layer, { ...meta.get(layer)!, saved: f.geometry }); // บันทึกเงียบ ไม่ขึ้น toast
@@ -207,10 +316,12 @@ export default function App() {
   };
 
   const startEdit = (item: Item) => {
-    if (selection?.mode === "edit" && selection.id === item.id) return;
+    if (!canModify(item) || (selection?.mode === "edit" && selection.id === item.id)) return;
     discardPending();
     if (mapRef.current?.pm.globalDragModeEnabled()) mapRef.current.pm.disableGlobalDragMode(); // Move กับแก้ทีละจุดเปิดพร้อมกันไม่ได้
-    if (hiddenIds.has(item.id)) showItem(item); // แก้ไขต้องเห็นรูปทรงบนแผนที่
+    // แก้ไขต้องเห็นรูปทรงบนแผนที่
+    if (hiddenIds.has(item.id)) showItem(item);
+    if (item.ownerId !== null && hiddenOwners.has(item.ownerId)) toggleOwner(item.ownerId);
     setPanelOpen(true);
     // หมุดต้องอยู่บนแผนที่ (ไม่ถูกรวมใน cluster) ก่อน Geoman จะเปิดให้ลากได้
     reveal(item.layer, () => setSelection({ mode: "edit", id: item.id }));
@@ -229,6 +340,39 @@ export default function App() {
     releaseLayer(item.layer); // ปิดโหมดแก้ไข/ลากก่อนเอาออกจากแผนที่
     detach(item.layer);
     setHiddenIds((s) => new Set(s).add(item.id));
+  };
+
+  /** ซ่อน/แสดง feature ทั้งหมดของสมาชิกคนหนึ่ง (เฉพาะบนจอเรา) */
+  const toggleOwner = (ownerId: string) => {
+    const hiding = !hiddenOwners.has(ownerId);
+    if (hiding && selection?.mode === "edit" && selectedItem?.ownerId === ownerId) cancel();
+    setHiddenOwners((s) => {
+      const next = new Set(s);
+      if (hiding) next.add(ownerId);
+      else next.delete(ownerId);
+      return next;
+    });
+  };
+
+  // ---------- บัญชีผู้ใช้ / group ----------
+  /** โหลด me ใหม่ — ถ้าย้าย group ต้องทิ้ง draft / การแก้ไขที่ค้างไว้ก่อน (feature ชุดใหม่จะถูกโหลดแทน) */
+  const refreshMe = async () => {
+    const next = await getMe();
+    if (next.group.id !== activeMe?.group.id) closeSelection();
+    setMe(next);
+  };
+
+  // คำเชิญที่รอตอบ — ใช้ร่วมกันระหว่างการ์ดมุมขวาล่างกับกระดิ่ง
+  const inv = useInvitations(myId, () => void refreshMe().catch(onError));
+
+  const openLogin = () => {
+    closeSelection(); // ข้อมูลทดลองที่วาดค้างไว้จะหายเมื่อ login
+    setAuthOpen(true);
+  };
+
+  const logout = () => {
+    closeSelection();
+    void supabase?.auth.signOut();
   };
 
   // คลิก feature บนแผนที่ = ดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
@@ -282,7 +426,7 @@ export default function App() {
 
   const focus = (item: Item) => {
     const map = mapRef.current;
-    if (map && !hiddenIds.has(item.id)) {
+    if (map && !isHidden(item)) {
       // มือถือ: แผ่นล่างกาง 60% ของจอ → เว้นขอบล่างให้รูปไปอยู่ในส่วนที่ยังมองเห็น
       const pad: L.FitBoundsOptions = isMobile
         ? { paddingTopLeft: [40, 40], paddingBottomRight: [40, map.getSize().y * 0.6 + 16] }
@@ -305,32 +449,40 @@ export default function App() {
   const save = async (props: FeatureProps) => {
     if (selection?.mode === "create") {
       const draft = selection.layer as Editable;
-      const f = await createFeature(geometryOf(draft), props);
+      const geometry = geometryOf(draft);
+      const f = guest
+        ? localFeature(nextLocalId.current--, selection.type, geometry, props)
+        : await createFeature(geometry, props);
       if (draft.pm.enabled()) draft.pm.disable();
       mapRef.current?.removeLayer(draft);
       registerRef.current?.(L.GeoJSON.geometryToLayer(f), f); // layer จริงจากข้อมูลที่ API ตอบกลับมา
       setSelection({ mode: "view", id: f.id });
       setToast({ id: Date.now(), name: f.properties.name });
     } else if (selection?.mode === "edit" && selectedItem) {
-      const { layer, id } = selectedItem;
+      const { layer, id, type } = selectedItem;
       const m = meta.get(layer)!;
       const geometry = geometryOf(layer);
 
-      // ส่งเฉพาะสิ่งที่เปลี่ยนจริง (PATCH)
-      const patch: FeaturePatch = {};
-      if (!sameGeometry(geometry, m.saved)) patch.geometry = geometry;
-      const changed: NonNullable<FeaturePatch["properties"]> = {};
-      if (props.name !== m.props.name) changed.name = props.name;
-      if (props.category !== m.props.category) changed.category = props.category ?? null;
-      if (props.description !== m.props.description) changed.description = props.description ?? null;
-      if (Object.keys(changed).length) patch.properties = changed;
+      let f: ApiFeature;
+      if (guest) {
+        f = localFeature(id, type, geometry, props); // โหมดทดลอง: ไม่ผ่าน API
+      } else {
+        // ส่งเฉพาะสิ่งที่เปลี่ยนจริง (PATCH)
+        const patch: FeaturePatch = {};
+        if (!sameGeometry(geometry, m.saved)) patch.geometry = geometry;
+        const changed: NonNullable<FeaturePatch["properties"]> = {};
+        if (props.name !== m.props.name) changed.name = props.name;
+        if (props.category !== m.props.category) changed.category = props.category ?? null;
+        if (props.description !== m.props.description) changed.description = props.description ?? null;
+        if (Object.keys(changed).length) patch.properties = changed;
 
-      if (!patch.geometry && !patch.properties) {
-        setSelection({ mode: "view", id }); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
-        return;
+        if (!patch.geometry && !patch.properties) {
+          setSelection({ mode: "view", id }); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
+          return;
+        }
+
+        f = await patchFeature(id, patch);
       }
-
-      const f = await patchFeature(id, patch);
       const saved = propsOf(f);
       meta.set(layer, { ...m, props: saved, saved: f.geometry });
       layer.setPopupContent(saved.name);
@@ -341,7 +493,7 @@ export default function App() {
   };
 
   const removeItem = async (item: Item) => {
-    await deleteFeature(item.id);
+    if (!guest) await deleteFeature(item.id);
     releaseLayer(item.layer);
     detach(item.layer);
     setItems((list) => list.filter((i) => i.id !== item.id));
@@ -380,6 +532,8 @@ export default function App() {
         onSave={save}
         onCancel={selection.mode === "edit" ? cancel : closeSelection}
         onDelete={() => removeItem(selectedItem)}
+        ownerName={guest ? null : selectedItem.ownerName}
+        canModify={guest || groupOwner || (selectedItem.ownerId !== null && selectedItem.ownerId === myId)}
       />
     ) : null;
 
@@ -389,10 +543,9 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-full" style={panelVars}>
-      {isMobile ? (
+      {isMobile && (mobileDraw || creating) ? (
         <MobileHeader
-          mode={mobileDraw ? "drawing" : creating ? "form" : "idle"}
-          mapRef={mapRef}
+          mode={mobileDraw ? "drawing" : "form"}
           formId="fe-form"
           onCancel={mobileDraw ? crosshair.cancel : cancel}
           onUndo={crosshair.undo}
@@ -404,7 +557,26 @@ export default function App() {
           canNext={!!mobileDraw && mobileDraw.points.length >= MIN_POINTS[mobileDraw.shape]}
         />
       ) : (
-        <Navbar />
+        <Navbar
+          me={activeMe}
+          hiddenOwners={hiddenOwners}
+          onToggleOwner={toggleOwner}
+          onLogin={openLogin}
+          onLogout={logout}
+          onRefresh={() => refreshMe().catch(onError)}
+          search={isMobile ? <MobileSearch mapRef={mapRef} /> : undefined}
+          bell={
+            activeMe && (
+              <NotificationBell
+                key={activeMe.user.id}
+                userId={activeMe.user.id}
+                invitations={inv.invitations}
+                busyInvitationId={inv.busyId}
+                onAnswer={(i, action) => void inv.answer(i, action)}
+              />
+            )
+          }
+        />
       )}
 
       {error && (
@@ -441,6 +613,9 @@ export default function App() {
         >
           <TileLayer key={activeBaseLayer.id} url={activeBaseLayer.url} attribution={activeBaseLayer.attribution} />
           <DrawTools
+            key={viewKey}
+            guest={guest}
+            canModify={canModifyOwner}
             registerRef={registerRef}
             onItemsChange={setItems}
             onActiveToolChange={onActiveToolChange}
@@ -487,7 +662,9 @@ export default function App() {
                   filter={filter}
                   onFilterChange={setFilter}
                   selectedId={selectedId}
-                  hiddenIds={hiddenIds}
+                  hiddenIds={hiddenSet}
+                  canModify={canModify}
+                  showOwner={!guest}
                   onFocus={focus}
                   onToggleVisible={toggleVisible}
                   onRemove={(item) => removeItem(item).catch(onError)}
@@ -517,7 +694,9 @@ export default function App() {
               onRemove={(item) => removeItem(item).catch(onError)}
               selectedId={selectedId}
               editingId={selection?.mode === "edit" ? selection.id : null}
-              hiddenIds={hiddenIds}
+              hiddenIds={hiddenSet}
+              canModify={canModify}
+              showOwner={!guest}
               hoveredId={activeHoverId}
               onHover={onHover}
               editor={editor}
@@ -525,8 +704,30 @@ export default function App() {
           </>
         )}
 
+        {guest && !(isMobile && (mobileDraw || creating)) && (
+          <div className="absolute top-3 left-[4.5rem] right-3 md:top-auto md:right-auto md:bottom-8 md:left-4 z-20 md:max-w-[calc(100%-2rem)] flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg shadow-md text-xs">
+            <span className="material-symbols-outlined text-[18px]">science</span>
+            <span>
+              <strong>โหมดทดลอง</strong> — วาดได้ แต่ข้อมูลไม่ถูกบันทึก (หายเมื่อรีเฟรช)
+            </span>
+            <button type="button" onClick={openLogin} className="font-semibold text-teal-800 hover:underline shrink-0">
+              เข้าสู่ระบบเพื่อบันทึก
+            </button>
+          </div>
+        )}
+
         {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
       </div>
+
+      {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
+      {activeMe && (
+        <InvitationToasts
+          invitations={inv.invitations}
+          busyId={inv.busyId}
+          error={inv.error}
+          onAnswer={(i, action) => void inv.answer(i, action)}
+        />
+      )}
     </div>
   );
 }

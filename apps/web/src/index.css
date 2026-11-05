@@ -70,3 +70,18 @@
 .animate-toast-in {
   animation: toast-in 200ms ease-out;
 }
+
+/* การ์ดคำเชิญ: เลื่อนเข้ามาจากขวา */
+@keyframes invite-in {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-invite-in {
+  animation: invite-in 200ms ease-out;
+}

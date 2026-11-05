@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
+
 .claude/
 Web_Mapping/
 
@@ -119,3 +120,7 @@ out
 
 # Vercel
 .vercel
+
+#PLAN.md and PRESENTATION.md
+PLAN.md
+PRESENTATION.md

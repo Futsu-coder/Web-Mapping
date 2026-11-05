@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CATEGORY_STYLE } from "../lib/categories";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
@@ -50,6 +50,8 @@ export default function FeaturePanel({
   selectedId,
   editingId,
   hiddenIds,
+  canModify,
+  showOwner,
   open,
   onToggle,
   editor,
@@ -68,12 +70,18 @@ export default function FeaturePanel({
   editingId: number | null;
   /** feature ที่ถูกซ่อนจากแผนที่ */
   hiddenIds: Set<number>;
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มปากกาและถังขยะ */
+  canModify: (item: Item) => boolean;
+  /** แสดงชื่อคนสร้าง (login แล้ว) */
+  showOwner: boolean;
   open: boolean;
   /** ปุ่มเปิด/ปิดพาเนล (เกาะขอบซ้ายของพาเนล เลื่อนตามพาเนลเอง) */
   onToggle: () => void;
   /** ฟอร์ม Edit Feature Properties — แสดงครึ่งล่างของ panel เมื่อมี feature ที่เลือก/กำลังสร้าง */
   editor: ReactNode;
 }) {
+  const listRef = useRef<HTMLUListElement>(null);
+
   // จอเตี้ย (เช่น notebook ที่ scaling 150%): ตอนมีฟอร์มให้ยุบรายการอัตโนมัติ เพื่อให้ฟอร์มเห็นครบ — กดหัวรายการเพื่อสลับเอง
   const short = useMediaQuery("(max-height: 760px)");
   const hasEditor = !!editor;
@@ -81,9 +89,18 @@ export default function FeaturePanel({
   const collapsed = manual && manual.forEditor === hasEditor ? manual.collapsed : hasEditor && short;
 
   // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
+  // เลื่อนเฉพาะในรายการเอง ไม่ใช้ scrollIntoView เพราะมันเลื่อนกล่องแผนที่ด้านนอกด้วย
+  // (ตอนปิด panel แค่เลื่อนออกนอกจอ → scrollIntoView ดึงกล่องแผนที่ให้ panel โผล่กลับมา)
   useEffect(() => {
-    if (hoveredId != null) document.getElementById(`feature-${hoveredId}`)?.scrollIntoView({ block: "nearest" });
-  }, [hoveredId]);
+    const list = listRef.current;
+    if (!open || hoveredId == null || !list) return;
+    const row = list.querySelector<HTMLElement>(`#feature-${hoveredId}`);
+    if (!row) return;
+    const top = row.offsetTop; // ul เป็น relative → offsetTop นับจากขอบบนของรายการ
+    const bottom = top + row.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  }, [hoveredId, open]);
 
   return (
     <div
@@ -139,7 +156,10 @@ export default function FeaturePanel({
           ))}
         </div>
 
-        <ul className={`flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1.5 ${collapsed ? "hidden" : ""}`}>
+        <ul
+          ref={listRef}
+          className={`relative flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1.5 ${collapsed ? "hidden" : ""}`}
+        >
           {items.length === 0 && (
             <li className="text-sm text-slate-500 px-2 py-4 text-center">
               ยังไม่มีข้อมูล — ใช้เครื่องมือซ้ายบนวาดบนแผนที่
@@ -167,7 +187,12 @@ export default function FeaturePanel({
                 <span className={`text-[11px] px-1.5 py-0.5 rounded text-white shrink-0 ${BADGE_COLOR[item.type]}`}>
                   {item.type}
                 </span>
-                <span className="flex-1 text-sm text-slate-800 truncate">{item.props.name}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm text-slate-800 truncate">{item.props.name}</span>
+                  {showOwner && item.ownerName && (
+                    <span className="block text-[11px] text-slate-400 truncate">โดย {item.ownerName}</span>
+                  )}
+                </span>
                 {item.props.category && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${CATEGORY_STYLE[item.props.category].badge}`}
@@ -182,22 +207,33 @@ export default function FeaturePanel({
                     className={hidden ? "text-slate-400 hover:text-slate-600" : "text-teal-700 hover:bg-slate-100"}
                     onClick={() => onToggleVisible(item)}
                   />
-                  <RowButton
-                    title="แก้ไข"
-                    icon="edit"
-                    className={
-                      item.id === editingId
-                        ? "bg-teal-700 text-white"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-teal-700"
-                    }
-                    onClick={() => onEdit(item)}
-                  />
-                  <RowButton
-                    title="ลบ"
-                    icon="delete"
-                    className="text-slate-500 hover:bg-red-50 hover:text-red-700"
-                    onClick={() => onRemove(item)}
-                  />
+                  {canModify(item) ? (
+                    <>
+                      <RowButton
+                        title="แก้ไข"
+                        icon="edit"
+                        className={
+                          item.id === editingId
+                            ? "bg-teal-700 text-white"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-teal-700"
+                        }
+                        onClick={() => onEdit(item)}
+                      />
+                      <RowButton
+                        title="ลบ"
+                        icon="delete"
+                        className="text-slate-500 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => onRemove(item)}
+                      />
+                    </>
+                  ) : (
+                    <span
+                      title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group"
+                      className="material-symbols-outlined text-[17px] text-slate-300 px-1"
+                    >
+                      lock
+                    </span>
+                  )}
                 </div>
               </li>
             );

@@ -16,6 +16,8 @@ export default function MobileFeatureList({
   onFilterChange,
   selectedId,
   hiddenIds,
+  canModify,
+  showOwner,
   onFocus,
   onToggleVisible,
   onRemove,
@@ -25,6 +27,10 @@ export default function MobileFeatureList({
   onFilterChange: (f: GeomType | "All") => void;
   selectedId: number | null;
   hiddenIds: Set<number>;
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มลบและแสดงแม่กุญแจ */
+  canModify: (item: Item) => boolean;
+  /** แสดงชื่อคนสร้าง (login แล้ว) */
+  showOwner: boolean;
   onFocus: (item: Item) => void;
   onToggleVisible: (item: Item) => void;
   onRemove: (item: Item) => void;
@@ -112,6 +118,9 @@ export default function MobileFeatureList({
                   )}
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1 truncate">{layerSummary(item.layer)}</div>
+                {showOwner && item.ownerName && (
+                  <div className="text-[11px] text-slate-400 truncate">โดย {item.ownerName}</div>
+                )}
               </div>
               <button
                 type="button"
@@ -124,17 +133,26 @@ export default function MobileFeatureList({
               >
                 <span className="material-symbols-outlined text-[20px]">{hidden ? "visibility_off" : "visibility"}</span>
               </button>
-              <button
-                type="button"
-                aria-label="ลบ"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(item);
-                }}
-                className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-red-600"
-              >
-                <span className="material-symbols-outlined text-[20px]">delete</span>
-              </button>
+              {canModify(item) ? (
+                <button
+                  type="button"
+                  aria-label="ลบ"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(item);
+                  }}
+                  className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-red-600"
+                >
+                  <span className="material-symbols-outlined text-[20px]">delete</span>
+                </button>
+              ) : (
+                <span
+                  title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group"
+                  className="w-9 h-9 flex items-center justify-center shrink-0 material-symbols-outlined text-[18px] text-slate-300"
+                >
+                  lock
+                </span>
+              )}
             </li>
           );
         })}

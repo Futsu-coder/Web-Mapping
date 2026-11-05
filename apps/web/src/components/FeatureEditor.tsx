@@ -57,7 +57,13 @@ export default function FeatureEditor({
   onEdit,
   variant = "desktop",
   formId,
+  ownerName,
+  canModify = true,
 }: {
+  /** ชื่อคนสร้าง (แสดงเมื่อ login แล้ว) */
+  ownerName?: string | null;
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่ม Edit/Delete บนมือถือ */
+  canModify?: boolean;
   mode: "view" | "edit" | "create";
   type: GeomType;
   layer: L.Layer;
@@ -163,6 +169,13 @@ export default function FeatureEditor({
         />
       </div>
 
+      {ownerName && (
+        <p className="flex items-center gap-1 text-xs text-slate-500">
+          <span className="material-symbols-outlined text-[16px]">person</span>
+          สร้างโดย <strong className="text-slate-700">{ownerName}</strong>
+        </p>
+      )}
+
       <LocationView layer={layer} mobile={mobile} />
 
       {error && (
@@ -234,14 +247,22 @@ export default function FeatureEditor({
           <div className="shrink-0 px-4 py-3 border-t border-slate-200 flex items-center gap-2.5 pb-safe">
             {mode === "view" ? (
               <>
-                <button type="button" onClick={onCancel} className={`${btn} px-4 text-slate-600 bg-slate-100`}>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className={`${btn} ${canModify ? "px-4" : "flex-1"} text-slate-600 bg-slate-100`}
+                >
                   Close
                 </button>
-                {deleteBtn}
-                <button type="button" onClick={onEdit} className={`${btn} flex-1 bg-teal-700 text-white shadow-md`}>
-                  <span className="material-symbols-outlined text-[19px]">edit</span>
-                  Edit
-                </button>
+                {canModify && (
+                  <>
+                    {deleteBtn}
+                    <button type="button" onClick={onEdit} className={`${btn} flex-1 bg-teal-700 text-white shadow-md`}>
+                      <span className="material-symbols-outlined text-[19px]">edit</span>
+                      Edit
+                    </button>
+                  </>
+                )}
               </>
             ) : (
               <>
