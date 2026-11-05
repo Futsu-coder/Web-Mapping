@@ -7,7 +7,7 @@ import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
 import shadowUrl from "leaflet/dist/images/marker-shadow.png";
-import { createFeature, deleteFeature, updateFeature, type FeatureProps } from "./api";
+import { createFeature, deleteFeature, patchFeature, type FeaturePatch, type FeatureProps } from "./api";
 import DrawTools, { type RegisterFn } from "./components/DrawTools";
 import FeatureEditor from "./components/FeatureEditor";
 import MapRef from "./components/MapRef";
@@ -102,14 +102,14 @@ export default function App() {
   };
 
   // ย้ายทั้งก้อนเสร็จ (เฉพาะตอนเปิดเครื่องมือ Move) → บันทึกตำแหน่งทันที
-  // ส่ง props ที่บันทึกไว้ ไม่ใช่ค่าที่กำลังพิมพ์ในฟอร์ม ส่วนการแก้ทีละจุดในโหมดปากกาต้องกด Save Changes
+  // ส่ง PATCH เฉพาะ geometry ไม่แตะ properties ส่วนการแก้ทีละจุดในโหมดปากกาต้องกด Save Changes
   const onGeometryChange = (id: number, layer: L.Layer) => {
     if (!moveMode) return;
     const m = meta.get(layer);
     if (!m) return;
     const geometry = geometryOf(layer);
     if (sameGeometry(geometry, m.saved)) return; // กดลากแต่ไม่ได้ขยับจริง
-    updateFeature(id, geometry, m.props)
+    patchFeature(id, { geometry })
       .then((f) => {
         meta.set(layer, { ...meta.get(layer)!, saved: f.geometry }); // บันทึกเงียบ ไม่ขึ้น toast
       })
@@ -209,9 +209,26 @@ export default function App() {
       setToast({ id: Date.now(), name: f.properties.name });
     } else if (selection?.mode === "edit" && selectedItem) {
       const { layer, id } = selectedItem;
-      const f = await updateFeature(id, geometryOf(layer), props);
+      const m = meta.get(layer)!;
+      const geometry = geometryOf(layer);
+
+      // ส่งเฉพาะสิ่งที่เปลี่ยนจริง (PATCH)
+      const patch: FeaturePatch = {};
+      if (!sameGeometry(geometry, m.saved)) patch.geometry = geometry;
+      const changed: NonNullable<FeaturePatch["properties"]> = {};
+      if (props.name !== m.props.name) changed.name = props.name;
+      if (props.category !== m.props.category) changed.category = props.category ?? null;
+      if (props.description !== m.props.description) changed.description = props.description ?? null;
+      if (Object.keys(changed).length) patch.properties = changed;
+
+      if (!patch.geometry && !patch.properties) {
+        setSelection({ mode: "view", id }); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
+        return;
+      }
+
+      const f = await patchFeature(id, patch);
       const saved = propsOf(f);
-      meta.set(layer, { ...meta.get(layer)!, props: saved, saved: f.geometry });
+      meta.set(layer, { ...m, props: saved, saved: f.geometry });
       layer.setPopupContent(saved.name);
       setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved } : i)));
       setSelection({ mode: "view", id });

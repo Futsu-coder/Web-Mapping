@@ -34,7 +34,13 @@ export const listFeatures = () =>
 export const createFeature = (geometry: GeoJSON.Geometry, props: FeatureProps) =>
   request<ApiFeature>(BASE, { method: "POST", body: toBody(geometry, props) });
 
-export const updateFeature = (id: number, geometry: GeoJSON.Geometry, props: FeatureProps) =>
-  request<ApiFeature>(`${BASE}/${id}`, { method: "PUT", body: toBody(geometry, props) });
+/** JSON Merge Patch: ส่งเฉพาะส่วนที่เปลี่ยน, null = ลบ key */
+export type FeaturePatch = {
+  geometry?: GeoJSON.Geometry;
+  properties?: { name?: string; category?: Category | null; description?: string | null };
+};
+
+export const patchFeature = (id: number, patch: FeaturePatch) =>
+  request<ApiFeature>(`${BASE}/${id}`, { method: "PATCH", body: JSON.stringify({ type: "Feature", ...patch }) });
 
 export const deleteFeature = (id: number) => request<void>(`${BASE}/${id}`, { method: "DELETE" });

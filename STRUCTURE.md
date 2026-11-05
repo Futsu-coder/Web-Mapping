@@ -21,7 +21,7 @@ Web-Mapping/
     │   │   ├── db.ts       # postgres.js ต่อ Supabase pooler (6543, prepare:false)
     │   │   ├── schema.ts   # t (TypeBox) schema ของ GeoJSON Feature + ตัวอย่าง
     │   │   └── routes/
-    │   │       └── features.ts   # GET/POST/PUT/DELETE /api/features
+    │   │       └── features.ts   # GET/POST/PUT/PATCH/DELETE /api/features
     │   └── sql/
     │       └── schema.sql  # create extension postgis + ตาราง features
     └── web/                # Frontend — React + Vite + react-leaflet + Geoman

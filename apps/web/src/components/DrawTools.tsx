@@ -61,7 +61,7 @@ export default function DrawTools({
         if (map.pm.globalDrawModeEnabled()) return;
         cb.current.onLayerClick(info.id);
       });
-      // pm:edit ยิงทั้งหลังแก้จุดและหลังลากทั้งก้อน (Geoman ยิง pm:dragend ตามด้วย pm:edit) จึงฟังแค่ pm:edit กัน PUT ซ้ำ
+      // pm:edit ยิงทั้งหลังแก้จุดและหลังลากทั้งก้อน (Geoman ยิง pm:dragend ตามด้วย pm:edit) จึงฟังแค่ pm:edit กันบันทึกซ้ำ
       layer.on("pm:edit", () => cb.current.onGeometryChange(info.id, layer));
       group.addLayer(layer);
       cb.current.onItemsChange((items) => [...items, { id: info.id, type: info.type, props: info.props, layer }]);

@@ -37,8 +37,11 @@ Web Application สำหรับสร้าง แก้ไข และล�
 | GET | `/api/features?type=Point\|LineString\|Polygon` | FeatureCollection |
 | GET | `/api/features/:id` | Feature / 404 |
 | POST | `/api/features` | 201 + Feature |
-| PUT | `/api/features/:id` | Feature / 404 |
+| PUT | `/api/features/:id` | Feature / 404 (แทนที่ทั้งก้อน) |
+| PATCH | `/api/features/:id` | Feature / 400 / 404 / 422 (แก้เฉพาะส่วนที่ส่งมา) |
 | DELETE | `/api/features/:id` | 204 / 404 |
+
+PATCH ใช้ JSON Merge Patch (RFC 7396): ส่ง Feature บางส่วน เช่น `{"properties":{"name":"ใหม่"}}` หรือ `{"geometry":{...}}` — ค่า `null` ใน properties = ลบ key นั้น, ไม่ส่งอะไรเลย → 400
 
 geometry ที่ไม่ใช่ 3 ชนิดนี้ หรือรูปทรงไม่ถูกต้อง (เช่น Polygon ตัดกันเอง) → 422
 
