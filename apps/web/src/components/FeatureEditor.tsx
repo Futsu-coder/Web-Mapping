@@ -50,7 +50,10 @@ export default function FeatureEditor({
   onSave,
   onCancel,
   onDelete,
+  ownerName,
 }: {
+  /** ชื่อคนสร้าง (แสดงเมื่อ login แล้ว) */
+  ownerName?: string | null;
   mode: "view" | "edit" | "create";
   type: GeomType;
   layer: L.Layer;
@@ -162,6 +165,13 @@ export default function FeatureEditor({
             className={`${inputCls} resize-none`}
           />
         </div>
+
+        {ownerName && (
+          <p className="flex items-center gap-1 text-xs text-slate-500">
+            <span className="material-symbols-outlined text-[16px]">person</span>
+            สร้างโดย <strong className="text-slate-700">{ownerName}</strong>
+          </p>
+        )}
 
         <LocationView layer={layer} />
 
