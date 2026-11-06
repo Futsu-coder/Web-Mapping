@@ -3,6 +3,9 @@
 /** a-z 0-9 _ ยาว 3–20 ตัว (ตรวจ "ห้ามเป็นตัวเลขล้วน" แยกด้วย isValidUsername) */
 export const USERNAME_PATTERN = "^[a-z0-9_]{3,20}$";
 export const PASSWORD_MIN = 8;
+/** ขีดจำกัดของ bcrypt ที่ Supabase ใช้ */
+export const PASSWORD_MAX = 72;
+export const USERNAME_TAKEN = "ชื่อผู้ใช้นี้ถูกใช้แล้ว";
 
 export const normalizeUsername = (raw: string) => raw.trim().toLowerCase();
 
