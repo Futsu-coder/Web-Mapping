@@ -3,9 +3,16 @@ import { eq } from 'drizzle-orm'
 import { db } from '../db'
 import { groups, profiles } from '../db/schema'
 import { isUniqueViolation, supabaseAdmin } from '../auth'
-import { emailOf, isValidUsername, normalizeUsername, PASSWORD_MIN } from '../../../shared/auth'
+import {
+  emailOf,
+  isValidUsername,
+  normalizeUsername,
+  PASSWORD_MAX,
+  PASSWORD_MIN,
+  USERNAME_TAKEN
+} from '../../../shared/auth'
 
-const taken = { detail: 'ชื่อผู้ใช้นี้ถูกใช้แล้ว' }
+const taken = { detail: USERNAME_TAKEN }
 
 // สมัครผ่าน API เท่านั้น (ปิด public sign-up ใน Supabase) เพื่อบังคับกติกา username และสร้าง group + profile ให้ครบ
 export const authRoutes = new Elysia({ prefix: '/auth', tags: ['auth'] }).post(
@@ -51,7 +58,7 @@ export const authRoutes = new Elysia({ prefix: '/auth', tags: ['auth'] }).post(
   {
     body: t.Object({
       username: t.String({ minLength: 1, maxLength: 40 }),
-      password: t.String({ minLength: PASSWORD_MIN, maxLength: 72 })
+      password: t.String({ minLength: PASSWORD_MIN, maxLength: PASSWORD_MAX })
     })
   }
 )

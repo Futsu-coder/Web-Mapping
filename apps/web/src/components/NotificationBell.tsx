@@ -68,6 +68,21 @@ export default function NotificationBell({
   const [error, setError] = useState<string | null>(null);
 
   const openRef = useRef(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  /** ตำแหน่งใต้ไอคอนกระดิ่ง: ขอบซ้าย panel เริ่มที่ไอคอนแล้วกางไปทางขวา */
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
+
+  const measure = useCallback(() => {
+    const r = buttonRef.current?.getBoundingClientRect();
+    if (r) setAnchor({ left: r.left, top: r.bottom + 4 });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open, measure]);
 
   /** ถือว่าอ่านแล้วทั้งหมด: บอก server + จำ id ที่เพิ่งเห็นไว้ไฮไลต์ */
   const readAll = useCallback((list: AppNotification[]) => {
@@ -101,6 +116,7 @@ export default function NotificationBell({
 
   const toggle = () => {
     openRef.current = !open;
+    if (!open) measure();
     if (open) setFresh(new Set());
     else setItems(readAll(items));
     setOpen(!open);
@@ -121,6 +137,7 @@ export default function NotificationBell({
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={toggle}
         title="การแจ้งเตือน"
@@ -139,7 +156,16 @@ export default function NotificationBell({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={toggle} />
-          <div className="absolute right-0 top-11 z-50 w-[min(24rem,calc(100vw-2rem))] bg-white border border-slate-200 rounded-xl shadow-xl text-sm flex flex-col max-h-[70vh]">
+          <div
+            className={`z-50 bg-white border border-slate-200 rounded-xl shadow-xl text-sm flex flex-col max-h-[70vh] ${
+              anchor ? "fixed" : "absolute left-0 top-11 w-[min(24rem,calc(100vw-2rem))]"
+            }`}
+            style={
+              anchor
+                ? { left: anchor.left, top: anchor.top, width: `min(24rem, calc(100vw - ${anchor.left}px - 8px))` }
+                : undefined
+            }
+          >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
               <span className="font-semibold text-slate-900">การแจ้งเตือน</span>
               {items.length > 0 && (

@@ -13,7 +13,7 @@ export default function Toast({ toast, onClose }: { toast: ToastData; onClose: (
     <div
       role="status"
       aria-live="polite"
-      className="animate-toast-in absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[90%] flex items-center gap-2.5 px-3.5 py-2 bg-slate-900 text-white rounded-lg shadow-lg border border-slate-700/60 text-sm"
+      className="animate-toast-in absolute bottom-[calc(6rem_+_env(safe-area-inset-bottom,0px))] md:bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[90%] flex items-center gap-2.5 px-3.5 py-2 bg-slate-900 text-white rounded-lg shadow-lg border border-slate-700/60 text-sm"
     >
       <span className="material-symbols-outlined text-emerald-300 text-base shrink-0">check_circle</span>
       <span className="truncate">

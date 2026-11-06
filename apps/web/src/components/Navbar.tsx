@@ -13,7 +13,10 @@ export default function Navbar({
   onLogout,
   onRefresh,
   bell,
+  search,
 }: {
+  /** ปุ่มค้นหาบนมือถือ (วางก่อนกระดิ่ง) */
+  search?: ReactNode;
   /** กระดิ่งการแจ้งเตือน (แสดงเมื่อ login แล้ว) */
   bell?: ReactNode;
   me: Me | null;
@@ -42,9 +45,10 @@ export default function Navbar({
       <span className="flex items-center justify-center w-8 h-8 rounded-md bg-teal-700 text-white">
         <span className="material-symbols-outlined text-[18px]">map</span>
       </span>
-      <span className="font-semibold text-slate-900 tracking-tight">Web Mapping</span>
+      <span className={`font-semibold text-slate-900 tracking-tight ${me ? "hidden sm:inline" : ""}`}>Web Mapping</span>
 
       <div className="ml-auto flex items-center gap-2">
+        {search}
         {!me ? (
           <button
             type="button"
@@ -63,7 +67,7 @@ export default function Navbar({
                 setMenuOpen((o) => !o);
                 if (!menuOpen) void onRefresh();
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-slate-700 border border-slate-200 hover:bg-slate-50 max-w-[45vw]"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm text-slate-700 border border-slate-200 hover:bg-slate-50 max-w-[35vw] sm:max-w-[45vw]"
               aria-expanded={menuOpen}
             >
               <span className="material-symbols-outlined text-[18px] text-teal-700">groups</span>

@@ -93,7 +93,7 @@ export default function DrawTools({
       });
       layer.on("mouseover", () => cb.current.onHover(info.id));
       layer.on("mouseout", () => cb.current.onHover(null));
-      // pm:edit ยิงทั้งหลังแก้จุดและหลังลากทั้งก้อน (Geoman ยิง pm:dragend ตามด้วย pm:edit) จึงฟังแค่ pm:edit กัน PUT ซ้ำ
+      // pm:edit ยิงทั้งหลังแก้จุดและหลังลากทั้งก้อน (Geoman ยิง pm:dragend ตามด้วย pm:edit) จึงฟังแค่ pm:edit กันบันทึกซ้ำ
       layer.on("pm:edit", () => cb.current.onGeometryChange(info.id, layer));
       group.addLayer(layer);
       const owner = { ownerId: f.properties.owner_id ?? null, ownerName: f.properties.owner_name ?? null };
