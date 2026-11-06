@@ -37,7 +37,7 @@ import MobileSearch from "./components/mobile/MobileSearch";
 import MobileSheet from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
-import { BASE_LAYERS, type BaseLayerId } from "./lib/baseLayers";
+import { OSM_TILE } from "./lib/baseLayers";
 import {
   attach,
   detach,
@@ -91,7 +91,6 @@ export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
   const [activeTool, setActiveTool] = useState<DrawShape | null>(null);
-  const [baseLayerId, setBaseLayerId] = useState<BaseLayerId>("osm");
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -169,7 +168,6 @@ export default function App() {
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
   const hiddenSet = new Set(items.filter(isHidden).map((i) => i.id));
-  const activeBaseLayer = BASE_LAYERS.find((l) => l.id === baseLayerId)!;
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
   const selectedItem = selectedId !== null ? items.find((i) => i.id === selectedId) : undefined;
@@ -611,7 +609,7 @@ export default function App() {
           zoom={6}
           zoomControl={false}
         >
-          <TileLayer key={activeBaseLayer.id} url={activeBaseLayer.url} attribution={activeBaseLayer.attribution} />
+          <TileLayer url={OSM_TILE.url} attribution={OSM_TILE.attribution} />
           <DrawTools
             key={viewKey}
             guest={guest}
@@ -638,8 +636,6 @@ export default function App() {
           mapRef={mapRef}
           activeTool={isMobile ? (mobileDraw?.shape ?? null) : activeTool}
           moveActive={moveMode}
-          baseLayerId={baseLayerId}
-          onBaseLayerChange={setBaseLayerId}
           collapsible={isMobile}
           onDrawSelect={isMobile ? onMobileDrawSelect : undefined}
         />

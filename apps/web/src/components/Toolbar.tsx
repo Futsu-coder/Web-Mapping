@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type L from "leaflet";
-import type { BaseLayerId } from "../lib/baseLayers";
 import type { DrawShape } from "../lib/types";
-import LayersPicker from "./LayersPicker";
 
 const TOOL_ICON: Record<DrawShape, string> = { Marker: "location_on", Line: "timeline", Polygon: "polyline" };
 
@@ -39,38 +37,32 @@ export default function Toolbar({
   mapRef,
   activeTool,
   moveActive,
-  baseLayerId,
-  onBaseLayerChange,
   collapsible = false,
   onDrawSelect,
 }: {
   mapRef: React.MutableRefObject<L.Map | null>;
   activeTool: DrawShape | null;
   moveActive: boolean;
-  baseLayerId: BaseLayerId;
-  onBaseLayerChange: (id: BaseLayerId) => void;
   /** มือถือ: แสดงเป็นปุ่มเดียว (ไอคอนเครื่องมือที่ใช้อยู่ + ลูกศร) กดแล้วกางรายการเครื่องมือ */
   collapsible?: boolean;
   /** ถ้าส่งมา จะเรียกแทน Geoman enableDraw (มือถือวาดด้วยกากบาทกลางจอ) */
   onDrawSelect?: (shape: DrawShape) => void;
 }) {
-  const [layersOpen, setLayersOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const showTools = !collapsible || expanded;
 
   useEffect(() => {
-    if (!layersOpen && !(collapsible && expanded)) return;
+    if (!(collapsible && expanded)) return;
     // capture: Leaflet อาจหยุด event ของแผนที่ไม่ให้ลอยขึ้นมาถึง document
     const handleOutside = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setLayersOpen(false);
-        if (collapsible) setExpanded(false);
+        setExpanded(false);
       }
     };
     document.addEventListener("pointerdown", handleOutside, true);
     return () => document.removeEventListener("pointerdown", handleOutside, true);
-  }, [layersOpen, collapsible, expanded]);
+  }, [collapsible, expanded]);
 
   const toggleDraw = (shape: DrawShape) => {
     if (onDrawSelect) {
@@ -141,27 +133,11 @@ export default function Toolbar({
           <ToolButton icon="add" label="Zoom In" onClick={() => mapRef.current?.zoomIn()} />
           <ToolButton icon="remove" label="Zoom Out" onClick={() => mapRef.current?.zoomOut()} />
 
-          <div className="relative">
-            <ToolButton icon="layers" label="Toggle Base Layers" active={layersOpen} onClick={() => setLayersOpen((o) => !o)} />
-            {layersOpen && (
-              <LayersPicker
-                baseLayerId={baseLayerId}
-                onSelect={(id) => {
-                  onBaseLayerChange(id);
-                  setLayersOpen(false);
-                }}
-              />
-            )}
-          </div>
-
           {collapsible && (
             <button
               type="button"
               aria-label="ย่อเครื่องมือ"
-              onClick={() => {
-                setExpanded(false);
-                setLayersOpen(false);
-              }}
+              onClick={() => setExpanded(false)}
               className="w-8 h-6 flex items-center justify-center text-slate-500"
             >
               <span className="material-symbols-outlined text-[18px]">expand_less</span>
