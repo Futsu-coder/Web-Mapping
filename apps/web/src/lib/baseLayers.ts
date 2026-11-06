@@ -11,7 +11,7 @@ export const BASE_LAYERS: BaseLayer[] = [
   {
     id: "osm",
     name: "OpenStreetMap",
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution: "&copy; OpenStreetMap contributors",
   },
   {
