@@ -96,7 +96,7 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
   };
 
   const inputCls = (f: Field) =>
-    `block w-full pl-10 py-2 sm:py-2.5 rounded-xl text-sm text-slate-800 placeholder-slate-400 outline-none transition-all duration-150 ${
+    `block w-full pl-10 py-2 sm:py-2.5 rounded-xl text-base md:text-sm text-slate-800 placeholder-slate-400 outline-none transition-all duration-150 ${
       f === "password" ? "pr-10" : "pr-3.5"
     } ${
       errorField === f

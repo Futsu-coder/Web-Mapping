@@ -194,7 +194,7 @@ function GroupMenu({
               onChange={(e) => setGroupName(e.target.value)}
               maxLength={50}
               autoFocus
-              className="flex-1 min-w-0 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:border-teal-700"
+              className="flex-1 min-w-0 px-2 py-1 border border-slate-300 rounded text-base md:text-sm focus:outline-none focus:border-teal-700"
             />
             <button type="submit" disabled={busy || !groupName.trim()} className="px-2 py-1 rounded bg-teal-700 text-white text-xs disabled:opacity-50">
               บันทึก
@@ -262,7 +262,7 @@ function GroupMenu({
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             placeholder="UserID (#1024) หรือ username"
-            className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-teal-700"
+            className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded-lg text-base md:text-sm focus:outline-none focus:border-teal-700"
           />
           <button
             type="submit"
