@@ -24,6 +24,35 @@
       "GRAD" 0,
       "opsz" 20;
   }
+  /* ซ่อนปุ่มเปิดดูรหัสผ่าน/ปุ่มล้างที่ Edge ใส่มาเอง — เราใช้ปุ่มของเราเองใน AuthDialog */
+  input::-ms-reveal,
+  input::-ms-clear {
+    display: none;
+  }
+}
+
+/* ขอบล่าง/บนที่เว้นให้ notch / home indicator (ต้องใช้ viewport-fit=cover ใน index.html) */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* มือถือ: ยก attribution/สเกลของ Leaflet ขึ้นเหนือแผ่นล่าง
+   ต้องเขียนนอก @layer — leaflet.css ไม่อยู่ใน layer จึงชนะ utility ของ Tailwind เสมอ */
+@media (max-width: 767px) {
+  .map-area .leaflet-bottom {
+    bottom: var(--map-bottom-inset, 0px);
+  }
+}
+
+/* ซ่อน scrollbar แต่ยังเลื่อนได้ (แถว chip บนมือถือ) */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* หมุดที่ถูก hover (จากรายการหรือบนแผนที่) */

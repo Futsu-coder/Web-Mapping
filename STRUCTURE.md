@@ -24,7 +24,7 @@ Web-Mapping/
     │   │   │   └── schema.ts   # ตาราง features (Drizzle pgTable + geometry PostGIS)
     │   │   ├── validation.ts   # t (TypeBox) ตรวจ GeoJSON Feature ขาเข้า + ตัวอย่าง
     │   │   └── routes/
-    │   │       └── features.ts   # GET/POST/PUT/DELETE /api/features
+    │   │       └── features.ts   # GET/POST/PUT/PATCH/DELETE /api/features
     │   └── sql/
     │       └── schema.sql  # create extension postgis (รันครั้งเดียวก่อน db:push)
     └── web/                # Frontend — React + Vite + react-leaflet + Geoman

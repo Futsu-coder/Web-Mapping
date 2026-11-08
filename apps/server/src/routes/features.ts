@@ -3,7 +3,7 @@ import { and, asc, eq, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db'
 import { features, profiles } from '../db/schema'
 import { auth, type CurrentUser } from '../auth'
-import { FeatureIn, GeomType, IdParams, type FeatureInput } from '../validation'
+import { FeatureIn, FeaturePatch, GeomType, IdParams, type FeatureInput } from '../validation'
 
 class InvalidGeometry extends Error {}
 
@@ -59,9 +59,9 @@ const selectInGroup = (user: CurrentUser, where?: SQL) =>
 
 const geomFromGeoJSON = (geojson: string) => sql`ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326)`
 
-/** แปลง GeoJSON เป็นค่าที่เก็บลง DB พร้อมตรวจรูปทรงด้วย PostGIS */
-async function parseInput(body: FeatureInput) {
-  const geojson = JSON.stringify(body.geometry)
+/** ตรวจรูปทรงด้วย PostGIS แล้วคืน geom พร้อมเก็บลง DB */
+async function validateGeometry(geometry: FeatureInput['geometry']) {
+  const geojson = JSON.stringify(geometry)
   let check: { valid: boolean; reason: string } | undefined
   try {
     ;[check] = await db.execute<{ valid: boolean; reason: string }>(sql`
@@ -73,13 +73,20 @@ async function parseInput(body: FeatureInput) {
     throw new InvalidGeometry(err.cause?.message ?? err.message)
   }
   if (!check?.valid) throw new InvalidGeometry(check?.reason ?? 'unknown')
+  return { geomType: geometry.type, geom: geomFromGeoJSON(geojson) }
+}
 
+// ฟิลด์ที่ระบบสร้างเอง ไม่ให้ client เขียนทับ
+const SYSTEM_KEYS = ['name', 'geom_type', 'owner_id', 'owner_name', 'created_at', 'updated_at']
+
+/** แปลง GeoJSON เป็นค่าที่เก็บลง DB พร้อมตรวจรูปทรงด้วย PostGIS */
+async function parseInput(body: FeatureInput) {
+  const geo = await validateGeometry(body.geometry)
   const properties: Record<string, unknown> = { ...body.properties }
   const name = body.properties.name.trim() || body.geometry.type
-  // ฟิลด์ที่ระบบสร้างเอง ไม่ให้ client เขียนทับ
-  for (const key of ['name', 'geom_type', 'owner_id', 'owner_name', 'created_at', 'updated_at']) delete properties[key]
+  for (const key of SYSTEM_KEYS) delete properties[key]
 
-  return { name, geomType: body.geometry.type, geom: geomFromGeoJSON(geojson), properties }
+  return { name, ...geo, properties }
 }
 
 /** แก้/ลบได้เมื่อเป็นเจ้าของ feature หรือเป็นเจ้าของ group */
@@ -150,6 +157,55 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
       return row ? toGeoJSON(row) : status(404, notFound)
     },
     { params: IdParams, body: FeatureIn }
+  )
+
+  .patch(
+    '/:id',
+    async ({ user, params, body, status }) => {
+      if (!body.geometry && !Object.keys(body.properties ?? {}).length) {
+        return status(400, { detail: 'Nothing to update' })
+      }
+      const denied = await checkModify(user, params.id)
+      if (denied === 404) return status(404, notFound)
+      if (denied === 403) return status(403, forbidden)
+
+      const geo = body.geometry ? await validateGeometry(body.geometry) : null
+
+      const updated = await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ properties: features.properties })
+          .from(features)
+          .where(and(eq(features.id, params.id), eq(features.groupId, user.groupId)))
+          .for('update')
+        if (!current) return false
+
+        const set: Partial<typeof features.$inferInsert> = {}
+        if (geo) Object.assign(set, geo)
+
+        if (body.properties) {
+          const merged: Record<string, unknown> = { ...current.properties }
+          for (const [key, value] of Object.entries(body.properties)) {
+            if (SYSTEM_KEYS.includes(key)) continue
+            if (value === null) delete merged[key]
+            else merged[key] = value
+          }
+          set.properties = merged
+          const trimmed = body.properties.name?.trim()
+          if (trimmed) set.name = trimmed
+        }
+
+        await tx
+          .update(features)
+          .set({ ...set, updatedAt: sql`now()` })
+          .where(eq(features.id, params.id))
+        return true
+      })
+      if (!updated) return status(404, notFound)
+
+      const [row] = await selectInGroup(user, eq(features.id, params.id))
+      return row ? toGeoJSON(row) : status(404, notFound)
+    },
+    { params: IdParams, body: FeaturePatch }
   )
 
   .delete(

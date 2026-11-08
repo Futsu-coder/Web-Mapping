@@ -8,7 +8,19 @@ type Place = { place_id: number; display_name: string; lat: string; lon: string;
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const MIN_INTERVAL_MS = 1000;
 
-export default function SearchBox({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
+const DEFAULT_CLASS = "absolute top-4 left-16 z-20 w-[min(20rem,calc(100%-8rem))]";
+
+export default function SearchBox({
+  mapRef,
+  className = DEFAULT_CLASS,
+  onPicked,
+}: {
+  mapRef: React.MutableRefObject<L.Map | null>;
+  /** ตำแหน่ง/ความกว้างของกล่อง (ค่าเริ่มต้น = มุมซ้ายบนของจอคอม) */
+  className?: string;
+  /** เลือกผลการค้นหาแล้ว (มือถือใช้ปิดแถบค้นหา) */
+  onPicked?: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,6 +73,7 @@ export default function SearchBox({ mapRef }: { mapRef: React.MutableRefObject<L
       .addTo(map);
     setHasPin(true);
     setResults(null);
+    onPicked?.();
   };
 
   const clear = () => {
@@ -73,7 +86,7 @@ export default function SearchBox({ mapRef }: { mapRef: React.MutableRefObject<L
   };
 
   return (
-    <div className="absolute top-4 left-16 z-20 w-[min(20rem,calc(100%-8rem))]">
+    <div className={className}>
       <form
         onSubmit={search}
         className="flex items-center gap-1 pl-3 pr-1 h-10 bg-white border border-slate-200 rounded-lg shadow-md"
@@ -84,7 +97,7 @@ export default function SearchBox({ mapRef }: { mapRef: React.MutableRefObject<L
           onChange={(e) => setQuery(e.target.value)}
           placeholder="ค้นหาสถานที่ แล้วกด Enter"
           aria-label="ค้นหาสถานที่"
-          className="flex-1 min-w-0 text-sm outline-none bg-transparent"
+          className="flex-1 min-w-0 text-base md:text-sm outline-none bg-transparent"
         />
         {loading && <span className="text-xs text-slate-400 px-1">กำลังค้นหา…</span>}
         {(query || hasPin) && !loading && (

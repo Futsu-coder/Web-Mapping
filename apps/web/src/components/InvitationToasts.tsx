@@ -15,7 +15,7 @@ export default function InvitationToasts({
   if (invitations.length === 0 && !error) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[min(20rem,calc(100vw-2rem))] space-y-2" aria-live="polite">
+    <div className="fixed bottom-[calc(6rem_+_env(safe-area-inset-bottom,0px))] md:bottom-4 right-4 z-50 w-[min(20rem,calc(100vw-2rem))] space-y-2" aria-live="polite">
       {invitations.map((inv) => (
         <div key={inv.id} className="animate-invite-in bg-white border border-slate-200 rounded-xl shadow-lg p-3">
           <div className="flex items-start gap-2">

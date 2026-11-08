@@ -21,7 +21,7 @@ export const FeatureIn = t.Object(
     geometry: Geometry,
     properties: t.Object(
       {
-        name: t.String({ minLength: 1, maxLength: 100 }),
+        name: t.String({ minLength: 1, maxLength: 100, pattern: '\\S' }), // ต้องมีตัวที่ไม่ใช่ช่องว่าง
         category: t.Optional(Category),
         description: t.Optional(t.String({ maxLength: 2000 }))
       },
@@ -53,5 +53,23 @@ export const FeatureIn = t.Object(
 )
 
 export type FeatureInput = typeof FeatureIn.static
+
+// PATCH: JSON Merge Patch (RFC 7396) — ส่งเฉพาะส่วนที่เปลี่ยน, null = ลบ key
+export const FeaturePatch = t.Object({
+  type: t.Optional(t.Literal('Feature')),
+  geometry: t.Optional(Geometry),
+  properties: t.Optional(
+    t.Object(
+      {
+        name: t.Optional(t.String({ minLength: 1, maxLength: 100, pattern: '\\S' })),
+        category: t.Optional(t.Union([Category, t.Null()])),
+        description: t.Optional(t.Union([t.String({ maxLength: 2000 }), t.Null()]))
+      },
+      { additionalProperties: true }
+    )
+  )
+})
+
+export type FeaturePatchInput = typeof FeaturePatch.static
 
 export const IdParams = t.Object({ id: t.Numeric() })
