@@ -37,7 +37,8 @@ import MobileSearch from "./components/mobile/MobileSearch";
 import MobileSheet from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
-import { OSM_TILE } from "./lib/baseLayers";
+import { OSM_TILE, WORLD_BOUNDS } from "./lib/baseLayers";
+import WorldLimits from "./components/WorldLimits";
 import {
   attach,
   detach,
@@ -608,8 +609,13 @@ export default function App() {
           center={[13.75, 100.5]}
           zoom={6}
           zoomControl={false}
+          // แสดงโลกใบเดียว: เลื่อนออกนอกขอบโลกไม่ได้ (ระดับซูมต่ำสุดตั้งใน WorldLimits)
+          maxBounds={WORLD_BOUNDS}
+          maxBoundsViscosity={1}
         >
-          <TileLayer url={OSM_TILE.url} attribution={OSM_TILE.attribution} />
+          {/* bounds: ไม่ขอ tile นอกโลก (เช่น x = -1) ซึ่ง OSM ตอบ 400 */}
+          <TileLayer url={OSM_TILE.url} attribution={OSM_TILE.attribution} noWrap bounds={WORLD_BOUNDS} />
+          <WorldLimits />
           <DrawTools
             key={viewKey}
             guest={guest}
