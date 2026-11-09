@@ -1,42 +1,126 @@
 import type { Category } from "../../shared/categories";
+import { accessToken, supabase } from "./lib/supabase";
 
 export type GeomType = "Point" | "LineString" | "Polygon";
 
 /** ฟิลด์ที่ผู้ใช้กรอก — เก็บใน properties ของ GeoJSON Feature */
 export type FeatureProps = { name: string; category?: Category; description?: string };
 
-export type ApiFeature = GeoJSON.Feature<GeoJSON.Geometry, FeatureProps & { geom_type: GeomType }> & {
+/** ฟิลด์ที่ server ใส่ให้ (เจ้าของ feature) — feature ในโหมดทดลองไม่มีเจ้าของ */
+export type FeatureOwner = { owner_id: string | null; owner_name: string | null };
+
+export type ApiFeature = GeoJSON.Feature<GeoJSON.Geometry, FeatureProps & FeatureOwner & { geom_type: GeomType }> & {
   id: number;
 };
 
-const BASE = "/api/features";
+export type Member = { id: string; username: string; userNo: number; joinedAt: string };
+export type Me = {
+  user: { id: string; username: string; userNo: number };
+  group: { id: number; name: string; ownerId: string };
+  members: Member[];
+};
+export type Invitation = { id: number; groupId: number; groupName: string; inviterName: string; createdAt: string };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
-  });
+  const headers: Record<string, string> = {};
+  if (init?.body) headers["Content-Type"] = "application/json";
+  const token = await accessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
-    // API ตอบ { detail } (404/422 ของเรา) หรือ { summary } (validation ของ Elysia)
+    // token หมดอายุ / บัญชีถูกลบ → ออกจากระบบ (App กลับเป็นโหมดทดลอง)
+    if (res.status === 401 && token) void supabase?.auth.signOut();
+    // API ตอบ { detail } (ของเรา) หรือ { summary } (validation ของ Elysia)
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ?? body?.summary ?? `${res.status} ${res.statusText}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+const json = (method: string, body?: unknown): RequestInit => ({
+  method,
+  body: body === undefined ? undefined : JSON.stringify(body),
+});
+
+// ---------- features (ต้อง login) ----------
+const BASE = "/api/features";
+
 // ขาเข้าเป็น GeoJSON Feature เสมอ
-const toBody = (geometry: GeoJSON.Geometry, properties: FeatureProps) =>
-  JSON.stringify({ type: "Feature", geometry, properties });
+const toBody = (geometry: GeoJSON.Geometry, properties: FeatureProps) => ({ type: "Feature", geometry, properties });
 
 export const listFeatures = () =>
   request<GeoJSON.FeatureCollection>(BASE).then((c) => c.features as ApiFeature[]);
 
-export const createFeature = (geometry: GeoJSON.Geometry, props: FeatureProps) =>
-  request<ApiFeature>(BASE, { method: "POST", body: toBody(geometry, props) });
+// id ที่เราเพิ่งเขียนเอง — Realtime จะส่งกลับมาอีกรอบ ไม่ต้องโหลดซ้ำ (ลด request ที่แย่งกับการบันทึก)
+const ECHO_MS = 2000;
+const recentWrites = new Map<number, number>();
+const markWrite = (id: number) => void recentWrites.set(id, Date.now() + ECHO_MS);
+/** true = เป็นการเขียนของเราเอง (ใช้ได้ครั้งเดียวต่อการเขียน) */
+export const isOwnEcho = (id: number) => {
+  const until = recentWrites.get(id);
+  if (until === undefined) return false;
+  recentWrites.delete(id);
+  return until > Date.now();
+};
 
-export const updateFeature = (id: number, geometry: GeoJSON.Geometry, props: FeatureProps) =>
-  request<ApiFeature>(`${BASE}/${id}`, { method: "PUT", body: toBody(geometry, props) });
+export const createFeature = (geometry: GeoJSON.Geometry, props: FeatureProps) =>
+  request<ApiFeature>(BASE, json("POST", toBody(geometry, props))).then((f) => (markWrite(f.id), f));
+
+/** JSON Merge Patch: ส่งเฉพาะส่วนที่เปลี่ยน, null = ลบ key */
+export type FeaturePatch = {
+  geometry?: GeoJSON.Geometry;
+  properties?: { name?: string; category?: Category | null; description?: string | null };
+};
+
+export const patchFeature = (id: number, patch: FeaturePatch) => {
+  markWrite(id);
+  return request<ApiFeature>(`${BASE}/${id}`, json("PATCH", { type: "Feature", ...patch })).catch((e) => {
+    recentWrites.delete(id);
+    throw e;
+  });
+};
 
 export const deleteFeature = (id: number) => request<void>(`${BASE}/${id}`, { method: "DELETE" });
 
 export const getFeature = (id: number) => request<ApiFeature>(`${BASE}/${id}`);
+
+// ---------- บัญชี / group / คำเชิญ ----------
+export const signup = (username: string, password: string) =>
+  request<{ username: string }>("/api/auth/signup", json("POST", { username, password }));
+
+export const getMe = () => request<Me>("/api/me");
+
+export const renameGroup = (name: string) => request<Me["group"]>("/api/group", json("PATCH", { name }));
+
+export const leaveGroup = () => request<void>("/api/group/leave", { method: "POST" });
+
+/** target = UserID (#1024 / 1024) หรือ username */
+export const invite = (target: string) =>
+  request<{ username: string; userNo: number }>("/api/invitations", json("POST", { target }));
+
+export const listInvitations = () => request<Invitation[]>("/api/invitations");
+
+export const answerInvitation = (id: number, action: "accept" | "reject") =>
+  request<void>(`/api/invitations/${id}/${action}`, { method: "POST" });
+
+// ---------- การแจ้งเตือน (กระดิ่ง) ----------
+export type NotificationKind = "invitation" | "member";
+export type AppNotification = {
+  id: number;
+  kind: NotificationKind;
+  /** invitation: invited/accepted/rejected · member: joined/left/owner */
+  action: string;
+  actorName: string;
+  subject: string;
+  refId: number | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export const listNotifications = () =>
+  request<{ items: AppNotification[]; unread: number }>("/api/notifications?limit=100");
+
+export const markNotificationsRead = () => request<void>("/api/notifications/read", { method: "POST" });
+
+export const clearNotifications = () => request<void>("/api/notifications", { method: "DELETE" });

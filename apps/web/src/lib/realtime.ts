@@ -1,19 +1,14 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "./supabase";
 
-// Supabase ใช้แค่ฟัง Realtime — อ่าน/เขียนข้อมูลยังผ่าน API ของเราเหมือนเดิม
-// anon key เปิดเผยฝั่งเว็บได้ (สิทธิ์ถูกจำกัดด้วย RLS ใน apps/server/sql/realtime.sql)
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-const supabase = url && anonKey ? createClient(url, anonKey) : null;
-if (!supabase) console.info("Realtime ปิดอยู่: ยังไม่ได้ตั้ง VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY");
+// Realtime ส่ง event เฉพาะแถวที่ RLS อนุญาต (feature ใน group ตัวเอง / คำเชิญถึงเรา) ตาม session ที่ login อยู่
 
 export type FeatureChange = { type: "INSERT" | "UPDATE" | "DELETE"; id: number };
 
-/** ฟังการเปลี่ยนแปลงตาราง features จากทุก browser — คืนฟังก์ชันเลิกฟัง */
+/** ฟังการเปลี่ยนแปลงตาราง features ของ group ตัวเอง — คืนฟังก์ชันเลิกฟัง */
 export function subscribeFeatures(onChange: (change: FeatureChange) => void): () => void {
-  if (!supabase) return () => {};
-  const channel = supabase
+  const client = supabase;
+  if (!client) return () => {};
+  const channel = client
     .channel("features")
     .on("postgres_changes", { event: "*", schema: "public", table: "features" }, (payload) => {
       const row = (payload.eventType === "DELETE" ? payload.old : payload.new) as { id?: number | string };
@@ -21,6 +16,27 @@ export function subscribeFeatures(onChange: (change: FeatureChange) => void): ()
     })
     .subscribe();
   return () => {
-    supabase.removeChannel(channel);
+    client.removeChannel(channel);
   };
 }
+
+/** แถวใหม่ในตารางที่เป็นของเรา (คำเชิญถึงเรา / การแจ้งเตือนถึงเรา) — คืนฟังก์ชันเลิกฟัง */
+function subscribeMine(table: string, column: string, userId: string, onNew: () => void): () => void {
+  const client = supabase;
+  if (!client) return () => {};
+  const channel = client
+    .channel(`${table}-${userId}`)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table, filter: `${column}=eq.${userId}` }, () =>
+      onNew(),
+    )
+    .subscribe();
+  return () => {
+    client.removeChannel(channel);
+  };
+}
+
+export const subscribeInvitations = (userId: string, onNew: () => void) =>
+  subscribeMine("invitations", "invitee_id", userId, onNew);
+
+export const subscribeNotifications = (userId: string, onNew: () => void) =>
+  subscribeMine("notifications", "user_id", userId, onNew);

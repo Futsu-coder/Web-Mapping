@@ -1,36 +1,34 @@
-import { useEffect, useReducer, useState } from "react";
-import L from "leaflet";
+import { useState } from "react";
+import { InfoIcon, MoveIcon, PencilIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
 import type { FeatureProps } from "../api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { CATEGORIES, CATEGORY_STYLE, type Category } from "../lib/categories";
-import { message } from "../lib/featureMeta";
+import { centerOf, message } from "../lib/featureMeta";
+import { describeGeometry, fmtLat, fmtLng } from "../lib/measure";
 import type { GeomType } from "../lib/types";
 
-const fmtLat = (v: number) => `${Math.abs(v).toFixed(4)}° ${v >= 0 ? "N" : "S"}`;
-const fmtLng = (v: number) => `${Math.abs(v).toFixed(4)}° ${v >= 0 ? "E" : "W"}`;
+const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 /** Point = ตำแหน่งจุด, Line/Polygon = จุดกึ่งกลางของกรอบ (อัปเดตเมื่อลากแก้เสร็จ) */
-function LocationView({ layer }: { layer: L.Layer }) {
-  const [, refresh] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    layer.on("pm:edit", refresh);
-    return () => void layer.off("pm:edit", refresh);
-  }, [layer]);
-
-  const pos =
-    layer instanceof L.Marker ? layer.getLatLng() : layer instanceof L.Polyline ? layer.getBounds().getCenter() : null;
-  if (!pos) return null;
-
+function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
+  const [lng, lat] = centerOf(geometry);
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Location</div>
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-semibold text-muted-foreground">ตำแหน่ง</span>
       <div className="grid grid-cols-2 gap-2">
         {[
-          ["Latitude", fmtLat(pos.lat)],
-          ["Longitude", fmtLng(pos.lng)],
+          ["ละติจูด", fmtLat(lat)],
+          ["ลองจิจูด", fmtLng(lng)],
         ].map(([label, value]) => (
-          <div key={label} className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs">
-            <span className="text-slate-400 block text-[10px] uppercase font-semibold">{label}</span>
-            <span className="font-mono font-medium text-slate-700">{value}</span>
+          <div key={label} className={cn("rounded-lg border bg-muted/50 text-xs", mobile ? "p-3" : "p-2.5")}>
+            <span className="block text-[0.6875rem] text-muted-foreground">{label}</span>
+            <span className="font-mono font-medium">{value}</span>
           </div>
         ))}
       </div>
@@ -39,25 +37,41 @@ function LocationView({ layer }: { layer: L.Layer }) {
 }
 
 /**
- * ฟอร์ม Edit Feature Properties (ชื่อ / category / description)
- * ใช้ทั้งตอนแก้ feature เดิมและตอนเพิ่ง วาดเสร็จ — parent ต้องใส่ `key` ให้เปลี่ยนตาม feature ที่เลือก
+ * ฟอร์มรายละเอียด feature (ชื่อ / หมวดหมู่ / คำอธิบาย)
+ * ใช้ทั้งตอนแก้ feature เดิมและตอนเพิ่งวาดเสร็จ — parent ต้องใส่ `key` ให้เปลี่ยนตาม feature ที่เลือก
+ * variant="mobile" = อยู่ใน bottom sheet (ตอน create ปุ่มบันทึกอยู่ที่หัวจอผ่าน formId)
  */
 export default function FeatureEditor({
   mode,
   type,
-  layer,
+  geometry,
   initial,
   onSave,
   onCancel,
   onDelete,
+  onEdit,
+  variant = "desktop",
+  formId,
+  ownerName,
+  canModify = true,
 }: {
+  /** ชื่อคนสร้าง (แสดงเมื่อ login แล้ว) */
+  ownerName?: string | null;
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่ม Edit/Delete บนมือถือ */
+  canModify?: boolean;
   mode: "view" | "edit" | "create";
   type: GeomType;
-  layer: L.Layer;
+  /** รูปทรงปัจจุบัน (ระหว่างวาด/แก้ = ค่าล่าสุดจาก draw) ใช้แสดงตำแหน่ง/พื้นที่ */
+  geometry: GeoJSON.Geometry;
   initial: FeatureProps;
   onSave: (props: FeatureProps) => Promise<void>;
   onCancel: () => void;
   onDelete: () => Promise<void>;
+  /** มือถือ โหมดดู: ปุ่ม Edit */
+  onEdit?: () => void;
+  variant?: "desktop" | "mobile";
+  /** id ของ <form> ให้ปุ่มนอก component (บันทึกบนหัวจอมือถือ) สั่ง submit ได้ */
+  formId?: string;
 }) {
   const [name, setName] = useState(initial.name);
   const [category, setCategory] = useState<Category>(initial.category ?? "Other");
@@ -77,133 +91,209 @@ export default function FeatureEditor({
     }
   };
 
+  const mobile = variant === "mobile";
   const readOnly = mode === "view";
   const trimmed = name.trim();
-  const save = () =>
-    run(() => onSave({ name: trimmed, category, description: description.trim() || undefined }));
+  const save = () => run(() => onSave({ name: trimmed, category, description: description.trim() || undefined }));
+  const info = describeGeometry(geometry);
+  // มือถือ: input สูง 44px+ และตัวอักษร 16px กัน iOS ซูมเอง
+  const ctl = mobile ? "h-11 text-base md:text-base" : "";
 
-  const inputCls =
-    "px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:border-teal-700 focus:ring-1 focus:ring-teal-700/20 disabled:bg-slate-50 disabled:text-slate-600";
-
-  return (
-    <div className="flex flex-col min-h-0 h-full bg-white">
-      <div className="px-3 py-2.5 border-b border-slate-200 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-teal-700 text-[18px]">tune</span>
-          <span className="text-sm font-semibold text-slate-900">
-            {mode === "create" ? "New Feature" : mode === "view" ? "Feature Properties" : "Edit Feature Properties"}
-          </span>
+  const fields = (
+    <>
+      {!readOnly && (
+        <div className="flex items-start gap-2 rounded-lg bg-primary/10 px-2.5 py-2 text-xs text-teal-900">
+          <MoveIcon className="mt-0.5 size-4 shrink-0" />
+          <span>{mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}</span>
         </div>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-[11px] text-teal-700 font-bold font-mono">
-          <span className={`w-1.5 h-1.5 rounded-full ${mode === "create" ? "bg-amber-500" : "bg-emerald-500"}`} />
-          {type} (EPSG:4326)
-        </span>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-name" className="justify-between">
+          <span>ชื่อ</span>
+          <span className="font-normal text-destructive">จำเป็น</span>
+        </Label>
+        <Input
+          id="fe-name"
+          value={name}
+          maxLength={100}
+          required
+          autoFocus={mode === "create" && !mobile}
+          disabled={readOnly}
+          placeholder={mobile ? "ใส่ชื่อ" : undefined}
+          onChange={(e) => setName(e.target.value)}
+          className={ctl}
+        />
       </div>
 
-      <form
-        className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!readOnly && trimmed && !busy) void save();
-        }}
-      >
-        <div className="flex flex-col gap-1">
-          <label htmlFor="fe-name" className="text-xs font-semibold text-slate-600 flex items-center justify-between">
-            <span>Feature Name</span>
-            <span className="text-red-700 font-normal">*required</span>
-          </label>
-          <input
-            id="fe-name"
-            type="text"
-            value={name}
-            maxLength={100}
-            autoFocus={mode === "create"}
-            disabled={readOnly}
-            onChange={(e) => setName(e.target.value)}
-            className={inputCls}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="fe-category" className="text-xs font-semibold text-slate-600">
-            Category
-          </label>
-          <div className="relative">
-            <span
-              className={`absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full pointer-events-none ${CATEGORY_STYLE[category].dot}`}
-            />
-            <select
-              id="fe-category"
-              value={category}
-              disabled={readOnly}
-              onChange={(e) => setCategory(e.target.value as Category)}
-              className={`${inputCls} w-full pl-8 py-2 font-medium`}
-            >
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-category">หมวดหมู่</Label>
+        <Select value={category} disabled={readOnly} onValueChange={(v) => setCategory(v as Category)}>
+          <SelectTrigger id="fe-category" className={cn("w-full", mobile && "h-11 text-base")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
               {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
+                <SelectItem key={c} value={c}>
+                  <span className={cn("size-2.5 rounded-full", CATEGORY_STYLE[c].dot)} />
                   {c}
-                </option>
+                </SelectItem>
               ))}
-            </select>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-desc">คำอธิบาย</Label>
+        <Textarea
+          id="fe-desc"
+          rows={3}
+          value={description}
+          disabled={readOnly}
+          maxLength={2000}
+          placeholder={mobile ? "ใส่คำอธิบาย" : undefined}
+          onChange={(e) => setDescription(e.target.value)}
+          className={cn("resize-none", mobile && "text-base md:text-base")}
+        />
+      </div>
+
+      {ownerName && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <UserIcon className="size-4" />
+          สร้างโดย <strong className="text-foreground">{ownerName}</strong>
+        </p>
+      )}
+
+      <LocationView geometry={geometry} mobile={mobile} />
+
+      {error && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-800">
+          {error}
+        </p>
+      )}
+      {/* ให้กด Enter ในช่องชื่อเพื่อบันทึกได้ */}
+      <button type="submit" hidden />
+    </>
+  );
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!readOnly && trimmed && !busy) void save();
+  };
+
+  const deleteButton = (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={busy}
+      onClick={() => void run(onDelete)}
+      className={cn("border-red-200 text-destructive hover:bg-red-50 hover:text-destructive", mobile && "h-11")}
+    >
+      <Trash2Icon data-icon="inline-start" />
+      ลบ
+    </Button>
+  );
+
+  if (mobile) {
+    const h = "h-11 text-[0.9375rem]";
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-card">
+        {mode === "create" ? (
+          <div className="mx-4 mb-2 flex shrink-0 items-center justify-between border-b pb-2">
+            <div className="flex items-center gap-2">
+              <span className="size-2.5 rounded-full bg-primary" />
+              <h2 className="text-lg font-bold">{TYPE_LABEL[type]}</h2>
+            </div>
+            <span className="text-xs font-medium text-muted-foreground">{[info.metric, info.count].filter(Boolean).join(" · ")}</span>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="fe-desc" className="text-xs font-semibold text-slate-600">
-            Description &amp; Operational Notes
-          </label>
-          <textarea
-            id="fe-desc"
-            rows={3}
-            value={description}
-            disabled={readOnly}
-            maxLength={2000}
-            onChange={(e) => setDescription(e.target.value)}
-            className={`${inputCls} resize-none`}
-          />
-        </div>
-
-        <LocationView layer={layer} />
-
-        {error && (
-          <p role="alert" className="text-xs text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1.5">
-            ⚠️ {error}
-          </p>
+        ) : (
+          <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3">
+            <div className="min-w-0">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{TYPE_LABEL[type]}</Badge>
+                {initial.category && (
+                  <Badge className={cn("border-0", CATEGORY_STYLE[initial.category].badge)}>{initial.category}</Badge>
+                )}
+              </div>
+              <h2 className="truncate text-lg font-semibold">{initial.name}</h2>
+            </div>
+            {info.metric && (
+              <div className="flex shrink-0 flex-col items-end">
+                <span className="text-[0.9375rem] font-semibold text-primary">{info.metric}</span>
+                <span className="font-mono text-[0.6875rem] text-muted-foreground">{info.count}</span>
+              </div>
+            )}
+          </div>
         )}
-        {/* ให้กด Enter ในช่องชื่อเพื่อบันทึกได้ */}
-        <button type="submit" hidden />
+
+        <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-1 pb-4" onSubmit={onSubmit}>
+          {fields}
+        </form>
+
+        {mode !== "create" && (
+          <div className="pb-safe flex shrink-0 items-center gap-2.5 border-t px-4 py-3">
+            {mode === "view" ? (
+              <>
+                <Button type="button" variant="secondary" onClick={onCancel} className={cn(h, canModify ? "px-4" : "flex-1")}>
+                  ปิด
+                </Button>
+                {canModify && (
+                  <>
+                    {deleteButton}
+                    <Button type="button" onClick={onEdit} className={cn(h, "flex-1")}>
+                      <PencilIcon data-icon="inline-start" />
+                      แก้ไข
+                    </Button>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {deleteButton}
+                <Button type="button" variant="secondary" disabled={busy} onClick={onCancel} className={h}>
+                  ยกเลิก
+                </Button>
+                <Button type="button" disabled={busy || !trimmed} onClick={() => void save()} className={cn(h, "flex-1")}>
+                  <SaveIcon data-icon="inline-start" />
+                  {busy ? "กำลังบันทึก…" : "บันทึก"}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+        <InfoIcon className="size-4.5 text-primary" />
+        <h2 className="text-sm font-semibold">
+          {mode === "create" ? "เพิ่มรายการใหม่" : mode === "view" ? "รายละเอียด" : "แก้ไขรายละเอียด"} · {TYPE_LABEL[type]}
+        </h2>
+        {info.metric && <span className="ml-auto text-xs font-medium text-muted-foreground">{info.metric}</span>}
+      </div>
+
+      <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
+        {fields}
       </form>
 
-      <div className="px-3 py-2.5 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-        >
-          {readOnly ? "Close" : "Cancel"}
-        </button>
-        <div className={`flex items-center gap-2 ${readOnly ? "hidden" : ""}`}>
-          <button
-            type="button"
-            title="Delete Selected Feature"
-            disabled={busy}
-            onClick={() => void run(onDelete)}
-            className="flex items-center gap-1 px-2.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-medium disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[16px]">delete</span>
-            Delete
-          </button>
-          <button
-            type="button"
-            disabled={busy || !trimmed}
-            onClick={() => void save()}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-700 text-white hover:bg-teal-800 rounded-lg text-xs font-medium shadow-sm disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[16px]">save</span>
-            {busy ? "Saving…" : mode === "create" ? "Save" : "Save Changes"}
-          </button>
-        </div>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+          {readOnly ? "ปิด" : "ยกเลิก"}
+        </Button>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            {mode !== "create" && deleteButton}
+            <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
+              <SaveIcon data-icon="inline-start" />
+              {busy ? "กำลังบันทึก…" : "บันทึก"}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

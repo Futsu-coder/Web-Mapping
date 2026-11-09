@@ -1,40 +1,132 @@
-import { useEffect, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDownIcon, ChevronUpIcon, EyeIcon, EyeOffIcon, LockIcon, MapIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import { CATEGORY_STYLE } from "../lib/categories";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
 
-const BADGE_COLOR: Record<GeomType, string> = {
-  Point: "bg-blue-600",
-  LineString: "bg-green-600",
-  Polygon: "bg-amber-600",
+const FILTER_LABEL: Record<GeomType | "All", string> = {
+  All: "ทั้งหมด",
+  Point: "Point",
+  LineString: "Line",
+  Polygon: "Polygon",
 };
+const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 function RowButton({
   title,
-  icon,
-  className,
+  active,
+  danger,
   onClick,
+  children,
 }: {
   title: string;
-  icon: string;
-  className: string;
+  active?: boolean;
+  danger?: boolean;
   onClick: () => void;
+  children: ReactNode;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant={active ? "default" : "ghost"}
+      size="icon"
       title={title}
       aria-label={title}
+      className={cn("size-8", danger && "text-muted-foreground hover:bg-red-50 hover:text-destructive")}
       onClick={(e) => {
         e.stopPropagation(); // ไม่ให้ไปเข้า onClick ของแถว
         onClick();
       }}
-      className={`p-1 rounded transition-colors flex items-center ${className}`}
     >
-      <span className="material-symbols-outlined text-[17px]">{icon}</span>
-    </button>
+      {children}
+    </Button>
   );
 }
 
+type RowHandlers = {
+  onFocus: (item: Item) => void;
+  onEdit: (item: Item) => void;
+  onToggleVisible: (item: Item) => void;
+  onRemove: (item: Item) => void;
+  onHover: (id: number | null) => void;
+};
+
+/** แถวรายการ — memo: render ใหม่เฉพาะแถวที่ข้อมูล/สถานะเปลี่ยน (ไม่ใช่ทุกแถวทุกครั้งที่ App เปลี่ยน state) */
+const FeatureRow = memo(function FeatureRow({
+  item,
+  selected,
+  hidden,
+  hovered,
+  editing,
+  modifiable,
+  showOwner,
+  h,
+}: {
+  item: Item;
+  selected: boolean;
+  hidden: boolean;
+  hovered: boolean;
+  editing: boolean;
+  modifiable: boolean;
+  showOwner: boolean;
+  h: RowHandlers;
+}) {
+  const category = item.props.category ?? "Other";
+  return (
+    <li
+      id={`feature-${item.id}`}
+      onClick={() => h.onFocus(item)}
+      onMouseEnter={() => h.onHover(item.id)}
+      onMouseLeave={() => h.onHover(null)}
+      className={cn(
+        "flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+        selected ? "bg-primary/10" : hovered ? "bg-muted" : "hover:bg-muted",
+        hidden && "opacity-55",
+      )}
+    >
+      <span className={cn("size-2.5 shrink-0 rounded-full", CATEGORY_STYLE[category].dot)} title={category} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{item.props.name}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {TYPE_LABEL[item.type]}
+          {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
+        </span>
+      </span>
+      {item.props.category && (
+        <Badge className={cn("shrink-0 border-0 text-[0.625rem]", CATEGORY_STYLE[item.props.category].badge)}>
+          {item.props.category}
+        </Badge>
+      )}
+      <div className="flex shrink-0 items-center">
+        <RowButton title={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"} onClick={() => h.onToggleVisible(item)}>
+          {hidden ? <EyeOffIcon /> : <EyeIcon />}
+        </RowButton>
+        {modifiable ? (
+          <>
+            <RowButton title="แก้ไข" active={editing} onClick={() => h.onEdit(item)}>
+              <PencilIcon />
+            </RowButton>
+            <RowButton title="ลบ" danger onClick={() => h.onRemove(item)}>
+              <Trash2Icon />
+            </RowButton>
+          </>
+        ) : (
+          <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="px-2 text-muted-foreground/60">
+            <LockIcon className="size-4" />
+          </span>
+        )}
+      </div>
+    </li>
+  );
+});
+
+/**
+ * การ์ดลอยซ้ายบน: โลโก้ + ค้นหา + ตัวกรอง + รายการ feature
+ * ฟอร์มรายละเอียดแยกไปอยู่ DetailCard ด้านขวา
+ */
 export default function FeaturePanel({
   items,
   filter,
@@ -48,8 +140,10 @@ export default function FeaturePanel({
   selectedId,
   editingId,
   hiddenIds,
+  canModify,
+  showOwner,
   open,
-  editor,
+  onToggle,
 }: {
   items: Item[];
   filter: GeomType | "All";
@@ -65,110 +159,113 @@ export default function FeaturePanel({
   editingId: number | null;
   /** feature ที่ถูกซ่อนจากแผนที่ */
   hiddenIds: Set<number>;
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มปากกาและถังขยะ */
+  canModify: (item: Item) => boolean;
+  /** แสดงชื่อคนสร้าง (login แล้ว) */
+  showOwner: boolean;
   open: boolean;
-  /** ฟอร์ม Edit Feature Properties — แสดงครึ่งล่างของ panel เมื่อมี feature ที่เลือก/กำลังสร้าง */
-  editor: ReactNode;
+  /** ย่อ/ขยายการ์ด */
+  onToggle: () => void;
 }) {
-  // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
+  const listRef = useRef<HTMLUListElement>(null);
+  // handler คงที่ตลอดอายุ component (อ่านตัวล่าสุดผ่าน ref) → FeatureRow ที่ memo ไว้ไม่ render ใหม่โดยไม่จำเป็น
+  const latest = useRef<RowHandlers>({ onFocus, onEdit, onToggleVisible, onRemove, onHover });
   useEffect(() => {
-    if (hoveredId != null) document.getElementById(`feature-${hoveredId}`)?.scrollIntoView({ block: "nearest" });
-  }, [hoveredId]);
+    latest.current = { onFocus, onEdit, onToggleVisible, onRemove, onHover };
+  });
+  const [handlers] = useState<RowHandlers>(() => ({
+    onFocus: (i) => latest.current.onFocus(i),
+    onEdit: (i) => latest.current.onEdit(i),
+    onToggleVisible: (i) => latest.current.onToggleVisible(i),
+    onRemove: (i) => latest.current.onRemove(i),
+    onHover: (id) => latest.current.onHover(id),
+  }));
+
+  // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
+  // เลื่อนเฉพาะในรายการเอง ไม่ใช้ scrollIntoView เพราะมันเลื่อนกล่องแผนที่ด้านนอกด้วย
+  useEffect(() => {
+    const list = listRef.current;
+    if (!open || hoveredId == null || !list) return;
+    const row = list.querySelector<HTMLElement>(`#feature-${hoveredId}`);
+    if (!row) return;
+    const top = row.offsetTop; // ul เป็น relative → offsetTop นับจากขอบบนของรายการ
+    const bottom = top + row.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  }, [hoveredId, open]);
 
   return (
     <div
-      className={`absolute inset-y-0 right-0 z-20 w-80 sm:w-96 flex flex-col bg-white border-l border-slate-200 shadow-xl transition-transform duration-300 ease-in-out ${
-        open ? "translate-x-0" : "translate-x-full"
-      }`}
+      data-feature-panel
+      className="absolute top-4 left-4 z-20 flex max-h-[calc(100%-7.5rem)] w-[22rem] flex-col rounded-xl border border-black/5 bg-card shadow-float"
     >
-      <div className={`flex flex-col min-h-0 ${editor ? "h-[45%] border-b border-slate-200" : "flex-1"}`}>
-        <div className="flex items-center px-3 py-2 border-b border-slate-200 shrink-0">
-          <span className="text-sm font-semibold text-slate-900">{items.length} features</span>
-        </div>
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
+        <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <MapIcon className="size-4" />
+        </span>
+        <span className="flex-1 text-[0.9375rem] font-bold">Web Mapping</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-expanded={open}
+          aria-label={open ? "ย่อรายการ" : "ขยายรายการ"}
+          onClick={onToggle}
+        >
+          {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
+        </Button>
+      </div>
 
-        <div className="flex gap-1 p-2 flex-wrap shrink-0 border-b border-slate-200">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => onFilterChange(f)}
-              className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                filter === f
-                  ? "bg-teal-700 text-white border-teal-700"
-                  : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-
-        <ul className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1.5">
-          {items.length === 0 && (
-            <li className="text-sm text-slate-500 px-2 py-4 text-center">
-              ยังไม่มีข้อมูล — ใช้เครื่องมือซ้ายบนวาดบนแผนที่
-            </li>
-          )}
-          {items.map((item) => {
-            const selected = item.id === selectedId;
-            const hidden = hiddenIds.has(item.id);
-            const hovered = item.id === hoveredId;
-            return (
-              <li
-                key={item.id}
-                id={`feature-${item.id}`}
-                onClick={() => onFocus(item)}
-                onMouseEnter={() => onHover(item.id)}
-                onMouseLeave={() => onHover(null)}
-                className={`flex items-center gap-2 px-2.5 py-2 border rounded-lg cursor-pointer transition-colors ${
-                  selected
-                    ? `border-teal-600 border-l-4 ${hovered ? "bg-amber-50" : "bg-teal-50"}`
-                    : hovered
-                      ? "bg-amber-50 border-amber-500"
-                      : "bg-white border-slate-200 hover:border-teal-600"
-                } ${hidden ? "opacity-60" : ""}`}
+      {/* ย่อการ์ด = ซ่อนส่วนเนื้อหา */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", !open && "hidden")}>
+        <div className="shrink-0 px-3 pb-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={filter}
+            onValueChange={(v) => v && onFilterChange(v as GeomType | "All")}
+            aria-label="กรองตามชนิด"
+            className="flex-wrap justify-start gap-1"
+          >
+            {FILTERS.map((f) => (
+              <ToggleGroupItem
+                key={f}
+                value={f}
+                className="h-7 rounded-full px-3 text-xs data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
               >
-                <span className={`text-[11px] px-1.5 py-0.5 rounded text-white shrink-0 ${BADGE_COLOR[item.type]}`}>
-                  {item.type}
-                </span>
-                <span className="flex-1 text-sm text-slate-800 truncate">{item.props.name}</span>
-                {item.props.category && (
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${CATEGORY_STYLE[item.props.category].badge}`}
-                  >
-                    {item.props.category}
-                  </span>
-                )}
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <RowButton
-                    title={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"}
-                    icon={hidden ? "visibility_off" : "visibility"}
-                    className={hidden ? "text-slate-400 hover:text-slate-600" : "text-teal-700 hover:bg-slate-100"}
-                    onClick={() => onToggleVisible(item)}
-                  />
-                  <RowButton
-                    title="แก้ไข"
-                    icon="edit"
-                    className={
-                      item.id === editingId
-                        ? "bg-teal-700 text-white"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-teal-700"
-                    }
-                    onClick={() => onEdit(item)}
-                  />
-                  <RowButton
-                    title="ลบ"
-                    icon="delete"
-                    className="text-slate-500 hover:bg-red-50 hover:text-red-700"
-                    onClick={() => onRemove(item)}
-                  />
-                </div>
-              </li>
-            );
-          })}
+                {FILTER_LABEL[f]}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between border-t px-4 pt-2 text-sm font-semibold">
+          <span>รายการ</span>
+          <span className="text-xs font-normal text-muted-foreground">{items.length} รายการ</span>
+        </div>
+
+        <ul ref={listRef} className="relative flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
+          {items.length === 0 && (
+            <li className="px-2 py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล ใช้เครื่องมือด้านล่างวาดบนแผนที่</li>
+          )}
+          {items.map((item) => (
+            <FeatureRow
+              key={item.id}
+              item={item}
+              selected={item.id === selectedId}
+              hidden={hiddenIds.has(item.id)}
+              hovered={item.id === hoveredId}
+              editing={item.id === editingId}
+              modifiable={canModify(item)}
+              showOwner={showOwner}
+              h={handlers}
+            />
+          ))}
         </ul>
       </div>
 
-      {editor && <div className="flex-1 min-h-0">{editor}</div>}
     </div>
   );
 }
