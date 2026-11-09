@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Map as MlMap, prewarm, setWorkerUrl, type IControl } from "maplibre-gl";
+import { Map as MlMap, prewarm, setWorkerCount, setWorkerUrl, type IControl } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -10,6 +10,9 @@ import { INITIAL_ZOOM, OSM_RASTER_STYLE, VECTOR_STYLE, WORLD_BOUNDS } from "../l
 // MapLibre 6 แยกไฟล์ worker (ใช้แปลง vector tile) และหาที่อยู่เองจากไฟล์หลัก — แต่ Vite ย้ายไฟล์หลักไปไว้ที่อื่นตอน pre-bundle
 // จึงหา worker ไม่เจอ ("Worker failed to load") → บอกที่อยู่ให้ตรง ๆ
 setWorkerUrl(workerUrl);
+// ค่าเริ่มต้นมี worker แปลง vector tile แค่ 1 ตัว — ตอนซูมออก tile ระดับประเทศ (ไฟล์ละ ~150 KB) ต่อคิวรอตัวเดียวจนวาดไม่ทัน
+// → ใช้ครึ่งหนึ่งของจำนวน CPU (2–4 ตัว) แปลงพร้อมกัน (ต้องตั้งก่อน prewarm / สร้างแผนที่)
+setWorkerCount(Math.min(4, Math.max(2, Math.floor((navigator.hardwareConcurrency || 4) / 2))));
 // สร้าง worker ไว้ก่อนตั้งแต่โหลดไฟล์ (เริ่มโหลด worker ขนานไปกับการ render ของ React) และเก็บไว้ตลอด
 prewarm();
 
@@ -78,6 +81,9 @@ export default function MapView({ className, onReady }: { className?: string; on
       dragRotate: false,
       touchPitch: false,
       attributionControl: { compact: true }, // ย่อเป็นปุ่ม (i) — กันข้อความเครดิตบังแผนที่บนมือถือ
+      // จำ tile ไว้ 8 ระดับซูม (ค่าเริ่มต้น 5) — ซูมเข้าลึกแล้วซูมออกกลับมา tile ระดับประเทศยังอยู่ ไม่ต้องโหลด/แปลงใหม่
+      maxTileCacheZoomLevels: 8,
+      validateStyle: false, // style ของ OpenFreeMap เชื่อถือได้ ข้ามการตรวจเพื่อเริ่มวาดเร็วขึ้น
     });
     map.touchZoomRotate.disableRotation();
     map.keyboard.disableRotation();

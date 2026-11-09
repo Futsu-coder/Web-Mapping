@@ -6,7 +6,7 @@ Web Mapping & Geospatial API — งานสหกิจ (ทำ 2 คน) ส�
 - โจทย์จริงที่ต้องทำให้ครบ: แผนที่บนเว็บ, CRUD 3 ชนิด, บันทึก/เรียกดูได้, REST API, GeoJSON, เว็บต่อ API ได้จริง, ส่ง URL + deployment + presentation
 
 ## Stack
-- **Web:** React 19 + Vite + Tailwind 4 + react-leaflet + Leaflet-Geoman (+ leaflet.markercluster)
+- **Web:** React 19 + Vite + Tailwind 4 + MapLibre GL 6 (vector tiles ของ OpenFreeMap) + @mapbox/mapbox-gl-draw
 - **API:** Elysia (Bun) + Drizzle ORM (postgres.js)
 - **DB/Auth/Realtime:** Supabase (PostgreSQL + PostGIS, SRID 4326)
 - **Deploy:** Vercel project เดียว — `api/index.ts` เป็นตัวเชื่อม: `vercel.json` rewrite `/api/*` → `api/index.ts` → Elysia `app` ใน `apps/server/src/index.ts`
@@ -32,12 +32,17 @@ apps/server/src/
 apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime) — รันใน Supabase SQL Editor
 apps/shared/                  ใช้ร่วม web+server: categories.ts, auth.ts
 apps/web/src/
-  App.tsx                     state หลักทั้งหมด (items, selection, guest, save/remove/edit) — ไฟล์ใหญ่ ~735 บรรทัด
+  App.tsx                     state หลักทั้งหมด (items, selection, draw, guest, save/remove/edit) — ไฟล์ใหญ่
   api.ts                      fetch wrapper + Bearer token, listFeatures/createFeature/patchFeature/deleteFeature
-  components/DrawTools.tsx    ผูก Leaflet layer ↔ feature, โหลดจาก API, ฟัง Realtime, events ของ Geoman
+  components/MapView.tsx      สร้างแผนที่ MapLibre + mapbox-gl-draw (setWorkerUrl + prewarm, fallback เป็น OSM PNG)
+  hooks/useFeatureData.ts     โหลด feature (API / localStorage) + ฟัง Realtime → items ใน App
+  hooks/useMapEvents.ts       click/hover บนแผนที่ + event ของ draw (create/update/selectionchange/modechange)
+  lib/mapLayers.ts            source/layer ของเรา (shapes, points แบบ cluster, crosshair) + feature-state hover/selected
+  lib/mapStyle.ts             URL style vector, style สำรอง, WORLD_BOUNDS
   components/SearchBox.tsx    ค้นหาสถานที่ผ่าน Nominatim
   components/mobile/          UI มือถือ: วาดด้วยกากบาทกลางจอ (CrosshairDraw + hooks/useCrosshairDraw), sheet ด้านล่าง
-  lib/featureMeta.ts          WeakMap meta/ownerGroup ของ layer, sameGeometry, restore/highlight
+  lib/featureMeta.ts          propsOf, sameGeometry, bbox/center ของ geometry
+  lib/measure.ts              พื้นที่/ความยาว/ตัดกันเอง (จุดเป็น [lng, lat])
   lib/realtime.ts             Supabase Realtime subscribe feature changes
   lib/idleLogout.ts           auto logout เมื่อไม่ใช้งาน 1 วัน (localStorage)
 ```
@@ -47,17 +52,25 @@ apps/web/src/
 - แก้/ลบได้เมื่อเป็นเจ้าของ feature หรือเจ้าของ group → ไม่งั้น 403 (ฝั่งเว็บใช้ `canModifyOwner` ใน App.tsx)
 - **PATCH = JSON Merge Patch (RFC 7396)**: ส่งเฉพาะที่เปลี่ยน, `null` ใน properties = ลบ key; เว็บส่งเฉพาะ diff (ดู `save` ใน App.tsx)
 - `name` เก็บเป็นคอลัมน์แยก, ฟิลด์อื่นอยู่ใน `properties` (jsonb); SYSTEM_KEYS (name, geom_type, owner_*, *_at) client เขียนทับไม่ได้
-- Polygon ห้ามตัดกันเอง (เว็บตั้ง `allowSelfIntersection: false`, server ตรวจ ST_IsValid)
+- Polygon ห้ามตัดกันเอง (เว็บตรวจด้วย `selfIntersects` ตอนวาด/ลากจุด/บันทึก, server ตรวจ ST_IsValid)
 - **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจาก feature ชิ้นแรก
-- เปลี่ยนบัญชี/group → `viewKey` เปลี่ยน → DrawTools remount โหลดชุดใหม่
-- เทียบรูปทรงที่ 6 ทศนิยม (`sameGeometry`) เพราะ PostGIS ตอบละเอียดกว่า Leaflet
+- เปลี่ยนบัญชี/group → `viewKey` เปลี่ยน → ล้าง items แล้ว `useFeatureData` โหลดชุดใหม่
+- เทียบรูปทรงที่ 6 ทศนิยม (`sameGeometry`) เพราะ PostGIS ตอบละเอียดกว่าที่วาดบนเว็บ
+- **items ใน App คือข้อมูลจริง** แผนที่แค่วาดตาม (`setFeatureData`); รูปที่กำลังแก้/ย้ายอยู่ใน draw และถูกซ่อนจาก source ปกติ
+  id ใน draw: แก้ = `f<id>`, ย้าย (Move) = `m<id>`, วาดใหม่ = id ที่ draw สร้าง
+- MapLibre 6: `maxBounds` กว้างครบ 360° ทำให้พัง (ใช้ ±179.99), ต้อง `setWorkerUrl` ไม่งั้น Vite หาไฟล์ worker ไม่เจอ (vector tile ไม่ถูกแปลง)
+- โหมด 3D (ปุ่มใน Toolbar): เอียง 60° + หมุนได้ + ภูเขา (raster-dem ของ AWS Terrarium + hillshade, โหลดเฉพาะตอนเปิด 3D)
+  + ตึก `building-3d` ที่มีใน style Liberty (ซูม ≥ 14)
+  ระหว่างวาด/แก้/Move แผนที่กลับเป็น 2D ชั่วคราว (`mustBeFlat` ใน App.tsx) เพราะ draw ทำงานคลาดเมื่อแผนที่เอียง
+- ลดกระตุกตอนซูม: worker แปลง tile 2–4 ตัว (`setWorkerCount`) + cache 8 ระดับซูม (`maxTileCacheZoomLevels`) — เคยลองหน้า loading + โหลด tile ล่วงหน้าแล้ว ไม่จำเป็น เอาออก
+- ทดสอบใน tab ที่ถูกซ่อน (เช่น browser pane ที่ไม่ได้แสดง): requestAnimationFrame หยุด → MapLibre ไม่วาด / ไม่ยิง load — ไม่ใช่บั๊ก
 - Nominatim: ไม่เกิน 1 req/วินาที (`MIN_INTERVAL_MS` ใน SearchBox) — autocomplete ใช้ debounce + cache + AbortController ยกเลิกคำค้นเก่า
 - มือถือ: input ต้อง `text-base` (16px) กัน iOS ซูมเอง
 
 ## งานที่วางแผนไว้
 แผนละเอียด: `~/.claude/plans/home-panapong-downloads-docx-mossy-nautilus.md`
 1. ✅ ทำใน branch `group/realtime`: SearchBox autocomplete (debounce + AbortController + throttle + cache) และ guest เก็บ localStorage ลบทุก 1 ชม. พร้อมแบนเนอร์นับถอยหลัง
-2. branch `feat/maplibre` (แตกหลัง merge ข้อ 1): ย้าย Leaflet/Geoman → MapLibre + @mapbox/mapbox-gl-draw, vector tiles (OpenFreeMap), 2D เท่านั้น
+2. 🚧 branch `feat/maplibre`: ย้าย Leaflet/Geoman → MapLibre + @mapbox/mapbox-gl-draw, vector tiles (OpenFreeMap), ปุ่ม 3D (ภูเขา + ตึก)
 
 ## Git
 - branch หลัก `main`, ทำงานผ่าน PR ไปที่ `Futsu-coder/Web-Mapping`
