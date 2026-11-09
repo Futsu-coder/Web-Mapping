@@ -1,10 +1,9 @@
 import { useState } from "react";
-import type L from "leaflet";
-import { selfIntersects } from "../lib/measure";
+import { distance, selfIntersects } from "../lib/measure";
 import type { DrawShape } from "../lib/types";
 
-/** วาดบนมือถือ: เลื่อนแผนที่ให้กากบาทกลางจอตรงตำแหน่งที่ต้องการ แล้วกด Add point */
-export type MobileDraw = { shape: DrawShape; points: L.LatLng[]; redo: L.LatLng[]; warning: string | null };
+/** วาดบนมือถือ: เลื่อนแผนที่ให้กากบาทกลางจอตรงตำแหน่งที่ต้องการ แล้วกด Add point (จุดเป็น [lng, lat]) */
+export type MobileDraw = { shape: DrawShape; points: GeoJSON.Position[]; redo: GeoJSON.Position[]; warning: string | null };
 
 export const MIN_POINTS: Record<DrawShape, number> = { Marker: 1, Line: 2, Polygon: 3 };
 
@@ -16,11 +15,11 @@ export function useCrosshairDraw() {
     draw,
     start: (shape: DrawShape) => setDraw({ shape, points: [], redo: [], warning: null }),
     cancel: () => setDraw(null),
-    addPoint: (p: L.LatLng) =>
+    addPoint: (p: GeoJSON.Position) =>
       update((d) => {
         if (d.shape === "Marker") return { ...d, points: [p], redo: [], warning: null };
         const last = d.points[d.points.length - 1];
-        if (last && last.distanceTo(p) < 0.5) return { ...d, warning: "จุดนี้ซ้ำกับจุดก่อนหน้า เลื่อนแผนที่ก่อนแล้วกดใหม่" };
+        if (last && distance(last, p) < 0.5) return { ...d, warning: "จุดนี้ซ้ำกับจุดก่อนหน้า เลื่อนแผนที่ก่อนแล้วกดใหม่" };
         if (d.shape === "Polygon" && selfIntersects([...d.points, p])) {
           return { ...d, warning: "ขอบพื้นที่ตัดกันเอง เลื่อนแผนที่แล้วเลือกตำแหน่งใหม่" };
         }

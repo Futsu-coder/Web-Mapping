@@ -1,48 +1,50 @@
 import { useEffect } from "react";
-import { useMap } from "react-leaflet";
-import L from "leaflet";
+import { ScaleControl, type Map as MlMap } from "maplibre-gl";
 import type { MobileDraw } from "../../hooks/useCrosshairDraw";
+import { setCrosshairData } from "../../lib/mapLayers";
 
-const TEAL = "#0f766e";
-const base = { pmIgnore: true, interactive: false } as const;
+const line = (coordinates: GeoJSON.Position[], props: Record<string, unknown>): GeoJSON.Feature => ({
+  type: "Feature",
+  geometry: { type: "LineString", coordinates },
+  properties: props,
+});
 
-/** อยู่ใน MapContainer: วาด preview ของรูปที่กำลังวาด + เส้นประไปยังตำแหน่งกลางจอ (อัปเดตตอนเลื่อนแผนที่) */
-export default function CrosshairDraw({ draw }: { draw: MobileDraw | null }) {
-  const map = useMap();
-
+/** วาด preview ของรูปที่กำลังวาด + เส้นประไปยังตำแหน่งกลางจอ (อัปเดตตอนเลื่อนแผนที่) */
+export default function CrosshairDraw({ map, draw }: { map: MlMap | null; draw: MobileDraw | null }) {
   useEffect(() => {
-    if (!draw) return;
-    const group = L.layerGroup().addTo(map);
+    if (!map || !draw) return;
 
     const render = () => {
-      group.clearLayers();
       const pts = draw.points;
-      if (draw.shape === "Marker") {
-        for (const p of pts) L.marker(p, base).addTo(group);
-        return;
-      }
+      const features: GeoJSON.Feature[] = [];
       if (draw.shape === "Polygon" && pts.length >= 3) {
-        L.polygon(pts, { ...base, color: TEAL, weight: 3, fillColor: TEAL, fillOpacity: 0.18 }).addTo(group);
-      } else if (pts.length >= 2) {
-        L.polyline(pts, { ...base, color: TEAL, weight: 3 }).addTo(group);
+        features.push({
+          type: "Feature",
+          geometry: { type: "Polygon", coordinates: [[...pts, pts[0]]] },
+          properties: { kind: "fill" },
+        });
+      } else if (draw.shape !== "Marker" && pts.length >= 2) {
+        features.push(line(pts, { kind: "line" }));
       }
-      if (pts.length) {
-        const center = map.getCenter();
-        L.polyline([pts[pts.length - 1], center], { ...base, color: TEAL, weight: 2.5, dashArray: "6 4" }).addTo(group);
+      if (draw.shape !== "Marker" && pts.length) {
+        const c = map.getCenter();
+        const center = [c.lng, c.lat];
+        features.push(line([pts[pts.length - 1], center], { kind: "guide", width: 2.5, opacity: 1 }));
         if (draw.shape === "Polygon" && pts.length >= 2) {
-          L.polyline([center, pts[0]], { ...base, color: TEAL, weight: 1.5, dashArray: "4 4", opacity: 0.45 }).addTo(group);
+          features.push(line([center, pts[0]], { kind: "guide", width: 1.5, opacity: 0.45 }));
         }
       }
       for (const p of pts) {
-        L.circleMarker(p, { ...base, radius: 6, color: TEAL, weight: 2.5, fillColor: "#fff", fillOpacity: 1 }).addTo(group);
+        features.push({ type: "Feature", geometry: { type: "Point", coordinates: p }, properties: { kind: "vertex" } });
       }
+      setCrosshairData(map, features);
     };
 
     render();
     map.on("move", render);
     return () => {
       map.off("move", render);
-      group.remove();
+      setCrosshairData(map, []);
     };
   }, [map, draw]);
 
@@ -50,11 +52,12 @@ export default function CrosshairDraw({ draw }: { draw: MobileDraw | null }) {
 }
 
 /** สเกลบาร์ (เมตร) มุมซ้ายล่างตามดีไซน์มือถือ */
-export function MobileScale() {
-  const map = useMap();
+export function MobileScale({ map }: { map: MlMap | null }) {
   useEffect(() => {
-    const control = L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
-    return () => void control.remove();
+    if (!map) return;
+    const control = new ScaleControl({ unit: "metric" });
+    map.addControl(control, "bottom-left");
+    return () => void map.removeControl(control);
   }, [map]);
   return null;
 }

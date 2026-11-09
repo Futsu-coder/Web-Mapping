@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CATEGORY_STYLE } from "../../lib/categories";
-import { layerSummary } from "../../lib/measure";
+import { geometrySummary } from "../../lib/measure";
 import { FILTERS, type GeomType, type Item } from "../../lib/types";
 
 const TYPE_STYLE: Record<GeomType, { icon: string; box: string; dot: string }> = {
@@ -117,7 +117,7 @@ export default function MobileFeatureList({
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1 truncate">{layerSummary(item.layer)}</div>
+                <div className="text-[11px] text-slate-500 mt-1 truncate">{geometrySummary(item.geometry)}</div>
                 {showOwner && item.ownerName && (
                   <div className="text-[11px] text-slate-400 truncate">โดย {item.ownerName}</div>
                 )}
