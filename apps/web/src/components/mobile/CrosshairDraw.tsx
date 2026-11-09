@@ -67,13 +67,13 @@ export function Crosshair() {
   return (
     <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
       <div className="relative flex items-center justify-center w-[6.25rem] h-[6.25rem]">
-        <div className="absolute inset-0 rounded-full border border-slate-600/50 shadow-sm bg-white/5" />
+        <div className="absolute inset-0 rounded-full border border-zinc-600/50 shadow-sm bg-white/5" />
         <div className="absolute inset-0 rounded-full border border-white/80 scale-[0.98]" />
-        <div className="absolute w-full h-px bg-slate-600/40" />
-        <div className="absolute h-full w-px bg-slate-600/40" />
-        <div className="absolute w-4 h-0.5 bg-teal-700" />
-        <div className="absolute h-4 w-0.5 bg-teal-700" />
-        <div className="w-2 h-2 rounded-full bg-teal-700 border border-white shadow-sm z-10" />
+        <div className="absolute w-full h-px bg-zinc-600/40" />
+        <div className="absolute h-full w-px bg-zinc-600/40" />
+        <div className="absolute w-4 h-0.5 bg-primary" />
+        <div className="absolute h-4 w-0.5 bg-primary" />
+        <div className="w-2 h-2 rounded-full bg-primary border border-white shadow-sm z-10" />
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { SearchIcon, XIcon } from "lucide-react";
 import { Marker, type Map as MlMap, type PaddingOptions } from "maplibre-gl";
 
 type Place = { place_id: number; display_name: string; lat: string; lon: string; boundingbox: [string, string, string, string] };
@@ -32,6 +33,8 @@ export default function SearchBox({
   className = DEFAULT_CLASS,
   onPicked,
   getPadding,
+  floating = false,
+  onClose,
 }: {
   mapRef: React.MutableRefObject<MlMap | null>;
   /** ตำแหน่ง/ความกว้างของกล่อง (ค่าเริ่มต้น = มุมซ้ายบนของจอคอม) */
@@ -40,6 +43,9 @@ export default function SearchBox({
   onPicked?: () => void;
   /** ระยะเว้นขอบจากสิ่งที่บังแผนที่อยู่ (พาเนลขวา / แผ่นล่างของมือถือ) ให้หมุดไปอยู่กลางส่วนที่มองเห็น */
   getPadding?: () => PaddingOptions;
+  /** แบบลอยใน SearchToggle: ฟอร์มโปร่งใสสูง 48px, รายการผลค้นหาลอยใต้ช่อง, มีปุ่ม ✕ ปิดแถบ + Esc */
+  floating?: boolean;
+  onClose?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[] | null>(null);
@@ -161,43 +167,57 @@ export default function SearchBox({
   };
 
   return (
-    <div className={className}>
+    <div className={floating ? "relative w-full" : className}>
       <form
         onSubmit={search}
-        className="flex items-center gap-1 pl-3 pr-1 h-10 bg-white border border-slate-200 rounded-lg shadow-md"
+        className={
+          floating
+            ? "flex h-12 items-center gap-1 pr-1 pl-4"
+            : "flex h-10 items-center gap-1 rounded-lg bg-muted pr-1 pl-3 focus-within:ring-2 focus-within:ring-primary/40"
+        }
       >
-        <span className="material-symbols-outlined text-[19px] text-slate-400">search</span>
+        <SearchIcon className="size-[18px] text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && onClose?.()}
           placeholder="ค้นหาสถานที่"
           aria-label="ค้นหาสถานที่"
-          className="flex-1 min-w-0 text-base md:text-sm outline-none bg-transparent"
+          className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
         />
-        {loading && <span className="text-xs text-slate-400 px-1">กำลังค้นหา…</span>}
-        {(query || hasPin) && (
+        {loading && <span className="px-1 text-xs text-muted-foreground">กำลังค้นหา…</span>}
+        {(query || hasPin || (floating && onClose)) && (
           <button
             type="button"
             title="ล้าง"
             aria-label="ล้าง"
-            onClick={clear}
-            className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-slate-100"
+            onClick={() => {
+              clear();
+              onClose?.();
+            }}
+            className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-accent"
           >
-            ✕
+            <XIcon className="size-4" />
           </button>
         )}
       </form>
 
       {(results || error) && (
-        <ul className="mt-1 bg-white border border-slate-200 rounded-lg shadow-md overflow-hidden text-sm">
-          {error && <li className="px-3 py-2 text-red-700">{error}</li>}
-          {results?.length === 0 && <li className="px-3 py-2 text-slate-500">ไม่พบสถานที่</li>}
+        <ul
+          className={
+            floating
+              ? "absolute top-full right-0 left-0 mt-2 max-h-60 overflow-y-auto rounded-xl border bg-card text-sm shadow-float"
+              : "mt-1 max-h-60 overflow-y-auto rounded-lg border bg-card text-sm"
+          }
+        >
+          {error && <li className="px-3 py-2 text-destructive">{error}</li>}
+          {results?.length === 0 && <li className="px-3 py-2 text-muted-foreground">ไม่พบสถานที่</li>}
           {results?.map((place) => (
             <li key={place.place_id}>
               <button
                 type="button"
                 onClick={() => pick(place)}
-                className="w-full text-left px-3 py-2 hover:bg-teal-50 text-slate-700 line-clamp-2"
+                className="line-clamp-2 min-h-11 w-full px-3 py-2 text-left hover:bg-accent"
               >
                 {place.display_name}
               </button>

@@ -1,15 +1,18 @@
 import { useState } from "react";
+import { CircleXIcon, EyeIcon, EyeOffIcon, LockIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import { CATEGORY_STYLE } from "../../lib/categories";
 import { geometrySummary } from "../../lib/measure";
 import { FILTERS, type GeomType, type Item } from "../../lib/types";
 
-const TYPE_STYLE: Record<GeomType, { icon: string; box: string; dot: string }> = {
-  Point: { icon: "radio_button_checked", box: "bg-orange-50 text-orange-500", dot: "bg-orange-500" },
-  LineString: { icon: "polyline", box: "bg-blue-50 text-blue-600", dot: "bg-blue-600" },
-  Polygon: { icon: "pentagon", box: "bg-emerald-50 text-emerald-500", dot: "bg-emerald-500" },
-};
+const FILTER_LABEL: Record<GeomType | "All", string> = { All: "ทั้งหมด", Point: "Point", LineString: "Line", Polygon: "Polygon" };
+const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
-/** แท็บ All Features บนมือถือ: ช่องกรอง + chip ชนิด + การ์ด feature */
+/** แท็บรายการทั้งหมดบนมือถือ: ช่องกรอง + ตัวกรองชนิด + แถว feature (สูง ≥56px) */
 export default function MobileFeatureList({
   items,
   filter,
@@ -45,112 +48,113 @@ export default function MobileFeatureList({
   );
 
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      <div className="shrink-0 px-4 mb-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-3 shrink-0 px-4">
         <div className="relative flex items-center">
-          <span className="material-symbols-outlined absolute left-3 text-[18px] text-slate-400">search</span>
-          <input
+          <SearchIcon className="absolute left-3 size-[18px] text-muted-foreground" />
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by name or category…"
+            placeholder="กรองตามชื่อหรือหมวดหมู่"
             aria-label="กรอง feature"
-            className="w-full h-10 pl-9 pr-9 bg-slate-100 rounded-lg text-base text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:ring-1 focus:ring-teal-700"
+            className="h-11 bg-muted pr-10 pl-9 text-base md:text-base"
           />
           {query && (
-            <button
-              type="button"
-              aria-label="ล้าง"
-              onClick={() => setQuery("")}
-              className="absolute right-2 w-6 h-6 flex items-center justify-center text-slate-400"
-            >
-              <span className="material-symbols-outlined text-[18px]">cancel</span>
+            <button type="button" aria-label="ล้าง" onClick={() => setQuery("")} className="absolute right-1 grid size-9 place-items-center text-muted-foreground">
+              <CircleXIcon className="size-[18px]" />
             </button>
           )}
         </div>
       </div>
 
-      <div className="shrink-0 px-4 mb-3 flex gap-2 overflow-x-auto no-scrollbar">
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => onFilterChange(f)}
-            className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors ${
-              filter === f ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {f !== "All" && <span className={`w-2 h-2 rounded-full ${TYPE_STYLE[f].dot}`} />}
-            {f}
-            <span className="opacity-80 font-normal">({count(f)})</span>
-          </button>
-        ))}
+      <div className="no-scrollbar mb-3 shrink-0 overflow-x-auto px-4">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={filter}
+          onValueChange={(v) => v && onFilterChange(v as GeomType | "All")}
+          aria-label="กรองตามชนิด"
+          className="w-max gap-2"
+        >
+          {FILTERS.map((f) => (
+            <ToggleGroupItem
+              key={f}
+              value={f}
+              className="h-9 rounded-full px-3.5 text-[13px] data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+            >
+              {FILTER_LABEL[f]}
+              <span className="font-normal opacity-80">({count(f)})</span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       </div>
 
-      <ul className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 space-y-2.5">
+      <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-6">
         {shown.length === 0 && (
-          <li className="text-sm text-slate-500 py-6 text-center">
-            {items.length === 0 ? "ยังไม่มีข้อมูล — เปิดเครื่องมือซ้ายบนแล้วเริ่มวาดบนแผนที่" : "ไม่พบ feature ที่ตรงกับตัวกรอง"}
+          <li className="py-6 text-center text-sm text-muted-foreground">
+            {items.length === 0 ? "ยังไม่มีข้อมูล กดปุ่ม + แล้วเริ่มวาดบนแผนที่" : "ไม่พบ feature ที่ตรงกับตัวกรอง"}
           </li>
         )}
         {shown.map((item) => {
-          const style = TYPE_STYLE[item.type];
           const selected = item.id === selectedId;
           const hidden = hiddenIds.has(item.id);
+          const category = item.props.category ?? "Other";
           return (
             <li
               key={item.id}
               onClick={() => onFocus(item)}
-              className={`flex items-center gap-2.5 p-3 rounded-xl cursor-pointer transition-colors ${
-                selected ? "bg-teal-50 border-l-4 border-teal-700" : "bg-slate-50 active:bg-slate-100"
-              } ${hidden ? "opacity-60" : ""}`}
+              className={cn(
+                "flex min-h-14 cursor-pointer items-center gap-2.5 rounded-xl px-2 py-2 transition-colors",
+                selected ? "bg-primary/10" : "active:bg-muted",
+                hidden && "opacity-55",
+              )}
             >
-              <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${style.box}`}>
-                <span className="material-symbols-outlined text-[18px]">{style.icon}</span>
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="text-[15px] font-semibold text-slate-900 truncate">{item.props.name}</div>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">{item.type}</span>
+              <span className={cn("ml-1 size-3 shrink-0 rounded-full", CATEGORY_STYLE[category].dot)} title={category} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[15px] font-semibold">{item.props.name}</div>
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <Badge variant="secondary" className="text-[10px]">
+                    {TYPE_LABEL[item.type]}
+                  </Badge>
                   {item.props.category && (
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${CATEGORY_STYLE[item.props.category].badge}`}>
-                      {item.props.category}
-                    </span>
+                    <Badge className={cn("border-0 text-[10px]", CATEGORY_STYLE[item.props.category].badge)}>{item.props.category}</Badge>
                   )}
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1 truncate">{geometrySummary(item.geometry)}</div>
-                {showOwner && item.ownerName && (
-                  <div className="text-[11px] text-slate-400 truncate">โดย {item.ownerName}</div>
-                )}
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                  {geometrySummary(item.geometry)}
+                  {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
+                </div>
               </div>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
+                className={cn("size-11 shrink-0", hidden && "text-muted-foreground")}
                 aria-label={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleVisible(item);
                 }}
-                className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${hidden ? "text-slate-400" : "text-teal-700"}`}
               >
-                <span className="material-symbols-outlined text-[20px]">{hidden ? "visibility_off" : "visibility"}</span>
-              </button>
+                {hidden ? <EyeOffIcon /> : <EyeIcon />}
+              </Button>
               {canModify(item) ? (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 shrink-0 text-destructive hover:text-destructive"
                   aria-label="ลบ"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemove(item);
                   }}
-                  className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-red-600"
                 >
-                  <span className="material-symbols-outlined text-[20px]">delete</span>
-                </button>
+                  <Trash2Icon />
+                </Button>
               ) : (
-                <span
-                  title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group"
-                  className="w-9 h-9 flex items-center justify-center shrink-0 material-symbols-outlined text-[18px] text-slate-300"
-                >
-                  lock
+                <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="grid size-11 shrink-0 place-items-center text-muted-foreground/60">
+                  <LockIcon className="size-[18px]" />
                 </span>
               )}
             </li>

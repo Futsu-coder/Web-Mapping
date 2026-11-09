@@ -1,4 +1,11 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { EyeIcon, EyeOffIcon, Loader2Icon, LockIcon, LogInIcon, TriangleAlertIcon, UserIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import {
   emailOf,
   isValidUsername,
@@ -41,9 +48,6 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<Field | null>(null);
-
-  // ปิดเฉพาะเมื่อ "กดและปล่อย" บนพื้นหลังเอง — ลากเมาส์จากในช่องออกมานอกกล่องต้องไม่ปิด
-  const downOnBackdrop = useRef(false);
 
   const clearError = () => {
     setError(null);
@@ -95,130 +99,90 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const inputCls = (f: Field) =>
-    `block w-full pl-10 py-2 sm:py-2.5 rounded-xl text-base md:text-sm text-slate-800 placeholder-slate-400 outline-none transition-all duration-150 ${
-      f === "password" ? "pr-10" : "pr-3.5"
-    } ${
-      errorField === f
-        ? "border border-rose-500 ring-[3px] ring-rose-500/20 bg-rose-50/20"
-        : "border border-slate-300 bg-white focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20"
-    }`;
-  // flex ต้องอยู่บน div ครอบ — .material-symbols-outlined ตั้ง display:inline-block ซึ่งชนะ utility ของ Tailwind
-  const iconWrapCls = "absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400";
+  const invalidCls = "border-destructive ring-[3px] ring-destructive/20 focus-visible:border-destructive";
   const isLogin = tab === "login";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-3 sm:p-4"
-      onMouseDown={(e) => {
-        downOnBackdrop.current = e.target === e.currentTarget;
-      }}
-      onClick={(e) => {
-        if (downOnBackdrop.current && e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="auth-title"
-        className="w-full max-w-[420px] max-h-full overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-100"
+    // Radix Dialog จัดการ Esc / focus trap / ปิดเมื่อกดพื้นหลังให้ (กด-ปล่อยบนพื้นหลังเอง)
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="max-h-[calc(100%-1.5rem)] gap-0 overflow-y-auto rounded-2xl p-0 sm:max-w-[420px]"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          document.getElementById("auth-username")?.focus();
+        }}
       >
-        <div className="pt-5 px-5 pb-2 text-center sm:pt-6 sm:px-6">
-          <div className="mx-auto flex items-center justify-center w-10 h-10 rounded-2xl bg-teal-50 text-teal-700 ring-4 ring-teal-50/50 mb-2.5 sm:w-12 sm:h-12 sm:ring-8 sm:mb-3.5">
-            <span className="material-symbols-outlined text-[20px] sm:text-[24px]">map</span>
+        <DialogHeader className="items-center px-6 pt-6 pb-2 text-center sm:text-center">
+          <div className="mb-2 grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
+            <LogInIcon className="size-6" />
           </div>
-          <h2 id="auth-title" className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-snug">
-            {isLogin ? "เข้าสู่ระบบ" : "สมัครสมาชิก"}
-          </h2>
-          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
-            {isLogin
-              ? "เข้าสู่ระบบเพื่อจัดการและบันทึกข้อมูลเชิงพื้นที่ของคุณ"
-              : "เริ่มต้นสร้างและจัดการข้อมูลแผนที่ของคุณ"}
-          </p>
-        </div>
+          <DialogTitle className="text-xl font-bold">{isLogin ? "เข้าสู่ระบบ" : "สมัครสมาชิก"}</DialogTitle>
+          <DialogDescription className="text-xs">
+            {isLogin ? "เข้าสู่ระบบเพื่อจัดการและบันทึกข้อมูลเชิงพื้นที่ของคุณ" : "เริ่มต้นสร้างและจัดการข้อมูลแผนที่ของคุณ"}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="px-5 pt-3 sm:px-6 sm:pt-4">
-          <div className="grid grid-cols-2 border-b border-slate-200">
-            {(["login", "signup"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setTab(t);
-                  clearError();
-                }}
-                className={`relative pb-2.5 sm:pb-3 text-sm text-center transition-colors disabled:cursor-not-allowed ${
-                  tab === t ? "font-semibold text-teal-700" : "font-medium text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {t === "login" ? "เข้าสู่ระบบ" : "สมัครสมาชิก"}
-                {tab === t && <span className="absolute bottom-0 inset-x-0 h-0.5 bg-teal-700 rounded-full" />}
-              </button>
-            ))}
-          </div>
-        </div>
+        <Tabs
+          value={tab}
+          onValueChange={(t) => {
+            setTab(t as Tab);
+            clearError();
+          }}
+          className="px-6 pt-3"
+        >
+          <TabsList className="grid h-11 w-full grid-cols-2">
+            <TabsTrigger value="login" disabled={busy} className="h-9">
+              เข้าสู่ระบบ
+            </TabsTrigger>
+            <TabsTrigger value="signup" disabled={busy} className="h-9">
+              สมัครสมาชิก
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-        <form onSubmit={submit} noValidate className="p-5 pt-4 space-y-3 sm:p-6 sm:pt-5 sm:space-y-4">
+        <form onSubmit={submit} noValidate className="flex flex-col gap-4 p-6 pt-5">
           {!supabase && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               ยังไม่ได้ตั้งค่า Supabase (SUPABASE_URL / SUPABASE_ANON_KEY) จึงยังเข้าสู่ระบบไม่ได้
             </p>
           )}
 
           {error && (
-            <div
-              role="alert"
-              className="flex items-start gap-2.5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs"
-            >
-              <span className="material-symbols-outlined text-[18px] text-rose-600 shrink-0">warning</span>
+            <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              <TriangleAlertIcon className="size-[18px] shrink-0 text-red-600" />
               <div className="flex-1 leading-relaxed">
-                <span className="font-medium">{isLogin ? "เข้าสู่ระบบไม่สำเร็จ:" : "สมัครสมาชิกไม่สำเร็จ:"}</span>{" "}
-                {error}
+                <span className="font-medium">{isLogin ? "เข้าสู่ระบบไม่สำเร็จ:" : "สมัครสมาชิกไม่สำเร็จ:"}</span> {error}
               </div>
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <label htmlFor="auth-username" className="block text-sm font-semibold text-slate-700">
-              ชื่อผู้ใช้
-            </label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="auth-username">ชื่อผู้ใช้</Label>
             <div className="relative">
-              <div className={iconWrapCls}>
-                <span className="material-symbols-outlined text-[18px]">person</span>
-              </div>
-              <input
+              <UserIcon className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
+              <Input
                 id="auth-username"
                 value={username}
                 onChange={(e) => {
                   setUsername(e.target.value);
                   if (errorField === "username") clearError();
                 }}
-                autoFocus
                 autoComplete="username"
                 required
                 maxLength={20}
                 placeholder={isLogin ? "กรอกชื่อผู้ใช้" : "กรอกชื่อผู้ใช้ของคุณ"}
                 aria-invalid={errorField === "username"}
-                className={inputCls("username")}
+                className={cn("h-11 pl-10 text-base md:text-sm", errorField === "username" && invalidCls)}
               />
             </div>
-            {!isLogin && (
-              <p className="text-xs text-slate-500 leading-relaxed pt-0.5">
-                a-z, 0-9, _ ยาว 3–20 ตัว (ห้ามเป็นตัวเลขล้วน)
-              </p>
-            )}
+            {!isLogin && <p className="text-xs text-muted-foreground">a-z, 0-9, _ ยาว 3–20 ตัว (ห้ามเป็นตัวเลขล้วน)</p>}
           </div>
 
-          <div className="space-y-1.5">
-            <label htmlFor="auth-password" className="block text-sm font-semibold text-slate-700">
-              รหัสผ่าน
-            </label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="auth-password">รหัสผ่าน</Label>
             <div className="relative">
-              <div className={iconWrapCls}>
-                <span className="material-symbols-outlined text-[18px]">lock</span>
-              </div>
-              <input
+              <LockIcon className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
+              <Input
                 id="auth-password"
                 type={showPw ? "text" : "password"}
                 value={password}
@@ -232,59 +196,42 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
                 maxLength={isLogin ? undefined : PASSWORD_MAX}
                 placeholder={isLogin ? "กรอกรหัสผ่านของคุณ" : "กรอกรหัสผ่าน"}
                 aria-invalid={errorField === "password"}
-                className={inputCls("password")}
+                className={cn("h-11 px-10 text-base md:text-sm", errorField === "password" && invalidCls)}
               />
               <button
                 type="button"
                 onClick={() => setShowPw((v) => !v)}
                 aria-label={showPw ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground"
               >
-                <span className="material-symbols-outlined text-[18px]">{showPw ? "visibility_off" : "visibility"}</span>
+                {showPw ? <EyeOffIcon className="size-[18px]" /> : <EyeIcon className="size-[18px]" />}
               </button>
             </div>
-            {!isLogin && (
-              <p className="text-xs text-slate-500 leading-relaxed pt-0.5">อย่างน้อย {PASSWORD_MIN} ตัวอักษร</p>
-            )}
+            {!isLogin && <p className="text-xs text-muted-foreground">อย่างน้อย {PASSWORD_MIN} ตัวอักษร</p>}
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-3 sm:pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 sm:py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-            >
+          <DialogFooter className="flex-row items-center justify-end gap-3 border-t pt-4 sm:justify-end">
+            <Button type="button" variant="ghost" className="h-11" onClick={onClose}>
               ยกเลิก
-            </button>
-            <button
-              type="submit"
-              disabled={busy || !supabase}
-              className="h-10 sm:h-[46px] px-5 inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold bg-teal-700 text-white shadow-md shadow-teal-700/20 hover:bg-teal-800 active:bg-teal-900 transition-all disabled:opacity-60 disabled:shadow-none disabled:cursor-not-allowed"
-            >
+            </Button>
+            <Button type="submit" disabled={busy || !supabase} className="h-11 px-5">
               {busy ? (
                 <>
-                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
-                  <span>{isLogin ? "กำลังเข้าสู่ระบบ..." : "กำลังสมัคร..."}</span>
+                  <Loader2Icon className="animate-spin" data-icon="inline-start" />
+                  {isLogin ? "กำลังเข้าสู่ระบบ..." : "กำลังสมัคร..."}
                 </>
               ) : isLogin ? (
                 <>
-                  <span className="material-symbols-outlined text-[18px]">login</span>
-                  <span>เข้าสู่ระบบ</span>
+                  <LogInIcon data-icon="inline-start" />
+                  เข้าสู่ระบบ
                 </>
               ) : (
-                <span>สมัครและเข้าสู่ระบบ</span>
+                "สมัครและเข้าสู่ระบบ"
               )}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
