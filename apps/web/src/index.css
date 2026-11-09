@@ -149,7 +149,7 @@
 .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: #fff; }
 .maplibregl-ctrl-attrib {
   font-family: "Anuphan", system-ui, sans-serif;
-  border-radius: 0.5rem 0 0 0;
+  border-radius: 0 0.5rem 0 0;
   background: rgb(255 255 255 / 0.85);
 }
 .maplibregl-ctrl-scale {

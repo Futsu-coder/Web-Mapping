@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Map as MlMap, prewarm, setWorkerCount, setWorkerUrl, type IControl } from "maplibre-gl";
+import { AttributionControl, Map as MlMap, prewarm, setWorkerCount, setWorkerUrl, type IControl } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -80,11 +80,13 @@ export default function MapView({ className, onReady }: { className?: string; on
       // เริ่มเป็น 2D: ปิดการหมุน/เอียง — App เปิดให้เองตอนกดปุ่ม 3D (ดู effect โหมด 3D ใน App.tsx)
       dragRotate: false,
       touchPitch: false,
-      attributionControl: { compact: true }, // ย่อเป็นปุ่ม (i) — กันข้อความเครดิตบังแผนที่บนมือถือ
+      attributionControl: false, // เพิ่มเองด้านล่าง เพื่อวางซ้ายล่าง
       // จำ tile ไว้ 8 ระดับซูม (ค่าเริ่มต้น 5) — ซูมเข้าลึกแล้วซูมออกกลับมา tile ระดับประเทศยังอยู่ ไม่ต้องโหลด/แปลงใหม่
       maxTileCacheZoomLevels: 8,
       validateStyle: false, // style ของ OpenFreeMap เชื่อถือได้ ข้ามการตรวจเพื่อเริ่มวาดเร็วขึ้น
     });
+    // ย่อเป็นปุ่ม (i) ซ้ายล่าง — กันข้อความเครดิตบังแผนที่บนมือถือ และไม่เบียดปุ่ม 2D/3D ขวาล่าง
+    map.addControl(new AttributionControl({ compact: true }), "bottom-left");
     map.touchZoomRotate.disableRotation();
     map.keyboard.disableRotation();
 
