@@ -17,17 +17,22 @@ import InvitationToasts from "./components/InvitationToasts";
 import NotificationBell from "./components/NotificationBell";
 import FeatureEditor from "./components/FeatureEditor";
 import MapView, { type MapCtx } from "./components/MapView";
-import Navbar from "./components/Navbar";
+import AccountMenu from "./components/AccountMenu";
+import DetailCard from "./components/DetailCard";
+import { AlertCircleIcon, FlaskConicalIcon, XIcon } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import Toast, { type ToastData } from "./components/Toast";
 import Toolbar from "./components/Toolbar";
+import MapControls from "./components/MapControls";
+import DrawFab from "./components/mobile/DrawFab";
 import FeaturePanel from "./components/FeaturePanel";
-import SearchBox from "./components/SearchBox";
+import SearchToggle from "./components/SearchToggle";
 import CrosshairDraw, { Crosshair, MobileScale } from "./components/mobile/CrosshairDraw";
 import DrawSheet from "./components/mobile/DrawSheet";
 import MobileFeatureList from "./components/mobile/MobileFeatureList";
 import MobileHeader from "./components/mobile/MobileHeader";
-import MobileSearch from "./components/mobile/MobileSearch";
-import MobileSheet from "./components/mobile/MobileSheet";
+import MobileSheet, { SHEET_HALF_RATIO } from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { toItem, useFeatureData } from "./hooks/useFeatureData";
 import { useMapEvents } from "./hooks/useMapEvents";
@@ -548,7 +553,7 @@ export default function App() {
     setPanelOpen(true);
     // แผ่นฟอร์มกินล่าง 60% ของจอ → เลื่อนรูปที่วาดขึ้นมาอยู่ในส่วนที่ยังมองเห็น
     const camera = map.cameraForBounds(bboxOf(geometry), {
-      padding: { top: 40, left: 40, right: 40, bottom: map.getContainer().clientHeight * 0.6 + 16 },
+      padding: { top: 40, left: 40, right: 40, bottom: map.getContainer().clientHeight * SHEET_HALF_RATIO + 16 },
       maxZoom: shape === "Marker" ? map.getZoom() : 18,
     });
     if (camera) map.easeTo(camera);
@@ -557,10 +562,14 @@ export default function App() {
   /** ระยะเว้นขอบส่วนที่ถูกบัง (พาเนลขวาบนจอคอม / แผ่นล่าง 60% บนมือถือ) ให้สิ่งที่ซูมไปอยู่กลางส่วนที่มองเห็น */
   const visiblePadding = (): PaddingOptions => {
     const pad = { top: 40, left: 40, right: 40, bottom: 40 };
-    if (!panelOpen) return pad;
-    if (isMobile) return { ...pad, bottom: (mapRef.current?.getContainer().clientHeight ?? 0) * 0.6 + 16 };
-    const panelW = document.querySelector<HTMLElement>("[data-feature-panel]")?.offsetWidth ?? 0;
-    return { ...pad, right: panelW + 40 };
+    if (isMobile) {
+      if (!panelOpen) return pad;
+      return { ...pad, bottom: (mapRef.current?.getContainer().clientHeight ?? 0) * SHEET_HALF_RATIO + 16 };
+    }
+    // จอคอม: การ์ดรายการลอยซ้าย (ขยายอยู่) + การ์ดรายละเอียดลอยขวา (เมื่อมีฟอร์ม)
+    const listW = panelOpen ? (document.querySelector<HTMLElement>("[data-feature-panel]")?.offsetWidth ?? 0) : 0;
+    const detailW = document.querySelector<HTMLElement>("[data-detail-panel]")?.offsetWidth ?? 0;
+    return { ...pad, left: listW ? listW + 40 : 40, right: detailW ? detailW + 40 : 40 };
   };
 
   const focus = (item: Item) => {
@@ -687,64 +696,59 @@ export default function App() {
       : Math.min(GUEST_TTL_MS / 60000, Math.max(1, Math.ceil((guestExpiry - now) / 60000)));
   const panelVars = { "--panel-w": "clamp(20rem, 28vw, 26rem)" } as CSSProperties;
 
-  return (
-    <div className="flex flex-col h-full" style={panelVars}>
-      {isMobile && (mobileDraw || creating) ? (
-        <MobileHeader
-          mode={mobileDraw ? "drawing" : "form"}
-          formId="fe-form"
-          onCancel={mobileDraw ? crosshair.cancel : cancel}
-          onUndo={crosshair.undo}
-          onRedo={crosshair.redo}
-          onClear={crosshair.clear}
-          onNext={finishMobileDraw}
-          canUndo={!!mobileDraw && mobileDraw.points.length > 0}
-          canRedo={!!mobileDraw && mobileDraw.redo.length > 0}
-          canNext={!!mobileDraw && mobileDraw.points.length >= MIN_POINTS[mobileDraw.shape]}
-        />
-      ) : (
-        <Navbar
-          me={activeMe}
-          hiddenOwners={hiddenOwners}
-          onToggleOwner={toggleOwner}
-          onLogin={openLogin}
-          onLogout={logout}
-          onRefresh={() => refreshMe().catch(onError)}
-          search={isMobile ? <MobileSearch mapRef={mapRef} getPadding={visiblePadding} /> : undefined}
-          bell={
-            activeMe && (
-              <NotificationBell
-                key={activeMe.user.id}
-                userId={activeMe.user.id}
-                invitations={inv.invitations}
-                busyInvitationId={inv.busyId}
-                onAnswer={(i, action) => void inv.answer(i, action)}
-              />
-            )
-          }
-        />
-      )}
-
-      {error && (
-        <div
-          role="alert"
-          className="flex items-center gap-2 px-4 py-2 shrink-0 bg-red-50 text-red-800 border-b border-red-200 text-sm z-30"
-        >
-          <span className="flex-1">⚠️ {error}</span>
-          <button
-            type="button"
-            title="ปิด"
-            aria-label="ปิด"
-            onClick={() => setError(null)}
-            className="text-base leading-none hover:text-red-950"
+  const guestBanner = (positionClass: string) => (
+    <div
+            className={`flex items-start gap-2 px-3 py-2 border rounded-xl shadow-float text-xs ${positionClass} ${
+              guestMinutesLeft !== null && guestMinutesLeft <= 5
+                ? "bg-red-50 border-red-300 text-red-900"
+                : "bg-amber-50 border-amber-300 text-amber-900"
+            }`}
           >
-            ✕
-          </button>
-        </div>
-      )}
+            <FlaskConicalIcon className="mt-0.5 size-[18px] shrink-0" />
+            <span>
+              <strong>โหมดทดลอง</strong> —{" "}
+              {guestExpiry === null ? (
+                "เก็บในเบราว์เซอร์นี้ 1 ชั่วโมงแล้วลบ"
+              ) : (
+                <>
+                  ลบเวลา {new Date(guestExpiry).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.
+                  (อีก {guestMinutesLeft} นาที)
+                </>
+              )}
+            </span>
+            <button type="button" onClick={openLogin} className="shrink-0 font-semibold text-teal-800 hover:underline">
+              เข้าสู่ระบบเพื่อบันทึก
+            </button>
+          </div>
+  );
 
+  const renderAccount = (className: string) => (
+    <AccountMenu
+      className={className}
+      me={activeMe}
+      hiddenOwners={hiddenOwners}
+      onToggleOwner={toggleOwner}
+      onLogin={openLogin}
+      onLogout={logout}
+      onRefresh={() => refreshMe().catch(onError)}
+      bell={
+        activeMe && (
+          <NotificationBell
+            key={activeMe.user.id}
+            userId={activeMe.user.id}
+            invitations={inv.invitations}
+            busyInvitationId={inv.busyId}
+            onAnswer={(i, action) => void inv.answer(i, action)}
+          />
+        )
+      }
+    />
+  );
+
+  return (
+    <div className="relative h-full" style={panelVars}>
       <div
-        className="map-area relative flex-1 min-h-0 overflow-hidden"
+        className="map-area absolute inset-0 overflow-hidden"
         style={
           {
             "--map-bottom-inset": `calc(${mobileDraw ? "8rem" : "5.5rem"} + env(safe-area-inset-bottom, 0px))`,
@@ -757,16 +761,80 @@ export default function App() {
 
         {mobileDraw && <Crosshair />}
 
-        <Toolbar
-          mapRef={mapRef}
-          activeTool={isMobile ? (mobileDraw?.shape ?? null) : activeTool}
-          moveActive={moveMode}
+        {error && (
+          <Alert
+            variant="destructive"
+            className="absolute top-[calc(4.75rem+env(safe-area-inset-top,0px))] left-1/2 z-40 w-[min(32rem,calc(100%-1.5rem))] -translate-x-1/2 bg-card shadow-float md:top-4"
+          >
+            <AlertCircleIcon />
+            <AlertDescription className="flex items-center gap-2">
+              <span className="flex-1">{error}</span>
+              <Button variant="ghost" size="icon" className="size-8" aria-label="ปิด" onClick={() => setError(null)}>
+                <XIcon />
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* มือถือ: แถบค้นหา + บัญชีลอยบน (ค้นหา mount ค้างไว้ เพื่อให้หมุดผลค้นหาไม่หาย) / ตอนวาด-กรอกฟอร์ม = แถบ MobileHeader */}
+        {isMobile &&
+          (mobileDraw || creating ? (
+            <MobileHeader
+              mode={mobileDraw ? "drawing" : "form"}
+              formId="fe-form"
+              onCancel={mobileDraw ? crosshair.cancel : cancel}
+              onUndo={crosshair.undo}
+              onRedo={crosshair.redo}
+              onClear={crosshair.clear}
+              onNext={finishMobileDraw}
+              canUndo={!!mobileDraw && mobileDraw.points.length > 0}
+              canRedo={!!mobileDraw && mobileDraw.redo.length > 0}
+              canNext={!!mobileDraw && mobileDraw.points.length >= MIN_POINTS[mobileDraw.shape]}
+            />
+          ) : (
+            <div className="absolute inset-x-3 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-30 flex items-start justify-end gap-2">
+              <SearchToggle mapRef={mapRef} getPadding={visiblePadding} fill />
+              {renderAccount("shrink-0")}
+            </div>
+          ))}
+
+        <MapControls
+          map={ctx?.map ?? null}
           is3D={is3D}
+          paused={is3D && mustBeFlat}
           onToggle3D={onToggle3D}
-          collapsible={isMobile}
-          onDrawSelect={isMobile ? onMobileDrawSelect : onDrawSelect}
-          onToggleMove={onToggleMove}
+          compact={isMobile}
+          className={
+            isMobile
+              ? `absolute right-3 z-20 ${
+                  mobileDraw
+                    ? "bottom-[calc(12rem+env(safe-area-inset-bottom,0px))]" // เหนือปุ่มตำแหน่งปัจจุบันของ DrawSheet
+                    : panelOpen
+                      ? "bottom-[calc(60%+5rem)]"
+                      : "bottom-[calc(5.5rem+6.75rem+env(safe-area-inset-bottom,0px))]"
+                }`
+              : "absolute right-4 bottom-6 z-20"
+          }
         />
+        {isMobile ? (
+          !mobileDraw &&
+          !creating && (
+            <DrawFab
+              moveActive={moveMode}
+              onDrawSelect={onMobileDrawSelect}
+              onToggleMove={onToggleMove}
+              className={`absolute right-3 z-20 ${panelOpen ? "bottom-[calc(60%+0.75rem)]" : "bottom-[calc(5.5rem+2.25rem+env(safe-area-inset-bottom,0px))]"}`}
+            />
+          )
+        ) : (
+          <Toolbar
+            activeTool={activeTool}
+            moveActive={moveMode}
+            onDrawSelect={onDrawSelect}
+            onToggleMove={onToggleMove}
+            shortcutsEnabled={!selection || selection.mode === "view"}
+          />
+        )}
 
         {isMobile ? (
           mobileDraw ? (
@@ -798,15 +866,6 @@ export default function App() {
           )
         ) : (
           <>
-            {/* ช่องค้นหาหดหลบพาเนลที่เปิดอยู่ (ปุ่มเปิด/ปิดพาเนลเกาะขอบพาเนลเอง) */}
-            <SearchBox
-              mapRef={mapRef}
-              getPadding={visiblePadding}
-              className={`absolute top-4 left-16 z-20 ${
-                panelOpen ? "w-[min(20rem,calc(100%_-_var(--panel-w)_-_8rem))]" : "w-[min(20rem,calc(100%_-_8rem))]"
-              }`}
-            />
-
             <FeaturePanel
               open={panelOpen}
               onToggle={() => setPanelOpen((o) => !o)}
@@ -824,37 +883,20 @@ export default function App() {
               showOwner={!guest}
               hoveredId={activeHoverId}
               onHover={onHover}
-              editor={editor}
+              footer={guest ? guestBanner("w-full") : undefined}
             />
+
+            <div className="absolute top-4 right-4 z-30 flex items-start gap-2">
+              <SearchToggle mapRef={mapRef} getPadding={visiblePadding} />
+              {renderAccount("")}
+            </div>
+
+            {editor && <DetailCard>{editor}</DetailCard>}
           </>
         )}
 
-        {guest && !(isMobile && (mobileDraw || creating)) && (
-          <div
-            className={`absolute top-3 left-[4.5rem] right-3 md:top-auto md:right-auto md:bottom-8 md:left-4 z-20 md:max-w-[calc(100%-2rem)] flex items-center gap-2 px-3 py-2 border rounded-lg shadow-md text-xs ${
-              guestMinutesLeft !== null && guestMinutesLeft <= 5
-                ? "bg-red-50 border-red-300 text-red-900"
-                : "bg-amber-50 border-amber-300 text-amber-900"
-            }`}
-          >
-            <span className="material-symbols-outlined text-[18px]">science</span>
-            <span>
-              <strong>โหมดทดลอง</strong> —{" "}
-              {guestExpiry === null ? (
-                "เก็บในเบราว์เซอร์นี้ 1 ชั่วโมงแล้วลบ"
-              ) : (
-                <>
-                  ลบเวลา {new Date(guestExpiry).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.
-                  (อีก {guestMinutesLeft} นาที)
-                </>
-              )}
-            </span>
-            <button type="button" onClick={openLogin} className="font-semibold text-teal-800 hover:underline shrink-0">
-              เข้าสู่ระบบเพื่อบันทึก
-            </button>
-          </div>
-        )}
-
+        {/* มือถือ: แบนเนอร์โหมดทดลองลอยบน / จอคอมอยู่ท้ายการ์ดรายการซ้าย */}
+        {guest && isMobile && !(mobileDraw || creating) && guestBanner("absolute top-[calc(4.5rem+env(safe-area-inset-top,0px))] left-3 right-3 z-20")}
         {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
       </div>
 
