@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { getFeature, isOwnEcho, listFeatures, type ApiFeature } from "../api";
+import { getFeature, listFeatures, type ApiFeature } from "../api";
 import { propsOf, sameGeometry } from "../lib/featureMeta";
 import { loadGuest } from "../lib/guestStore";
 import { subscribeFeatures } from "../lib/realtime";
@@ -51,7 +51,6 @@ export function useFeatureData(viewKey: string, guest: boolean, setItems: SetIte
     listFeatures().then(load).catch(onError);
     const unsubscribe = subscribeFeatures(async ({ type, id }) => {
       if (type === "DELETE") return setItems((items) => items.filter((i) => i.id !== id));
-      if (isOwnEcho(id)) return; // เราเพิ่งบันทึกเอง — App อัปเดต items จากผลลัพธ์ไปแล้ว
       try {
         const f = await getFeature(id);
         if (alive) setItems((items) => upsert(items, toItem(f)));

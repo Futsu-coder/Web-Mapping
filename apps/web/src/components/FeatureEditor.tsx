@@ -27,7 +27,7 @@ function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile
           ["ลองจิจูด", fmtLng(lng)],
         ].map(([label, value]) => (
           <div key={label} className={cn("rounded-lg border bg-muted/50 text-xs", mobile ? "p-3" : "p-2.5")}>
-            <span className="block text-[0.6875rem] text-muted-foreground">{label}</span>
+            <span className="block text-[11px] text-muted-foreground">{label}</span>
             <span className="font-mono font-medium">{value}</span>
           </div>
         ))}
@@ -197,7 +197,7 @@ export default function FeatureEditor({
   );
 
   if (mobile) {
-    const h = "h-11 text-[0.9375rem]";
+    const h = "h-11 text-[15px]";
     return (
       <div className="flex h-full min-h-0 flex-col bg-card">
         {mode === "create" ? (
@@ -221,8 +221,8 @@ export default function FeatureEditor({
             </div>
             {info.metric && (
               <div className="flex shrink-0 flex-col items-end">
-                <span className="text-[0.9375rem] font-semibold text-primary">{info.metric}</span>
-                <span className="font-mono text-[0.6875rem] text-muted-foreground">{info.count}</span>
+                <span className="text-[15px] font-semibold text-primary">{info.metric}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">{info.count}</span>
               </div>
             )}
           </div>
