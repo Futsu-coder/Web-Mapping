@@ -63,7 +63,8 @@ export default function MapControls({
               value={is3D ? "3d" : "2d"}
               onValueChange={(v) => v && (v === "3d") !== is3D && onToggle3D()}
               aria-label="มุมมองแผนที่"
-              className={cn("flex-col gap-0.5", compact && "min-w-12")}
+              spacing={0.5}
+              className={cn("flex-col", compact && "min-w-12")}
             >
               <ToggleGroupItem value="2d" aria-label="มุมมองแบน 2D" className={cn(SEG, segH)}>
                 2D

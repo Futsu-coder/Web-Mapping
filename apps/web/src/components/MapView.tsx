@@ -87,6 +87,17 @@ export default function MapView({ className, onReady }: { className?: string; on
     });
     // ย่อเป็นปุ่ม (i) ซ้ายล่าง — กันข้อความเครดิตบังแผนที่บนมือถือ และไม่เบียดปุ่ม 2D/3D ขวาล่าง
     map.addControl(new AttributionControl({ compact: true }), "bottom-left");
+    // MapLibre กาง credit เองตอน style โหลดครั้งแรก → ยุบกลับเป็นปุ่มวงกลมทันที (ครั้งเดียว) ให้ผู้ใช้กดเปิดเอง
+    const collapseAttrib = () => {
+      const el = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
+      if (!el?.classList.contains("maplibregl-compact")) return;
+      el.classList.remove("maplibregl-compact-show");
+      el.removeAttribute("open");
+      map.off("styledata", collapseAttrib);
+      map.off("sourcedata", collapseAttrib);
+    };
+    map.on("styledata", collapseAttrib);
+    map.on("sourcedata", collapseAttrib);
     map.touchZoomRotate.disableRotation();
     map.keyboard.disableRotation();
 
