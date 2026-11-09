@@ -68,6 +68,16 @@
     height: 100%;
     overflow: hidden;
   }
+  /* สเกล UI ตามขนาดจอ: UI ใช้ rem ทั้งหมด → ปรับ root ตัวเดียว (มือถือคง 16px กัน iOS ซูม input)
+     1280px ≈ 16.5px, 1920px ≈ 20.5px, 2560px ≈ 24.5px — จอเตี้ยถูกจำกัดด้วยความสูง */
+  html {
+    font-size: 16px;
+  }
+  @media (min-width: 768px) {
+    html {
+      font-size: clamp(14px, min(0.62vw + 8.6px, 1.5vh + 9px), 26px);
+    }
+  }
   body {
     font-family: "Anuphan", system-ui, sans-serif;
     background: var(--background);
