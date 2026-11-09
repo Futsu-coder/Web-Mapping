@@ -1,27 +1,14 @@
-import { useEffect, useReducer, useState } from "react";
-import L from "leaflet";
+import { useState } from "react";
 import type { FeatureProps } from "../api";
 import { CATEGORIES, CATEGORY_STYLE, type Category } from "../lib/categories";
-import { message } from "../lib/featureMeta";
-import { describeLayer, fmtLat, fmtLng } from "../lib/measure";
+import { centerOf, message } from "../lib/featureMeta";
+import { describeGeometry, fmtLat, fmtLng } from "../lib/measure";
 import type { GeomType } from "../lib/types";
 
-/** วาดซ้ำเมื่อแก้จุดของ layer เสร็จ (pm:edit) — ใช้อัปเดตตำแหน่ง/พื้นที่ที่แสดง */
-function useLayerRefresh(layer: L.Layer) {
-  const [, refresh] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    layer.on("pm:edit", refresh);
-    return () => void layer.off("pm:edit", refresh);
-  }, [layer]);
-}
-
 /** Point = ตำแหน่งจุด, Line/Polygon = จุดกึ่งกลางของกรอบ (อัปเดตเมื่อลากแก้เสร็จ) */
-function LocationView({ layer, mobile }: { layer: L.Layer; mobile: boolean }) {
-  useLayerRefresh(layer);
-
-  const pos =
-    layer instanceof L.Marker ? layer.getLatLng() : layer instanceof L.Polyline ? layer.getBounds().getCenter() : null;
-  if (!pos) return null;
+function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
+  const [lng, lat] = centerOf(geometry);
+  const pos = { lat, lng };
 
   return (
     <div className="space-y-1.5">
@@ -49,7 +36,7 @@ function LocationView({ layer, mobile }: { layer: L.Layer; mobile: boolean }) {
 export default function FeatureEditor({
   mode,
   type,
-  layer,
+  geometry,
   initial,
   onSave,
   onCancel,
@@ -66,7 +53,8 @@ export default function FeatureEditor({
   canModify?: boolean;
   mode: "view" | "edit" | "create";
   type: GeomType;
-  layer: L.Layer;
+  /** รูปทรงปัจจุบัน (ระหว่างวาด/แก้ = ค่าล่าสุดจาก draw) ใช้แสดงตำแหน่ง/พื้นที่ */
+  geometry: GeoJSON.Geometry;
   initial: FeatureProps;
   onSave: (props: FeatureProps) => Promise<void>;
   onCancel: () => void;
@@ -82,7 +70,6 @@ export default function FeatureEditor({
   const [description, setDescription] = useState(initial.description ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useLayerRefresh(layer);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -106,7 +93,7 @@ export default function FeatureEditor({
     mobile ? "px-3 py-2 text-base min-h-11" : "px-2.5 py-1.5 text-sm"
   }`;
 
-  const info = describeLayer(layer);
+  const info = describeGeometry(geometry);
 
   const fields = (
     <>
@@ -176,7 +163,7 @@ export default function FeatureEditor({
         </p>
       )}
 
-      <LocationView layer={layer} mobile={mobile} />
+      <LocationView geometry={geometry} mobile={mobile} />
 
       {error && (
         <p role="alert" className="text-xs text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1.5">

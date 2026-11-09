@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type L from "leaflet";
+import type { Map as MlMap } from "maplibre-gl";
 import type { DrawShape } from "../lib/types";
 
 const TOOL_ICON: Record<DrawShape, string> = { Marker: "location_on", Line: "timeline", Polygon: "polyline" };
@@ -37,16 +37,24 @@ export default function Toolbar({
   mapRef,
   activeTool,
   moveActive,
+  is3D,
+  onToggle3D,
   collapsible = false,
   onDrawSelect,
+  onToggleMove,
 }: {
-  mapRef: React.MutableRefObject<L.Map | null>;
+  mapRef: React.MutableRefObject<MlMap | null>;
   activeTool: DrawShape | null;
   moveActive: boolean;
+  /** โหมด 3D (แผนที่เอียง + ตึก 3D) */
+  is3D: boolean;
+  onToggle3D: () => void;
   /** มือถือ: แสดงเป็นปุ่มเดียว (ไอคอนเครื่องมือที่ใช้อยู่ + ลูกศร) กดแล้วกางรายการเครื่องมือ */
   collapsible?: boolean;
-  /** ถ้าส่งมา จะเรียกแทน Geoman enableDraw (มือถือวาดด้วยกากบาทกลางจอ) */
-  onDrawSelect?: (shape: DrawShape) => void;
+  /** เลือกเครื่องมือวาด (เลือกตัวเดิมซ้ำ = ยกเลิก) — จอคอมวาดด้วย mapbox-gl-draw, มือถือวาดด้วยกากบาทกลางจอ */
+  onDrawSelect: (shape: DrawShape) => void;
+  /** เปิด/ปิดเครื่องมือ Move (ย้ายทั้งก้อน) */
+  onToggleMove: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +62,7 @@ export default function Toolbar({
 
   useEffect(() => {
     if (!(collapsible && expanded)) return;
-    // capture: Leaflet อาจหยุด event ของแผนที่ไม่ให้ลอยขึ้นมาถึง document
+    // capture: แผนที่อาจหยุด event ไม่ให้ลอยขึ้นมาถึง document
     const handleOutside = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setExpanded(false);
@@ -65,32 +73,8 @@ export default function Toolbar({
   }, [collapsible, expanded]);
 
   const toggleDraw = (shape: DrawShape) => {
-    if (onDrawSelect) {
-      onDrawSelect(shape);
-      setExpanded(false);
-      return;
-    }
-    const map = mapRef.current;
-    if (!map) return;
-    const pm = map.pm as unknown as { enableDraw: (shape: DrawShape) => void; disableDraw: () => void };
-    if (activeTool === shape) {
-      pm.disableDraw();
-    } else {
-      if (map.pm.globalDragModeEnabled()) map.pm.disableGlobalDragMode(); // วาดกับ Move เปิดพร้อมกันไม่ได้
-      pm.enableDraw(shape);
-    }
-  };
-
-  // Move = ย้ายทั้งก้อน (global drag mode ของ Geoman)
-  const toggleMove = () => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (map.pm.globalDragModeEnabled()) {
-      map.pm.disableGlobalDragMode();
-    } else {
-      map.pm.disableDraw();
-      map.pm.enableGlobalDragMode();
-    }
+    onDrawSelect(shape);
+    setExpanded(false);
   };
 
   const triggerActive = activeTool !== null || moveActive;
@@ -126,12 +110,13 @@ export default function Toolbar({
           <ToolButton icon="location_on" label="Draw Point" active={activeTool === "Marker"} onClick={() => toggleDraw("Marker")} />
           <ToolButton icon="timeline" label="Draw Polyline" active={activeTool === "Line"} onClick={() => toggleDraw("Line")} />
           <ToolButton icon="polyline" label="Draw Polygon" active={activeTool === "Polygon"} onClick={() => toggleDraw("Polygon")} />
-          <ToolButton icon="open_with" label="Move Feature" active={moveActive} onClick={toggleMove} />
+          <ToolButton icon="open_with" label="Move Feature" active={moveActive} onClick={onToggleMove} />
 
           <div className="w-full h-px bg-slate-200 my-1" />
 
           <ToolButton icon="add" label="Zoom In" onClick={() => mapRef.current?.zoomIn()} />
           <ToolButton icon="remove" label="Zoom Out" onClick={() => mapRef.current?.zoomOut()} />
+          <ToolButton icon="view_in_ar" label={is3D ? "กลับเป็น 2D" : "มุมมอง 3D"} active={is3D} onClick={onToggle3D} />
 
           {collapsible && (
             <button

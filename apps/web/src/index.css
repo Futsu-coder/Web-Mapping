@@ -39,10 +39,11 @@
   padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* มือถือ: ยก attribution/สเกลของ Leaflet ขึ้นเหนือแผ่นล่าง
-   ต้องเขียนนอก @layer — leaflet.css ไม่อยู่ใน layer จึงชนะ utility ของ Tailwind เสมอ */
+/* มือถือ: ยก attribution/สเกลของแผนที่ขึ้นเหนือแผ่นล่าง
+   ต้องเขียนนอก @layer — maplibre-gl.css ไม่อยู่ใน layer จึงชนะ utility ของ Tailwind เสมอ */
 @media (max-width: 767px) {
-  .map-area .leaflet-bottom {
+  .map-area .maplibregl-ctrl-bottom-left,
+  .map-area .maplibregl-ctrl-bottom-right {
     bottom: var(--map-bottom-inset, 0px);
   }
 }
@@ -53,12 +54,6 @@
   &::-webkit-scrollbar {
     display: none;
   }
-}
-
-/* หมุดที่ถูก hover (จากรายการหรือบนแผนที่) */
-.leaflet-marker-icon.marker-hover {
-  filter: hue-rotate(160deg) saturate(2) drop-shadow(0 0 6px #f59e0b);
-  z-index: 1000 !important;
 }
 
 /* toast แจ้งผลการบันทึก: เลื่อนขึ้นมาครั้งเดียว */

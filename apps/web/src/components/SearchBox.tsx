@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import L from "leaflet";
+import { Marker, type Map as MlMap, type PaddingOptions } from "maplibre-gl";
 
 type Place = { place_id: number; display_name: string; lat: string; lon: string; boundingbox: [string, string, string, string] };
 
@@ -33,13 +33,13 @@ export default function SearchBox({
   onPicked,
   getPadding,
 }: {
-  mapRef: React.MutableRefObject<L.Map | null>;
+  mapRef: React.MutableRefObject<MlMap | null>;
   /** ตำแหน่ง/ความกว้างของกล่อง (ค่าเริ่มต้น = มุมซ้ายบนของจอคอม) */
   className?: string;
   /** เลือกผลการค้นหาแล้ว (มือถือใช้ปิดแถบค้นหา) */
   onPicked?: () => void;
   /** ระยะเว้นขอบจากสิ่งที่บังแผนที่อยู่ (พาเนลขวา / แผ่นล่างของมือถือ) ให้หมุดไปอยู่กลางส่วนที่มองเห็น */
-  getPadding?: () => L.FitBoundsOptions;
+  getPadding?: () => PaddingOptions;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[] | null>(null);
@@ -47,7 +47,7 @@ export default function SearchBox({
   const [error, setError] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const lastRequest = useRef(0);
-  const pin = useRef<L.CircleMarker | null>(null);
+  const pin = useRef<Marker | null>(null);
   const controller = useRef<AbortController | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cache = useRef(new Map<string, Place[]>());
@@ -133,29 +133,18 @@ export default function SearchBox({
     const map = mapRef.current;
     if (!map) return;
     const [south, north, west, east] = place.boundingbox.map(Number);
-    const point = L.latLng(Number(place.lat), Number(place.lon));
-    const pad = getPadding?.() ?? {};
+    const point: [number, number] = [Number(place.lon), Number(place.lat)];
+    const padding = getPadding?.() ?? { top: 40, right: 40, bottom: 40, left: 40 };
     // ระดับซูมให้เห็นทั้งพื้นที่ (เช่น ทั้งจังหวัด) แต่วางหมุดไว้กลางจอ — กลางกรอบ bbox มักไม่ใช่ตำแหน่งของสถานที่
-    const zoom = Math.min(
-      16,
-      map.getBoundsZoom(
-        L.latLngBounds([south, west], [north, east]),
-        false,
-        L.point(pad.paddingTopLeft ?? [0, 0]).add(pad.paddingBottomRight ?? [0, 0]),
-      ),
-    );
-    map.flyToBounds(L.latLngBounds(point, point), { ...pad, maxZoom: zoom });
-    // หมุดชั่วคราว ไม่บันทึกลง database และไม่ให้ Geoman แก้ไข
+    const zoom = Math.min(16, map.cameraForBounds([[west, south], [east, north]], { padding })?.zoom ?? 12);
+    const camera = map.cameraForBounds([point, point], { padding, maxZoom: zoom });
+    if (camera) map.flyTo(camera);
+    // หมุดชั่วคราว ไม่บันทึกลง database และไม่เข้า draw
     pin.current?.remove();
-    pin.current = L.circleMarker(point, {
-      radius: 8,
-      color: "#0f766e",
-      fillColor: "#14b8a6",
-      fillOpacity: 0.6,
-      pmIgnore: true,
-    })
-      .bindTooltip(place.display_name)
-      .addTo(map);
+    const el = document.createElement("div");
+    el.className = "w-4 h-4 rounded-full border-2 border-teal-700 bg-teal-400/60 shadow";
+    el.title = place.display_name;
+    pin.current = new Marker({ element: el }).setLngLat(point).addTo(map);
     setHasPin(true);
     setResults(null);
     onPicked?.();

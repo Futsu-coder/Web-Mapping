@@ -1,4 +1,4 @@
-import type L from "leaflet";
+import type { Map as MlMap } from "maplibre-gl";
 import type { MobileDraw } from "../../hooks/useCrosshairDraw";
 import { formatArea, formatLength, lineLength, polygonArea } from "../../lib/measure";
 
@@ -12,8 +12,8 @@ export default function DrawSheet({
   onError,
 }: {
   draw: MobileDraw;
-  mapRef: React.MutableRefObject<L.Map | null>;
-  onAdd: (p: L.LatLng) => void;
+  mapRef: React.MutableRefObject<MlMap | null>;
+  onAdd: (p: GeoJSON.Position) => void;
   onError: (err: unknown) => void;
 }) {
   const n = draw.points.length;
@@ -25,24 +25,13 @@ export default function DrawSheet({
         ? `${formatLength(lineLength(draw.points))} · ${count}`
         : count;
 
+  // ไปยังตำแหน่งปัจจุบันของเครื่อง (ต้องอนุญาตสิทธิ์ตำแหน่งของเบราว์เซอร์)
   const locate = () => {
-    const map = mapRef.current;
-    if (!map) return;
-    // ถอด listener ทั้งสองตัวเมื่อมีอย่างใดอย่างหนึ่งเกิด (กัน error ครั้งหน้ายิงซ้ำ)
-    function cleanup() {
-      map?.off("locationfound", onFound);
-      map?.off("locationerror", onFail);
-    }
-    function onFound() {
-      cleanup();
-    }
-    function onFail() {
-      cleanup();
-      onError(new Error("ไม่สามารถระบุตำแหน่งปัจจุบันได้ (ตรวจสอบสิทธิ์ตำแหน่งของเบราว์เซอร์)"));
-    }
-    map.on("locationfound", onFound);
-    map.on("locationerror", onFail);
-    map.locate({ setView: true, maxZoom: 17 });
+    if (!navigator.geolocation) return onError(new Error("เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง"));
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => mapRef.current?.flyTo({ center: [coords.longitude, coords.latitude], zoom: 17 }),
+      () => onError(new Error("ไม่สามารถระบุตำแหน่งปัจจุบันได้ (ตรวจสอบสิทธิ์ตำแหน่งของเบราว์เซอร์)")),
+    );
   };
 
   return (
@@ -73,7 +62,10 @@ export default function DrawSheet({
           )}
           <button
             type="button"
-            onClick={() => mapRef.current && onAdd(mapRef.current.getCenter())}
+            onClick={() => {
+              const c = mapRef.current?.getCenter();
+              if (c) onAdd([c.lng, c.lat]);
+            }}
             className="w-full h-[3.125rem] bg-teal-700 hover:bg-teal-800 active:scale-[0.99] text-white font-medium text-[15px] rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
           >
             <span className="material-symbols-outlined text-[20px]">add</span>

@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { MapContainer, TileLayer } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import "@geoman-io/leaflet-geoman-free";
-import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
-import iconUrl from "leaflet/dist/images/marker-icon.png";
-import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
-import shadowUrl from "leaflet/dist/images/marker-shadow.png";
+import { Popup, type Map as MlMap, type PaddingOptions } from "maplibre-gl";
+import type MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type { Session } from "@supabase/supabase-js";
 import {
   createFeature,
@@ -19,11 +13,10 @@ import {
   type Me,
 } from "./api";
 import AuthDialog from "./components/AuthDialog";
-import DrawTools, { type RegisterFn } from "./components/DrawTools";
 import InvitationToasts from "./components/InvitationToasts";
 import NotificationBell from "./components/NotificationBell";
 import FeatureEditor from "./components/FeatureEditor";
-import MapRef from "./components/MapRef";
+import MapView, { type MapCtx } from "./components/MapView";
 import Navbar from "./components/Navbar";
 import Toast, { type ToastData } from "./components/Toast";
 import Toolbar from "./components/Toolbar";
@@ -36,50 +29,17 @@ import MobileHeader from "./components/mobile/MobileHeader";
 import MobileSearch from "./components/mobile/MobileSearch";
 import MobileSheet from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
+import { toItem, useFeatureData } from "./hooks/useFeatureData";
+import { useMapEvents } from "./hooks/useMapEvents";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
-import { OSM_TILE, WORLD_BOUNDS } from "./lib/baseLayers";
-import WorldLimits from "./components/WorldLimits";
-import {
-  attach,
-  detach,
-  geometryOf,
-  message,
-  meta,
-  ownerGroup,
-  propsOf,
-  restoreGeometry,
-  sameGeometry,
-  setEditable,
-  setHighlight,
-} from "./lib/featureMeta";
+import { bboxOf, centerOf, message, propsOf, sameGeometry } from "./lib/featureMeta";
+import { setFeatureData, setItemState, setTerrainEnabled } from "./lib/mapLayers";
+import { selfIntersects } from "./lib/measure";
 import { clearGuest, GUEST_TTL_MS, guestExpiresAt, nextGuestId, removeGuest, upsertGuest } from "./lib/guestStore";
 import { isIdleExpired, watchIdle } from "./lib/idleLogout";
 import { supabase } from "./lib/supabase";
 import { useInvitations } from "./lib/useInvitations";
-import { SHAPE_TO_GEOM_TYPE, type DrawShape, type GeomType, type Item, type Selection } from "./lib/types";
-
-// Vite ไม่หา path รูป marker ของ Leaflet เอง ต้องกำหนดให้
-// imagePath = "" กัน Leaflet เอา path ที่เดาจาก CSS ไปต่อหน้า URL ที่ import มา (ทำให้รูปหมุดหาย)
-L.Icon.Default.imagePath = "";
-L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
-
-type Editable = L.Path | L.Marker;
-
-/** ปิดโหมดแก้ทีละจุดและโหมดลากทั้งก้อนของ layer ก่อนเอาออกจากแผนที่ (กัน Geoman error) */
-function releaseLayer(layer: L.Layer) {
-  const l = layer as Editable;
-  if (l.pm.enabled()) l.pm.disable();
-  if (l.pm.layerDragEnabled()) l.pm.disableLayerDrag();
-}
-
-/** หมุดที่ถูกรวมใน cluster ยังไม่อยู่บนแผนที่ → ซูมให้ cluster แตกก่อน แล้วค่อยทำต่อ */
-function reveal(layer: L.Layer, then: () => void) {
-  const group = ownerGroup.get(layer);
-  if (layer instanceof L.Marker && group instanceof L.MarkerClusterGroup) group.zoomToShowLayer(layer, then);
-  else then();
-}
-
-const noop = () => {};
+import { DRAW_MODE, SHAPE_TO_GEOM_TYPE, type DrawShape, type GeomType, type Item, type Selection } from "./lib/types";
 
 /** feature ในโหมดทดลอง: สร้างในเครื่อง ไม่ผ่าน API (id ติดลบ ไม่ชนกับ id จริง) เก็บใน localStorage */
 const localFeature = (id: number, type: GeomType, geometry: GeoJSON.Geometry, props: FeatureProps): ApiFeature => ({
@@ -89,6 +49,17 @@ const localFeature = (id: number, type: GeomType, geometry: GeoJSON.Geometry, pr
   properties: { ...props, geom_type: type, owner_id: null, owner_name: null },
 });
 
+// type ของ mapbox-gl-draw แยก changeMode ตามชื่อโหมด — ใช้ตัวนี้เมื่อชื่อโหมดเป็นตัวแปร
+const setDrawMode = (draw: MapboxDraw, mode: string, options?: object) =>
+  (draw.changeMode as (mode: string, options?: object) => void)(mode, options);
+
+/** id ของรูปทรงใน draw: ที่กำลังแก้ = `f<id>`, ที่กำลังย้าย = `m<id>`, ที่เพิ่งวาด = id ที่ draw สร้างให้ */
+const editDrawId = (id: number) => `f${id}`;
+const moveDrawId = (id: number) => `m${id}`;
+
+const SELF_INTERSECT = "ขอบพื้นที่ตัดกันเอง — บันทึกไม่ได้ (ลากจุดให้ขอบไม่ไขว้กัน)";
+const isBadPolygon = (g: GeoJSON.Geometry) => g.type === "Polygon" && selfIntersects(g.coordinates[0] ?? []);
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<GeomType | "All">("All");
@@ -96,16 +67,25 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  // รูปทรงล่าสุดของสิ่งที่วาด/แก้อยู่ใน draw (ยังไม่บันทึก) — ใช้แสดงตำแหน่ง/พื้นที่ในฟอร์ม
+  const [draftGeom, setDraftGeom] = useState<GeoJSON.Geometry | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<ToastData | null>(null);
   const [moveMode, setMoveMode] = useState(false);
+  // โหมด 3D: แผนที่เอียง 60° หมุนได้ เห็นภูเขาและตึก 3D (ตึกมีตั้งแต่ซูม 14)
+  const [is3D, setIs3D] = useState(false);
+  const zoomInFor3D = useRef(false);
+  // feature ที่ถูกดึงเข้า draw เพื่อลากย้ายในโหมด Move
+  const [movingId, setMovingId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   // สมาชิกที่ซ่อน feature ไว้ (ซ่อนแค่บนจอเรา)
   const [hiddenOwners, setHiddenOwners] = useState<Set<string>>(new Set());
-  const mapRef = useRef<L.Map | null>(null);
+  const [ctx, setCtx] = useState<MapCtx | null>(null);
+  const mapRef = useRef<MlMap | null>(null);
+  const popup = useRef<Popup | null>(null);
   const isMobile = useIsMobile();
   // hover มีจริงเฉพาะอุปกรณ์ที่มีเมาส์ — จอสัมผัสยิง mouseover จำลองตอนแตะแต่ไม่ยิง mouseout ทำให้สีส้มค้าง
   const canHover = useMediaQuery("(hover: hover)");
@@ -113,15 +93,20 @@ export default function App() {
   const crosshair = useCrosshairDraw();
   // วาดด้วยกากบาทกลางจอ (มือถือเท่านั้น) — ขยายจอเป็นจอคอมระหว่างวาด = ยกเลิกโหมดนี้
   if (!isMobile && crosshair.draw) crosshair.cancel();
+  // ย่อจอเป็นมือถือระหว่างวาดด้วย draw อยู่ → ปิดเครื่องมือนั้น (โหมดของ draw ปิดใน effect ด้านล่าง)
+  if (isMobile && activeTool) setActiveTool(null);
   const mobileDraw = isMobile ? crosshair.draw : null;
-  const registerRef = useRef<RegisterFn | null>(null);
-  // โหมดทดลอง: เวลาที่ข้อมูลใน localStorage จะถูกลบ (null = ยังไม่มีข้อมูล) / ลบแล้วเพิ่ม epoch ให้ DrawTools โหลดใหม่
+  // โหมดทดลอง: เวลาที่ข้อมูลใน localStorage จะถูกลบ (null = ยังไม่มีข้อมูล) / ลบแล้วเพิ่ม epoch ให้โหลดใหม่
   const [guestExpiry, setGuestExpiry] = useState(guestExpiresAt);
   const [guestEpoch, setGuestEpoch] = useState(0);
   const [now, setNow] = useState(Date.now);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
   const closeToast = useCallback(() => setToast(null), []);
+  const onMapReady = useCallback((c: MapCtx | null) => {
+    mapRef.current = c?.map ?? null;
+    setCtx(c);
+  }, []);
 
   // ---------- บัญชีผู้ใช้ ----------
   useEffect(() => {
@@ -157,17 +142,21 @@ export default function App() {
   const canModifyOwner = (ownerId: string | null) => guest || groupOwner || (ownerId !== null && ownerId === myId);
   const canModify = (item: Item) => canModifyOwner(item.ownerId);
 
-  // เปลี่ยนบัญชี / ย้าย group → DrawTools โหลดใหม่ (key เปลี่ยน) และล้างสถานะที่ผูกกับ feature ชุดเก่า
+  // เปลี่ยนบัญชี / ย้าย group / ข้อมูลทดลองหมดอายุ → โหลด feature ชุดใหม่ และล้างสถานะที่ผูกกับชุดเก่า
   const viewKey = activeMe ? `group-${activeMe.group.id}` : `guest-${guestEpoch}`;
   const [shownKey, setShownKey] = useState(viewKey);
   if (shownKey !== viewKey) {
     setShownKey(viewKey);
     setGuestExpiry(guestExpiresAt()); // กลับมาโหมดทดลอง (logout) ข้อมูลอาจหมดอายุไประหว่างนั้น
+    setItems([]);
     setSelection(null);
+    setDraftGeom(null);
+    setMovingId(null);
     setHiddenIds(new Set());
     setHiddenOwners(new Set());
     setHoveredId(null);
   }
+  useFeatureData(viewKey, guest, setItems, onError);
 
   const isHidden = (item: Item) =>
     hiddenIds.has(item.id) || (item.ownerId !== null && hiddenOwners.has(item.ownerId));
@@ -177,131 +166,132 @@ export default function App() {
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
   const selectedItem = selectedId !== null ? items.find((i) => i.id === selectedId) : undefined;
+  const editingId = selection?.mode === "edit" ? selection.id : null;
   const activeHoverId = hoverEnabled ? hoveredId : null;
   const onHover = useCallback((id: number | null) => setHoveredId(id), []);
-  const hoveredLayer = activeHoverId !== null ? items.find((i) => i.id === activeHoverId)?.layer : undefined;
-  // เปิดให้ลากแก้ทีละจุดได้เฉพาะ draft ที่เพิ่งวาด หรือ feature ที่กดปากกา (edit)
-  // โหมดดู (view) ลากไม่ได้ — ย้ายทั้งก้อนใช้เครื่องมือ Move ใน toolbar แทน
-  // feature ที่ซ่อนอยู่ไม่อยู่บนแผนที่ จึงเปิด pm ไม่ได้
-  const activeLayer =
-    selection?.mode === "create"
-      ? selection.layer
-      : selection?.mode === "edit" && selectedItem && !isHidden(selectedItem)
-        ? selectedItem.layer
-        : undefined;
+  const hoveredItem = activeHoverId !== null ? items.find((i) => i.id === activeHoverId) : undefined;
 
-  // ย่อจอเป็นมือถือระหว่างวาดแบบ Geoman อยู่ → ปิดโหมดนั้น
+  // วาด feature ที่บันทึกแล้วลงแผนที่ — ไม่รวมที่ซ่อน และที่อยู่ใน draw (กำลังแก้ / กำลังย้าย) จะได้ไม่เห็นซ้อนกัน 2 ชิ้น
   useEffect(() => {
-    if (isMobile) mapRef.current?.pm.disableDraw();
-  }, [isMobile]);
+    if (!ctx) return;
+    setFeatureData(
+      ctx.map,
+      items.filter(
+        (i) =>
+          !hiddenIds.has(i.id) &&
+          !(i.ownerId !== null && hiddenOwners.has(i.ownerId)) &&
+          i.id !== editingId &&
+          i.id !== movingId,
+      ),
+    );
+  }, [ctx, items, hiddenIds, hiddenOwners, editingId, movingId]);
 
-  const drawingMobile = !!mobileDraw;
+  // hover จากรายการหรือบนแผนที่ → ไฮไลต์บนแผนที่ / ที่เลือกอยู่ → เส้นหนาขึ้น
   useEffect(() => {
+    if (!ctx || !hoveredItem) return;
+    setItemState(ctx.map, hoveredItem, { hover: true });
+    return () => setItemState(ctx.map, hoveredItem, { hover: false });
+  }, [ctx, hoveredItem]);
+  useEffect(() => {
+    if (!ctx || !selectedItem) return;
+    setItemState(ctx.map, selectedItem, { selected: true });
+    return () => setItemState(ctx.map, selectedItem, { selected: false });
+  }, [ctx, selectedItem]);
+
+  // วาด / แก้จุด / Move ต้องทำบนแผนที่แบนเสมอ (draw คำนวณตำแหน่งคลาดเมื่อแผนที่เอียง)
+  // → ระหว่างนั้นกลับเป็น 2D ชั่วคราว ทำเสร็จแล้วเอียงกลับให้เอง
+  const mustBeFlat =
+    !!activeTool || !!mobileDraw || moveMode || selection?.mode === "create" || selection?.mode === "edit";
+  useEffect(() => {
+    if (!ctx) return;
+    const { map } = ctx;
+    const tilt = is3D && !mustBeFlat;
+    if (tilt) {
+      map.dragRotate.enable();
+      map.touchPitch.enable();
+      map.touchZoomRotate.enableRotation();
+      map.keyboard.enableRotation();
+    } else {
+      map.dragRotate.disable();
+      map.touchPitch.disable();
+      map.touchZoomRotate.disableRotation();
+      map.keyboard.disableRotation();
+    }
+    // ภูเขาเปิดพร้อมการเอียง — ตอนวาด/แก้ต้องปิดด้วย เพราะ draw วางจุดบนพื้นราบ จะคลาดจากพื้นที่ยกเป็นภูเขา
+    setTerrainEnabled(map, tilt);
+    // เพิ่งกดเปิด 3D ตอนซูมไกลมาก (ทั้งประเทศ) → ซูมเข้าระดับภูมิภาค ให้เห็นภูเขาชัด (ตึกต้องซูมต่อถึง 14)
+    const zoom = tilt && zoomInFor3D.current && map.getZoom() < 7 ? 9 : undefined;
+    zoomInFor3D.current = false;
+    const pitch = tilt ? 60 : 0;
+    if (map.getPitch() !== pitch || zoom !== undefined || (!tilt && map.getBearing() !== 0)) {
+      map.easeTo({ pitch, zoom, ...(tilt ? {} : { bearing: 0 }), duration: 500 });
+    }
+  }, [ctx, is3D, mustBeFlat]);
+
+  const onToggle3D = () => {
+    zoomInFor3D.current = !is3D;
+    setIs3D(!is3D);
+  };
+
+  // ย่อจอเป็นมือถือระหว่างวาดด้วย draw → ปิดโหมดวาดของ draw (มือถือวาดด้วยกากบาทแทน)
+  useEffect(() => {
+    if (isMobile && ctx?.draw.getMode().startsWith("draw_")) setDrawMode(ctx.draw, "simple_select");
+  }, [isMobile, ctx]);
+
+  const closePopup = () => {
+    popup.current?.remove();
+    popup.current = null;
+  };
+  const showPopup = (lngLat: [number, number], name: string) => {
     const map = mapRef.current;
-    if (!map || !drawingMobile) return;
-    map.closePopup();
-    const closeAny = () => map.closePopup();
-    map.on("popupopen", closeAny);
-    return () => void map.off("popupopen", closeAny);
-  }, [drawingMobile]);
+    if (!map) return;
+    closePopup();
+    popup.current = new Popup({ offset: 12, maxWidth: "16rem" }).setLngLat(lngLat).setText(name).addTo(map);
+  };
 
-  // hover จากรายการหรือบนแผนที่ → ไฮไลต์รูปบนแผนที่ (ต้องอยู่ก่อน effect ด้านล่างที่ตั้งความหนาเส้นตามการเลือก)
-  useEffect(() => {
-    if (!hoveredLayer) return;
-    setHighlight(hoveredLayer, true);
-    return () => setHighlight(hoveredLayer, false);
-  }, [hoveredLayer]);
+  // ---------- mapbox-gl-draw ----------
+  /** เลือกรูปใน draw ให้ลากแก้ได้: Point = ลากทั้งจุด, Line/Polygon = ลากทีละจุดยอด */
+  const selectInDraw = (drawId: string, type: GeomType) => {
+    if (!ctx || !ctx.draw.get(drawId)) return;
+    if (type === "Point") setDrawMode(ctx.draw, "simple_select", { featureIds: [drawId] });
+    else setDrawMode(ctx.draw, "direct_select", { featureId: drawId });
+  };
 
-  useEffect(() => {
-    for (const { layer } of items) {
-      const l = layer as Editable;
-      const on = layer === activeLayer;
-      if (on && !l.pm.enabled()) l.pm.enable();
-      else if (!on && l.pm.enabled()) l.pm.disable();
-      // เส้นขอบหนาขึ้นเป็นตัวบอกว่า feature นี้ถูกเลือกอยู่ (ตัวที่ hover อยู่ใช้สไตล์ไฮไลต์แทน)
-      if (layer instanceof L.Path && layer !== hoveredLayer) {
-        layer.setStyle({ weight: layer === selectedItem?.layer ? 5 : 3 });
-      }
-    }
-    // draft ที่เพิ่งวาด ยังไม่อยู่ใน items
-    if (activeLayer && !items.some((i) => i.layer === activeLayer)) {
-      const l = activeLayer as Editable;
-      if (!l.pm.enabled()) l.pm.enable();
-    }
-  }, [items, activeLayer, selectedItem, hoveredLayer]);
+  /** ใส่รูปทรงลง draw (ล้างของเดิมก่อน) */
+  const loadIntoDraw = (drawId: string, geometry: GeoJSON.Geometry) => {
+    if (!ctx) return;
+    ctx.draw.deleteAll();
+    ctx.draw.add({ type: "Feature", id: drawId, geometry, properties: {} });
+  };
 
-  // สิทธิ์เปลี่ยนได้ (login / ย้าย group / ได้เป็นเจ้าของ group) → feature ที่แก้ไม่ได้ให้ Geoman ข้าม (Move ลากไม่ได้)
-  useEffect(() => {
-    for (const { layer, ownerId } of items) {
-      const editable = guest || groupOwner || (ownerId !== null && ownerId === myId);
-      setEditable(layer, editable);
-    }
-  }, [items, guest, groupOwner, myId]);
+  const clearDraw = () => {
+    if (!ctx) return;
+    ctx.draw.deleteAll();
+    if (ctx.draw.getMode() !== "simple_select") setDrawMode(ctx.draw, "simple_select");
+  };
 
-  // ซ่อนของสมาชิกทั้งคน (รวมที่เพิ่งเข้ามาทาง Realtime) — ซ่อนทีละ feature ทำใน toggleVisible อยู่แล้ว
-  useEffect(() => {
-    for (const item of items) {
-      if (item.ownerId === null || hiddenIds.has(item.id)) continue;
-      const group = ownerGroup.get(item.layer);
-      const onMap = group?.hasLayer(item.layer) ?? false;
-      const hide = hiddenOwners.has(item.ownerId);
-      if (hide && onMap) {
-        releaseLayer(item.layer);
-        detach(item.layer);
-      } else if (!hide && !onMap) {
-        attach(item.layer);
-      }
-    }
-  }, [items, hiddenOwners, hiddenIds]);
+  /** id ใน draw ของสิ่งที่วาด/แก้อยู่ */
+  const activeDrawId =
+    selection?.mode === "create" ? selection.drawId : selection?.mode === "edit" ? editDrawId(selection.id) : null;
+  const activeType = selection?.mode === "create" ? selection.type : (selectedItem?.type ?? null);
 
-  /** ทิ้งสิ่งที่ค้างอยู่: draft = ลบออกจากแผนที่, โหมดปากกา = คืนรูปทรงที่ยังไม่ได้กด Save (ไม่แตะ state) */
+  /** ทิ้งสิ่งที่ค้างอยู่ใน draw (draft ที่ยังไม่บันทึก / การแก้ที่ยังไม่กด Save) — รูปที่บันทึกแล้วอยู่ใน items ไม่ถูกแตะ */
   const discardPending = () => {
-    if (selection?.mode === "create") {
-      const l = selection.layer as Editable;
-      if (l.pm.enabled()) l.pm.disable();
-      mapRef.current?.removeLayer(selection.layer);
-    } else if (selection?.mode === "edit" && selectedItem) {
-      const l = selectedItem.layer as Editable;
-      if (l.pm.enabled()) l.pm.disable();
-      restoreGeometry(l, meta.get(l)!.saved);
-    }
-  };
-
-  // เครื่องมือ Move เปิด/ปิด: ตอนเปิดต้องทิ้งสิ่งที่ค้างอยู่ เพราะ layer-drag ของ Geoman จะปิดโหมดลากจุดของ layer นั้น
-  const onMoveModeChange = (enabled: boolean) => {
-    setMoveMode(enabled);
-    if (enabled) {
-      crosshair.cancel();
-      closeSelection();
-    }
-  };
-
-  // ย้ายทั้งก้อนเสร็จ (เฉพาะตอนเปิดเครื่องมือ Move) → บันทึกตำแหน่งทันที
-  // ส่ง PATCH เฉพาะ geometry ไม่แตะ properties ส่วนการแก้ทีละจุดในโหมดปากกาต้องกด Save Changes
-  const onGeometryChange = (id: number, layer: L.Layer) => {
-    if (!moveMode) return;
-    const m = meta.get(layer);
-    if (!m) return;
-    const geometry = geometryOf(layer);
-    if (sameGeometry(geometry, m.saved)) return; // กดลากแต่ไม่ได้ขยับจริง
-    if (guest) {
-      meta.set(layer, { ...m, saved: geometry }); // โหมดทดลอง: บันทึกลง localStorage อย่างเดียว
-      persistGuest(() => upsertGuest(localFeature(id, m.type, geometry, m.props)));
-      return;
-    }
-    patchFeature(id, { geometry })
-      .then((f) => {
-        meta.set(layer, { ...meta.get(layer)!, saved: f.geometry }); // บันทึกเงียบ ไม่ขึ้น toast
-      })
-      .catch((err) => {
-        restoreGeometry(layer, meta.get(layer)!.saved); // API ไม่รับ = คืนตำแหน่งเดิม
-        onError(err);
-      });
+    if (selection?.mode === "create" || selection?.mode === "edit") clearDraw();
+    setDraftGeom(null);
   };
 
   const closeSelection = () => {
     discardPending();
     setSelection(null);
+  };
+
+  /** ออกจากโหมด Move (คืน feature ที่ดึงเข้า draw ไว้กลับไปแสดงตามปกติ) */
+  const exitMove = () => {
+    if (!moveMode) return;
+    if (movingId !== null) clearDraw();
+    setMovingId(null);
+    setMoveMode(false);
   };
 
   /** เขียนข้อมูลทดลองลง localStorage แล้วอัปเดตเวลาที่จะถูกลบ (เริ่มนับเมื่อมี feature ชิ้นแรก) */
@@ -341,28 +331,29 @@ export default function App() {
     setPanelOpen(true);
   };
 
-  const showItem = (item: Item) => {
-    attach(item.layer); // ใส่คืนกลุ่มเดิม (หมุดกลับเข้า cluster)
+  const showItem = (item: Item) =>
     setHiddenIds((s) => {
       const next = new Set(s);
       next.delete(item.id);
       return next;
     });
-  };
 
   const startEdit = (item: Item) => {
     if (!canModify(item) || (selection?.mode === "edit" && selection.id === item.id)) return;
     discardPending();
-    if (mapRef.current?.pm.globalDragModeEnabled()) mapRef.current.pm.disableGlobalDragMode(); // Move กับแก้ทีละจุดเปิดพร้อมกันไม่ได้
+    exitMove(); // Move กับแก้ทีละจุดเปิดพร้อมกันไม่ได้
+    closePopup();
     // แก้ไขต้องเห็นรูปทรงบนแผนที่
     if (hiddenIds.has(item.id)) showItem(item);
     if (item.ownerId !== null && hiddenOwners.has(item.ownerId)) toggleOwner(item.ownerId);
     setPanelOpen(true);
-    // หมุดต้องอยู่บนแผนที่ (ไม่ถูกรวมใน cluster) ก่อน Geoman จะเปิดให้ลากได้
-    reveal(item.layer, () => setSelection({ mode: "edit", id: item.id }));
+    loadIntoDraw(editDrawId(item.id), item.geometry);
+    selectInDraw(editDrawId(item.id), item.type);
+    setDraftGeom(item.geometry);
+    setSelection({ mode: "edit", id: item.id });
   };
 
-  /** ปุ่ม Cancel ในฟอร์ม: edit = คืนค่าเดิมแล้วกลับไปโหมดดู, create = ทิ้ง shape */
+  /** ปุ่ม Cancel ในฟอร์ม: edit = ทิ้งการแก้แล้วกลับไปโหมดดู, create = ทิ้ง shape */
   const cancel = () => {
     const keepId = selection?.mode === "edit" ? selection.id : null;
     discardPending();
@@ -372,8 +363,7 @@ export default function App() {
   const toggleVisible = (item: Item) => {
     if (hiddenIds.has(item.id)) return showItem(item);
     if (selection?.mode === "edit" && selection.id === item.id) cancel();
-    releaseLayer(item.layer); // ปิดโหมดแก้ไข/ลากก่อนเอาออกจากแผนที่
-    detach(item.layer);
+    closePopup();
     setHiddenIds((s) => new Set(s).add(item.id));
   };
 
@@ -410,26 +400,20 @@ export default function App() {
     void supabase?.auth.signOut();
   };
 
-  // คลิก feature บนแผนที่ = ดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
-  const onLayerClick = (id: number) => {
-    if (mobileDraw || selection?.mode === "edit" || selection?.mode === "create") return;
-    view(id);
-  };
-
-  // คลิกพื้นที่ว่าง: ปิดเฉพาะโหมดดู
-  const onMapClick = () => {
-    if (selection?.mode === "view") setSelection(null);
-  };
-
-  const onDraft = (layer: L.Layer, type: GeomType) => {
-    discardPending();
-    if (layer instanceof L.Polygon) layer.pm.setOptions({ allowSelfIntersection: false });
-    setSelection({ mode: "create", layer, type });
-    setPanelOpen(true);
-  };
-
-  const onActiveToolChange = (shape: DrawShape | null) => {
-    if (shape) closeSelection(); // เริ่มวาดใหม่ = ทิ้งสิ่งที่ค้างอยู่
+  // ---------- เครื่องมือวาด / Move ----------
+  /** จอคอม: เลือกเครื่องมือวาด = เปิดโหมดวาดของ draw (เลือกชนิดเดิมซ้ำ = ยกเลิก) */
+  const onDrawSelect = (shape: DrawShape) => {
+    if (!ctx) return;
+    if (activeTool === shape) {
+      setDrawMode(ctx.draw, "simple_select");
+      setActiveTool(null);
+      return;
+    }
+    closeSelection(); // เริ่มวาดใหม่ = ทิ้งสิ่งที่ค้างอยู่
+    exitMove();
+    closePopup();
+    ctx.draw.deleteAll();
+    setDrawMode(ctx.draw, DRAW_MODE[shape]);
     setActiveTool(shape);
   };
 
@@ -437,79 +421,183 @@ export default function App() {
   const onMobileDrawSelect = (shape: DrawShape) => {
     if (mobileDraw?.shape === shape) return crosshair.cancel();
     closeSelection();
-    if (mapRef.current?.pm.globalDragModeEnabled()) mapRef.current.pm.disableGlobalDragMode();
+    exitMove();
+    closePopup();
     crosshair.start(shape);
   };
 
-  /** ปุ่ม Next: สร้าง layer จากจุดที่วางไว้ แล้วเข้าขั้นตอนกรอกข้อมูลเดียวกับที่วาดด้วย Geoman */
-  const finishMobileDraw = () => {
-    const map = mapRef.current;
-    if (!map || !mobileDraw || mobileDraw.points.length < MIN_POINTS[mobileDraw.shape]) return;
-    const { shape, points } = mobileDraw;
-    const layer: L.Layer =
-      shape === "Marker" ? L.marker(points[0]) : shape === "Line" ? L.polyline(points) : L.polygon(points);
-    layer.addTo(map);
+  // Move = ย้ายทั้งก้อน: คลิก feature ที่แก้ได้ → ดึงเข้า draw แล้วลากได้ทันที ปล่อยเมาส์ = บันทึก
+  const onToggleMove = () => {
+    if (moveMode) return exitMove();
     crosshair.cancel();
-    onDraft(layer, SHAPE_TO_GEOM_TYPE[shape]);
-    // แผ่นฟอร์มกินล่าง 60% ของจอ → เลื่อนรูปที่วาดขึ้นมาอยู่ในส่วนที่ยังมองเห็น
-    map.fitBounds(L.latLngBounds(points), {
-      paddingTopLeft: [40, 40],
-      paddingBottomRight: [40, map.getSize().y * 0.6 + 16],
-      maxZoom: shape === "Marker" ? map.getZoom() : 18,
-    });
+    closeSelection();
+    closePopup();
+    if (ctx && activeTool) setDrawMode(ctx.draw, "simple_select");
+    setActiveTool(null);
+    setMoveMode(true);
   };
 
-  /** ช่องค้นหา: เว้นขอบส่วนที่ถูกบัง (พาเนลขวาบนจอคอม / แผ่นล่าง 60% บนมือถือ) */
-  const searchPadding = (): L.FitBoundsOptions => {
-    if (!panelOpen) return { paddingTopLeft: [40, 40], paddingBottomRight: [40, 40] };
-    if (isMobile) {
-      const h = mapRef.current?.getSize().y ?? 0;
-      return { paddingTopLeft: [40, 40], paddingBottomRight: [40, h * 0.6 + 16] };
+  /** ย้ายเสร็จ (เฉพาะโหมด Move) → บันทึกตำแหน่งทันที ส่ง PATCH เฉพาะ geometry ไม่แตะ properties */
+  const saveMove = (id: number, geometry: GeoJSON.Geometry) => {
+    const item = items.find((i) => i.id === id);
+    if (!item || sameGeometry(geometry, item.geometry)) return; // กดลากแต่ไม่ได้ขยับจริง
+    const apply = (g: GeoJSON.Geometry) => setItems((list) => list.map((i) => (i.id === id ? { ...i, geometry: g } : i)));
+    if (guest) {
+      apply(geometry); // โหมดทดลอง: บันทึกลง localStorage อย่างเดียว
+      persistGuest(() => upsertGuest(localFeature(id, item.type, geometry, item.props)));
+      return;
     }
+    patchFeature(id, { geometry })
+      .then((f) => apply(f.geometry)) // บันทึกเงียบ ไม่ขึ้น toast
+      .catch((err) => {
+        // API ไม่รับ = คืนตำแหน่งเดิม
+        if (ctx?.draw.get(moveDrawId(id))) {
+          loadIntoDraw(moveDrawId(id), item.geometry);
+          setDrawMode(ctx.draw, "simple_select", { featureIds: [moveDrawId(id)] });
+        }
+        onError(err);
+      });
+  };
+
+  // ---------- event ของแผนที่ ----------
+  useMapEvents(ctx, {
+    // คลิก feature บนแผนที่ = ดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
+    onFeatureClick: (id, lngLat) => {
+      const item = items.find((i) => i.id === id);
+      if (!item || !ctx) return;
+      if (moveMode) {
+        if (!canModify(item)) return onError(new Error("ย้ายได้เฉพาะ feature ของตัวเอง (หรือเจ้าของ group)"));
+        loadIntoDraw(moveDrawId(id), item.geometry);
+        setDrawMode(ctx.draw, "simple_select", { featureIds: [moveDrawId(id)] });
+        setMovingId(id);
+        return;
+      }
+      if (mobileDraw || selection?.mode === "edit" || selection?.mode === "create") return;
+      showPopup(lngLat, item.props.name);
+      view(id);
+    },
+    // คลิกพื้นที่ว่าง: ปิดเฉพาะโหมดดู
+    onMapClick: () => {
+      if (selection?.mode === "view") setSelection(null);
+      closePopup();
+    },
+    onHover: hoverEnabled ? onHover : () => {},
+    onDrawCreate: (f) => {
+      if (!ctx) return;
+      if (isBadPolygon(f.geometry)) {
+        ctx.draw.delete(f.id);
+        return onError(new Error("ขอบพื้นที่ตัดกันเอง — บันทึกไม่ได้ วาดใหม่ให้ขอบไม่ไขว้กัน"));
+      }
+      const type = f.geometry.type as GeomType;
+      setActiveTool(null);
+      setSelection({ mode: "create", drawId: f.id, type });
+      setDraftGeom(f.geometry);
+      setPanelOpen(true);
+      // draw สลับโหมดเองหลังยิง draw.create → รอให้เสร็จก่อนค่อยเลือกให้ลากแก้ได้
+      setTimeout(() => selectInDraw(f.id, type), 0);
+    },
+    onDrawUpdate: (f, action) => {
+      if (!ctx) return;
+      if (movingId !== null && f.id === moveDrawId(movingId)) {
+        if (action === "move") saveMove(movingId, f.geometry);
+        return;
+      }
+      if (f.id !== activeDrawId) return;
+      // ลากจุดจนขอบตัดกันเอง → คืนรูปก่อนหน้า (PostGIS ไม่รับ polygon แบบนี้)
+      if (isBadPolygon(f.geometry) && draftGeom) {
+        loadIntoDraw(f.id, draftGeom);
+        selectInDraw(f.id, "Polygon");
+        return onError(new Error(SELF_INTERSECT));
+      }
+      setDraftGeom(f.geometry);
+    },
+    onDrawSelectionChange: (selected) => {
+      if (selected.length || !ctx) return;
+      // โหมด Move: คลิกที่อื่น = ปล่อย feature กลับไปแสดงตามปกติ
+      if (movingId !== null) {
+        ctx.draw.deleteAll();
+        setMovingId(null);
+        return;
+      }
+      // ระหว่างวาด/แก้: คลิกพื้นที่ว่างทำให้ draw เลิกเลือก → เลือกกลับให้ยังลากแก้ได้
+      if (activeDrawId && activeType) setTimeout(() => selectInDraw(activeDrawId, activeType), 0);
+    },
+    onDrawModeChange: (mode) => {
+      if (!mode.startsWith("draw_")) setActiveTool(null);
+    },
+  });
+
+  /** ปุ่ม Next: สร้างรูปจากจุดที่วางไว้ แล้วเข้าขั้นตอนกรอกข้อมูลเดียวกับที่วาดด้วย draw */
+  const finishMobileDraw = () => {
+    const map = mapRef.current;
+    if (!map || !ctx || !mobileDraw || mobileDraw.points.length < MIN_POINTS[mobileDraw.shape]) return;
+    const { shape, points } = mobileDraw;
+    const type = SHAPE_TO_GEOM_TYPE[shape];
+    const geometry: GeoJSON.Geometry =
+      shape === "Marker"
+        ? { type: "Point", coordinates: points[0] }
+        : shape === "Line"
+          ? { type: "LineString", coordinates: points }
+          : { type: "Polygon", coordinates: [[...points, points[0]]] };
+    const drawId = `draft-${crypto.randomUUID()}`;
+    crosshair.cancel();
+    loadIntoDraw(drawId, geometry);
+    selectInDraw(drawId, type);
+    setSelection({ mode: "create", drawId, type });
+    setDraftGeom(geometry);
+    setPanelOpen(true);
+    // แผ่นฟอร์มกินล่าง 60% ของจอ → เลื่อนรูปที่วาดขึ้นมาอยู่ในส่วนที่ยังมองเห็น
+    const camera = map.cameraForBounds(bboxOf(geometry), {
+      padding: { top: 40, left: 40, right: 40, bottom: map.getContainer().clientHeight * 0.6 + 16 },
+      maxZoom: shape === "Marker" ? map.getZoom() : 18,
+    });
+    if (camera) map.easeTo(camera);
+  };
+
+  /** ระยะเว้นขอบส่วนที่ถูกบัง (พาเนลขวาบนจอคอม / แผ่นล่าง 60% บนมือถือ) ให้สิ่งที่ซูมไปอยู่กลางส่วนที่มองเห็น */
+  const visiblePadding = (): PaddingOptions => {
+    const pad = { top: 40, left: 40, right: 40, bottom: 40 };
+    if (!panelOpen) return pad;
+    if (isMobile) return { ...pad, bottom: (mapRef.current?.getContainer().clientHeight ?? 0) * 0.6 + 16 };
     const panelW = document.querySelector<HTMLElement>("[data-feature-panel]")?.offsetWidth ?? 0;
-    return { paddingTopLeft: [40, 40], paddingBottomRight: [panelW + 40, 40] };
+    return { ...pad, right: panelW + 40 };
   };
 
   const focus = (item: Item) => {
     const map = mapRef.current;
     if (map && !isHidden(item)) {
-      // มือถือ: แผ่นล่างกาง 60% ของจอ → เว้นขอบล่างให้รูปไปอยู่ในส่วนที่ยังมองเห็น
-      const pad: L.FitBoundsOptions = isMobile
-        ? { paddingTopLeft: [40, 40], paddingBottomRight: [40, map.getSize().y * 0.6 + 16] }
-        : {};
-      if (item.layer instanceof L.Marker) {
-        // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด) แล้วค่อยเปิด popup
-        const marker = item.layer;
-        const p = marker.getLatLng();
-        map.flyToBounds(L.latLngBounds([p, p]), { ...pad, maxZoom: 17 });
-        map.once("moveend", () => marker.openPopup());
-      } else {
-        if (item.layer instanceof L.Polyline) map.flyToBounds(item.layer.getBounds(), { ...pad, maxZoom: 16 });
-        item.layer.openPopup();
-      }
+      const padding = visiblePadding();
+      const center = centerOf(item.geometry);
+      // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด)
+      const camera =
+        item.type === "Point"
+          ? map.cameraForBounds([center, center], { padding, maxZoom: 17 })
+          : map.cameraForBounds(bboxOf(item.geometry), { padding, maxZoom: 16 });
+      if (camera) map.flyTo(camera);
+      showPopup(center, item.props.name);
     }
     view(item.id);
   };
 
   // บันทึกจากฟอร์ม — throw เมื่อ API ไม่รับ เพื่อให้ฟอร์มแสดง error และคงข้อมูลที่กรอกไว้
   const save = async (props: FeatureProps) => {
+    const geometry = (activeDrawId && ctx?.draw.get(activeDrawId)?.geometry) || draftGeom;
+    if (!geometry) return;
+    if (isBadPolygon(geometry)) throw new Error(SELF_INTERSECT);
+
     if (selection?.mode === "create") {
-      const draft = selection.layer as Editable;
-      const geometry = geometryOf(draft);
       const f = guest
         ? localFeature(nextGuestId(), selection.type, geometry, props)
         : await createFeature(geometry, props);
       if (guest) persistGuest(() => upsertGuest(f));
-      if (draft.pm.enabled()) draft.pm.disable();
-      mapRef.current?.removeLayer(draft);
-      registerRef.current?.(L.GeoJSON.geometryToLayer(f), f); // layer จริงจากข้อมูลที่ API ตอบกลับมา
+      clearDraw();
+      setDraftGeom(null);
+      // Realtime อาจส่ง INSERT ของเรามาก่อนแล้ว → แทนที่ ไม่เพิ่มซ้ำ
+      setItems((list) => [...list.filter((i) => i.id !== f.id), toItem(f)]);
       setSelection({ mode: "view", id: f.id });
       setToast({ id: Date.now(), name: f.properties.name });
     } else if (selection?.mode === "edit" && selectedItem) {
-      const { layer, id, type } = selectedItem;
-      const m = meta.get(layer)!;
-      const geometry = geometryOf(layer);
-
+      const { id, type } = selectedItem;
       let f: ApiFeature;
       if (guest) {
         f = localFeature(id, type, geometry, props); // โหมดทดลอง: ไม่ผ่าน API
@@ -517,24 +605,25 @@ export default function App() {
       } else {
         // ส่งเฉพาะสิ่งที่เปลี่ยนจริง (PATCH)
         const patch: FeaturePatch = {};
-        if (!sameGeometry(geometry, m.saved)) patch.geometry = geometry;
+        if (!sameGeometry(geometry, selectedItem.geometry)) patch.geometry = geometry;
         const changed: NonNullable<FeaturePatch["properties"]> = {};
-        if (props.name !== m.props.name) changed.name = props.name;
-        if (props.category !== m.props.category) changed.category = props.category ?? null;
-        if (props.description !== m.props.description) changed.description = props.description ?? null;
+        if (props.name !== selectedItem.props.name) changed.name = props.name;
+        if (props.category !== selectedItem.props.category) changed.category = props.category ?? null;
+        if (props.description !== selectedItem.props.description) changed.description = props.description ?? null;
         if (Object.keys(changed).length) patch.properties = changed;
 
         if (!patch.geometry && !patch.properties) {
-          setSelection({ mode: "view", id }); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
+          clearDraw(); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
+          setDraftGeom(null);
+          setSelection({ mode: "view", id });
           return;
         }
-
         f = await patchFeature(id, patch);
       }
       const saved = propsOf(f);
-      meta.set(layer, { ...m, props: saved, saved: f.geometry });
-      layer.setPopupContent(saved.name);
-      setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved } : i)));
+      clearDraw();
+      setDraftGeom(null);
+      setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved, geometry: f.geometry } : i)));
       setSelection({ mode: "view", id });
       setToast({ id: Date.now(), name: saved.name });
     }
@@ -543,24 +632,27 @@ export default function App() {
   const removeItem = async (item: Item) => {
     if (guest) persistGuest(() => removeGuest(item.id));
     else await deleteFeature(item.id);
-    releaseLayer(item.layer);
-    detach(item.layer);
+    if (editingId === item.id) clearDraw();
+    closePopup();
     setItems((list) => list.filter((i) => i.id !== item.id));
     setHiddenIds((s) => {
       const next = new Set(s);
       next.delete(item.id);
       return next;
     });
-    if (selectedId === item.id) setSelection(null);
+    if (selectedId === item.id) {
+      setDraftGeom(null);
+      setSelection(null);
+    }
   };
 
   const editor =
-    selection?.mode === "create" ? (
+    selection?.mode === "create" && draftGeom ? (
       <FeatureEditor
-        key={`new-${L.stamp(selection.layer)}`}
+        key={`new-${selection.drawId}`}
         mode="create"
         type={selection.type}
-        layer={selection.layer}
+        geometry={draftGeom}
         initial={{ name: "" }}
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
@@ -568,12 +660,12 @@ export default function App() {
         onCancel={cancel}
         onDelete={async () => cancel()}
       />
-    ) : selection && selectedItem ? (
+    ) : selection && selection.mode !== "create" && selectedItem ? (
       <FeatureEditor
         key={`${selectedItem.id}-${selection.mode}`}
         mode={selection.mode}
         type={selectedItem.type}
-        layer={selectedItem.layer}
+        geometry={(selection.mode === "edit" && draftGeom) || selectedItem.geometry}
         initial={selectedItem.props}
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
@@ -582,7 +674,7 @@ export default function App() {
         onCancel={selection.mode === "edit" ? cancel : closeSelection}
         onDelete={() => removeItem(selectedItem)}
         ownerName={guest ? null : selectedItem.ownerName}
-        canModify={guest || groupOwner || (selectedItem.ownerId !== null && selectedItem.ownerId === myId)}
+        canModify={canModify(selectedItem)}
       />
     ) : null;
 
@@ -618,7 +710,7 @@ export default function App() {
           onLogin={openLogin}
           onLogout={logout}
           onRefresh={() => refreshMe().catch(onError)}
-          search={isMobile ? <MobileSearch mapRef={mapRef} getPadding={searchPadding} /> : undefined}
+          search={isMobile ? <MobileSearch mapRef={mapRef} getPadding={visiblePadding} /> : undefined}
           bell={
             activeMe && (
               <NotificationBell
@@ -659,37 +751,9 @@ export default function App() {
           } as CSSProperties
         }
       >
-        <MapContainer
-          className="absolute inset-0 w-full h-full z-0"
-          center={[13.75, 100.5]}
-          zoom={6}
-          zoomControl={false}
-          // แสดงโลกใบเดียว: เลื่อนออกนอกขอบโลกไม่ได้ (ระดับซูมต่ำสุดตั้งใน WorldLimits)
-          maxBounds={WORLD_BOUNDS}
-          maxBoundsViscosity={1}
-        >
-          {/* bounds: ไม่ขอ tile นอกโลก (เช่น x = -1) ซึ่ง OSM ตอบ 400 */}
-          <TileLayer url={OSM_TILE.url} attribution={OSM_TILE.attribution} noWrap bounds={WORLD_BOUNDS} />
-          <WorldLimits />
-          <DrawTools
-            key={viewKey}
-            guest={guest}
-            canModify={canModifyOwner}
-            registerRef={registerRef}
-            onItemsChange={setItems}
-            onActiveToolChange={onActiveToolChange}
-            onHover={hoverEnabled ? onHover : noop}
-            onError={onError}
-            onLayerClick={onLayerClick}
-            onMapClick={onMapClick}
-            onDraft={onDraft}
-            onGeometryChange={onGeometryChange}
-            onMoveModeChange={onMoveModeChange}
-          />
-          <MapRef mapRef={mapRef} />
-          <CrosshairDraw draw={mobileDraw} />
-          {isMobile && <MobileScale />}
-        </MapContainer>
+        <MapView className="absolute inset-0 w-full h-full z-0" onReady={onMapReady} />
+        <CrosshairDraw map={ctx?.map ?? null} draw={mobileDraw} />
+        {isMobile && <MobileScale map={ctx?.map ?? null} />}
 
         {mobileDraw && <Crosshair />}
 
@@ -697,8 +761,11 @@ export default function App() {
           mapRef={mapRef}
           activeTool={isMobile ? (mobileDraw?.shape ?? null) : activeTool}
           moveActive={moveMode}
+          is3D={is3D}
+          onToggle3D={onToggle3D}
           collapsible={isMobile}
-          onDrawSelect={isMobile ? onMobileDrawSelect : undefined}
+          onDrawSelect={isMobile ? onMobileDrawSelect : onDrawSelect}
+          onToggleMove={onToggleMove}
         />
 
         {isMobile ? (
@@ -734,7 +801,7 @@ export default function App() {
             {/* ช่องค้นหาหดหลบพาเนลที่เปิดอยู่ (ปุ่มเปิด/ปิดพาเนลเกาะขอบพาเนลเอง) */}
             <SearchBox
               mapRef={mapRef}
-              getPadding={searchPadding}
+              getPadding={visiblePadding}
               className={`absolute top-4 left-16 z-20 ${
                 panelOpen ? "w-[min(20rem,calc(100%_-_var(--panel-w)_-_8rem))]" : "w-[min(20rem,calc(100%_-_8rem))]"
               }`}
@@ -751,7 +818,7 @@ export default function App() {
               onToggleVisible={toggleVisible}
               onRemove={(item) => removeItem(item).catch(onError)}
               selectedId={selectedId}
-              editingId={selection?.mode === "edit" ? selection.id : null}
+              editingId={editingId}
               hiddenIds={hiddenSet}
               canModify={canModify}
               showOwner={!guest}

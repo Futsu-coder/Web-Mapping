@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type L from "leaflet";
+import type { Map as MlMap, PaddingOptions } from "maplibre-gl";
 import SearchBox from "../SearchBox";
 
 /**
@@ -11,8 +11,8 @@ export default function MobileSearch({
   mapRef,
   getPadding,
 }: {
-  mapRef: React.MutableRefObject<L.Map | null>;
-  getPadding?: () => L.FitBoundsOptions;
+  mapRef: React.MutableRefObject<MlMap | null>;
+  getPadding?: () => PaddingOptions;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
