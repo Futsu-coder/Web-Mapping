@@ -15,7 +15,7 @@ function Kbd({ children, on }: { children: string; on?: boolean }) {
   return (
     <kbd
       className={cn(
-        "rounded border px-1.5 text-[11px] leading-4 font-semibold",
+        "rounded border px-1.5 text-[0.6875rem] leading-4 font-semibold",
         on ? "border-white/40 bg-white/15 text-white" : "bg-muted/60 text-muted-foreground",
       )}
     >
