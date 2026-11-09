@@ -48,15 +48,15 @@ apps/web/src/
 - **PATCH = JSON Merge Patch (RFC 7396)**: ส่งเฉพาะที่เปลี่ยน, `null` ใน properties = ลบ key; เว็บส่งเฉพาะ diff (ดู `save` ใน App.tsx)
 - `name` เก็บเป็นคอลัมน์แยก, ฟิลด์อื่นอยู่ใน `properties` (jsonb); SYSTEM_KEYS (name, geom_type, owner_*, *_at) client เขียนทับไม่ได้
 - Polygon ห้ามตัดกันเอง (เว็บตั้ง `allowSelfIntersection: false`, server ตรวจ ST_IsValid)
-- **โหมดทดลอง (guest)** = ยังไม่ login: วาดได้ในเครื่อง id ติดลบ ไม่ยิง API ไม่ฟัง Realtime
+- **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจาก feature ชิ้นแรก
 - เปลี่ยนบัญชี/group → `viewKey` เปลี่ยน → DrawTools remount โหลดชุดใหม่
 - เทียบรูปทรงที่ 6 ทศนิยม (`sameGeometry`) เพราะ PostGIS ตอบละเอียดกว่า Leaflet
-- Nominatim: ไม่เกิน 1 req/วินาที (`MIN_INTERVAL_MS` ใน SearchBox)
+- Nominatim: ไม่เกิน 1 req/วินาที (`MIN_INTERVAL_MS` ใน SearchBox) — autocomplete ใช้ debounce + cache + AbortController ยกเลิกคำค้นเก่า
 - มือถือ: input ต้อง `text-base` (16px) กัน iOS ซูมเอง
 
 ## งานที่วางแผนไว้
 แผนละเอียด: `~/.claude/plans/home-panapong-downloads-docx-mossy-nautilus.md`
-1. branch `feat/search-guest-storage`: SearchBox autocomplete (debounce + AbortController + throttle + cache) และ guest เก็บ localStorage ลบทุก 1 ชม. พร้อมแบนเนอร์นับถอยหลัง
+1. ✅ ทำใน branch `group/realtime`: SearchBox autocomplete (debounce + AbortController + throttle + cache) และ guest เก็บ localStorage ลบทุก 1 ชม. พร้อมแบนเนอร์นับถอยหลัง
 2. branch `feat/maplibre` (แตกหลัง merge ข้อ 1): ย้าย Leaflet/Geoman → MapLibre + @mapbox/mapbox-gl-draw, vector tiles (OpenFreeMap), 2D เท่านั้น
 
 ## Git

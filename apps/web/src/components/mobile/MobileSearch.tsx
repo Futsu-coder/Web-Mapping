@@ -7,7 +7,13 @@ import SearchBox from "../SearchBox";
  * กล่องค้นหา mount ไว้ตลอด แค่ซ่อนด้วย hidden เพื่อให้หมุดผลค้นหาไม่หายตอนปิดแถบ
  * ต้องวางใน element ที่เป็น position: relative (Navbar เป็น relative อยู่แล้ว)
  */
-export default function MobileSearch({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
+export default function MobileSearch({
+  mapRef,
+  getPadding,
+}: {
+  mapRef: React.MutableRefObject<L.Map | null>;
+  getPadding?: () => L.FitBoundsOptions;
+}) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +38,7 @@ export default function MobileSearch({ mapRef }: { mapRef: React.MutableRefObjec
         <span className="material-symbols-outlined text-[22px]">{open ? "close" : "search"}</span>
       </button>
       <div ref={boxRef} className={`absolute inset-x-0 top-full z-50 px-3 pt-2 ${open ? "" : "hidden"}`}>
-        <SearchBox mapRef={mapRef} className="relative w-full" onPicked={() => setOpen(false)} />
+        <SearchBox mapRef={mapRef} getPadding={getPadding} className="relative w-full" onPicked={() => setOpen(false)} />
       </div>
     </>
   );

@@ -104,6 +104,7 @@ export default function FeaturePanel({
 
   return (
     <div
+      data-feature-panel
       className={`absolute inset-y-0 right-0 z-20 w-[var(--panel-w)] flex flex-col bg-white border-l border-slate-200 shadow-xl transition-transform duration-300 ease-in-out ${
         open ? "translate-x-0" : "translate-x-full"
       }`}

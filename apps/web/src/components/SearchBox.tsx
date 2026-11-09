@@ -3,10 +3,27 @@ import L from "leaflet";
 
 type Place = { place_id: number; display_name: string; lat: string; lon: string; boundingbox: [string, string, string, string] };
 
-// Nominatim (OpenStreetMap) ใช้ฟรี แต่ตามเงื่อนไขการใช้งาน: ไม่เกิน 1 request/วินาที และห้ามทำ autocomplete
-// → ค้นหาเฉพาะตอนกด Enter / ปุ่มค้นหา
+// Nominatim (OpenStreetMap) ใช้ฟรี แต่ตามเงื่อนไขการใช้งาน: ไม่เกิน 1 request/วินาที และไม่แนะนำให้ทำ autocomplete
+// → ค้นหาขณะพิมพ์แบบประหยัด: รอหยุดพิมพ์ก่อน (debounce), ยิงไม่เกิน 1 ครั้ง/วินาที, จำผลคำค้นเดิมไว้ (cache)
+//   และมีคำค้นใหม่เมื่อไหร่ ยกเลิก request เก่าด้วย AbortController (ผลเก่าที่มาทีหลังจะไม่ทับผลใหม่)
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const MIN_INTERVAL_MS = 1000;
+const DEBOUNCE_MS = 500;
+const MIN_CHARS = 3;
+
+/** รอแบบยกเลิกได้ — ถูก abort ระหว่างรอ = reject ทันที */
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
 
 const DEFAULT_CLASS = "absolute top-4 left-16 z-20 w-[min(20rem,calc(100%-8rem))]";
 
@@ -14,12 +31,15 @@ export default function SearchBox({
   mapRef,
   className = DEFAULT_CLASS,
   onPicked,
+  getPadding,
 }: {
   mapRef: React.MutableRefObject<L.Map | null>;
   /** ตำแหน่ง/ความกว้างของกล่อง (ค่าเริ่มต้น = มุมซ้ายบนของจอคอม) */
   className?: string;
   /** เลือกผลการค้นหาแล้ว (มือถือใช้ปิดแถบค้นหา) */
   onPicked?: () => void;
+  /** ระยะเว้นขอบจากสิ่งที่บังแผนที่อยู่ (พาเนลขวา / แผ่นล่างของมือถือ) ให้หมุดไปอยู่กลางส่วนที่มองเห็น */
+  getPadding?: () => L.FitBoundsOptions;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[] | null>(null);
@@ -28,41 +48,106 @@ export default function SearchBox({
   const [hasPin, setHasPin] = useState(false);
   const lastRequest = useRef(0);
   const pin = useRef<L.CircleMarker | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cache = useRef(new Map<string, Place[]>());
 
-  // ลบหมุดตำแหน่งที่ค้นหาตอน unmount
-  useEffect(() => () => void pin.current?.remove(), []);
+  // unmount: ลบหมุดตำแหน่งที่ค้นหา และยกเลิกการค้นหาที่ค้างอยู่
+  useEffect(
+    () => () => {
+      pin.current?.remove();
+      clearTimeout(debounce.current);
+      controller.current?.abort();
+    },
+    [],
+  );
 
-  const search = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = query.trim();
-    if (!q || loading) return;
-    const wait = lastRequest.current + MIN_INTERVAL_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    lastRequest.current = Date.now();
+  /** หยุดทุกอย่างที่ค้างอยู่ (รอ debounce / รอ throttle / request ที่ยิงไปแล้ว) */
+  const cancel = () => {
+    clearTimeout(debounce.current);
+    controller.current?.abort();
+    controller.current = null;
+    setLoading(false);
+  };
+
+  const run = async (q: string) => {
+    controller.current?.abort(); // มีคำค้นใหม่ → ยกเลิกของเก่า
+    const ctrl = new AbortController();
+    controller.current = ctrl;
+    setError(null);
+
+    const cached = cache.current.get(q);
+    if (cached) {
+      controller.current = null;
+      setLoading(false);
+      setResults(cached);
+      return;
+    }
 
     setLoading(true);
-    setError(null);
     try {
+      const wait = lastRequest.current + MIN_INTERVAL_MS - Date.now();
+      if (wait > 0) await sleep(wait, ctrl.signal);
+      lastRequest.current = Date.now();
       const params = new URLSearchParams({ q, format: "jsonv2", limit: "5", "accept-language": "th,en" });
-      const res = await fetch(`${NOMINATIM}?${params}`);
+      const res = await fetch(`${NOMINATIM}?${params}`, { signal: ctrl.signal });
       if (!res.ok) throw new Error(`ค้นหาไม่สำเร็จ (${res.status})`);
-      setResults(await res.json());
+      const places: Place[] = await res.json();
+      cache.current.set(q, places);
+      setResults(places);
     } catch (err) {
+      if (ctrl.signal.aborted) return; // ถูกแทนที่ด้วยคำค้นใหม่ / กดล้าง → ไม่ต้องแจ้ง error
       setError(err instanceof Error ? err.message : String(err));
       setResults(null);
     } finally {
-      setLoading(false);
+      // อัปเดตเฉพาะเมื่อยังเป็นการค้นหาล่าสุด (ตัวที่ถูกยกเลิกไม่แตะสถานะของตัวใหม่)
+      if (controller.current === ctrl) {
+        controller.current = null;
+        setLoading(false);
+      }
     }
+  };
+
+  const onChange = (value: string) => {
+    setQuery(value);
+    clearTimeout(debounce.current);
+    const q = value.trim();
+    if (q.length < MIN_CHARS) {
+      cancel();
+      setResults(null);
+      setError(null);
+      return;
+    }
+    debounce.current = setTimeout(() => void run(q), DEBOUNCE_MS);
+  };
+
+  // กด Enter / ปุ่มค้นหา = ค้นหาทันที ไม่ต้องรอ debounce
+  const search = (e: React.FormEvent) => {
+    e.preventDefault();
+    clearTimeout(debounce.current);
+    const q = query.trim();
+    if (q) void run(q);
   };
 
   const pick = (place: Place) => {
     const map = mapRef.current;
     if (!map) return;
     const [south, north, west, east] = place.boundingbox.map(Number);
-    map.flyToBounds([[south, west], [north, east]], { maxZoom: 16 });
+    const point = L.latLng(Number(place.lat), Number(place.lon));
+    const pad = getPadding?.() ?? {};
+    // ระดับซูมให้เห็นทั้งพื้นที่ (เช่น ทั้งจังหวัด) แต่วางหมุดไว้กลางจอ — กลางกรอบ bbox มักไม่ใช่ตำแหน่งของสถานที่
+    const zoom = Math.min(
+      16,
+      map.getBoundsZoom(
+        L.latLngBounds([south, west], [north, east]),
+        false,
+        L.point(pad.paddingTopLeft ?? [0, 0]).add(pad.paddingBottomRight ?? [0, 0]),
+      ),
+    );
+    map.flyToBounds(L.latLngBounds(point, point), { ...pad, maxZoom: zoom });
     // หมุดชั่วคราว ไม่บันทึกลง database และไม่ให้ Geoman แก้ไข
     pin.current?.remove();
-    pin.current = L.circleMarker([Number(place.lat), Number(place.lon)], {
+    pin.current = L.circleMarker(point, {
       radius: 8,
       color: "#0f766e",
       fillColor: "#14b8a6",
@@ -77,6 +162,7 @@ export default function SearchBox({
   };
 
   const clear = () => {
+    cancel();
     setQuery("");
     setResults(null);
     setError(null);
@@ -94,13 +180,13 @@ export default function SearchBox({
         <span className="material-symbols-outlined text-[19px] text-slate-400">search</span>
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="ค้นหาสถานที่ แล้วกด Enter"
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="ค้นหาสถานที่"
           aria-label="ค้นหาสถานที่"
           className="flex-1 min-w-0 text-base md:text-sm outline-none bg-transparent"
         />
         {loading && <span className="text-xs text-slate-400 px-1">กำลังค้นหา…</span>}
-        {(query || hasPin) && !loading && (
+        {(query || hasPin) && (
           <button
             type="button"
             title="ล้าง"

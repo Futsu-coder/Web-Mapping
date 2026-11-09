@@ -52,6 +52,7 @@ import {
   setEditable,
   setHighlight,
 } from "./lib/featureMeta";
+import { clearGuest, GUEST_TTL_MS, guestExpiresAt, nextGuestId, removeGuest, upsertGuest } from "./lib/guestStore";
 import { isIdleExpired, watchIdle } from "./lib/idleLogout";
 import { supabase } from "./lib/supabase";
 import { useInvitations } from "./lib/useInvitations";
@@ -80,7 +81,7 @@ function reveal(layer: L.Layer, then: () => void) {
 
 const noop = () => {};
 
-/** feature ในโหมดทดลอง: สร้างในเครื่อง ไม่ผ่าน API (id ติดลบ ไม่ชนกับ id จริง) */
+/** feature ในโหมดทดลอง: สร้างในเครื่อง ไม่ผ่าน API (id ติดลบ ไม่ชนกับ id จริง) เก็บใน localStorage */
 const localFeature = (id: number, type: GeomType, geometry: GeoJSON.Geometry, props: FeatureProps): ApiFeature => ({
   type: "Feature",
   id,
@@ -114,7 +115,10 @@ export default function App() {
   if (!isMobile && crosshair.draw) crosshair.cancel();
   const mobileDraw = isMobile ? crosshair.draw : null;
   const registerRef = useRef<RegisterFn | null>(null);
-  const nextLocalId = useRef(-1);
+  // โหมดทดลอง: เวลาที่ข้อมูลใน localStorage จะถูกลบ (null = ยังไม่มีข้อมูล) / ลบแล้วเพิ่ม epoch ให้ DrawTools โหลดใหม่
+  const [guestExpiry, setGuestExpiry] = useState(guestExpiresAt);
+  const [guestEpoch, setGuestEpoch] = useState(0);
+  const [now, setNow] = useState(Date.now);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
   const closeToast = useCallback(() => setToast(null), []);
@@ -154,10 +158,11 @@ export default function App() {
   const canModify = (item: Item) => canModifyOwner(item.ownerId);
 
   // เปลี่ยนบัญชี / ย้าย group → DrawTools โหลดใหม่ (key เปลี่ยน) และล้างสถานะที่ผูกกับ feature ชุดเก่า
-  const viewKey = activeMe ? `group-${activeMe.group.id}` : "guest";
+  const viewKey = activeMe ? `group-${activeMe.group.id}` : `guest-${guestEpoch}`;
   const [shownKey, setShownKey] = useState(viewKey);
   if (shownKey !== viewKey) {
     setShownKey(viewKey);
+    setGuestExpiry(guestExpiresAt()); // กลับมาโหมดทดลอง (logout) ข้อมูลอาจหมดอายุไประหว่างนั้น
     setSelection(null);
     setHiddenIds(new Set());
     setHiddenOwners(new Set());
@@ -280,7 +285,8 @@ export default function App() {
     const geometry = geometryOf(layer);
     if (sameGeometry(geometry, m.saved)) return; // กดลากแต่ไม่ได้ขยับจริง
     if (guest) {
-      meta.set(layer, { ...m, saved: geometry }); // โหมดทดลอง: จำตำแหน่งในเครื่องอย่างเดียว
+      meta.set(layer, { ...m, saved: geometry }); // โหมดทดลอง: บันทึกลง localStorage อย่างเดียว
+      persistGuest(() => upsertGuest(localFeature(id, m.type, geometry, m.props)));
       return;
     }
     patchFeature(id, { geometry })
@@ -297,6 +303,36 @@ export default function App() {
     discardPending();
     setSelection(null);
   };
+
+  /** เขียนข้อมูลทดลองลง localStorage แล้วอัปเดตเวลาที่จะถูกลบ (เริ่มนับเมื่อมี feature ชิ้นแรก) */
+  const persistGuest = (write: () => void) => {
+    write();
+    setGuestExpiry(guestExpiresAt());
+    setNow(Date.now());
+  };
+
+  // effect ด้านล่างต้องเรียก closeSelection ล่าสุด (ทิ้ง draft ที่วาดค้างไว้)
+  const closeSelectionRef = useRef(closeSelection);
+  useEffect(() => {
+    closeSelectionRef.current = closeSelection;
+  });
+
+  // โหมดทดลอง: นับถอยหลังบนแบนเนอร์ และลบข้อมูลเมื่อครบเวลา (ระหว่างเปิดหน้าเว็บค้างไว้)
+  useEffect(() => {
+    if (!guest || guestExpiry === null) return;
+    const tick = setInterval(() => setNow(Date.now()), 30 * 1000);
+    const timer = setTimeout(() => {
+      closeSelectionRef.current();
+      clearGuest();
+      setGuestExpiry(null);
+      setGuestEpoch((e) => e + 1);
+      setToast({ id: Date.now(), message: "ลบข้อมูลทดลองแล้ว (เก็บไว้ครบ 1 ชั่วโมง)" });
+    }, Math.max(0, guestExpiry - Date.now()));
+    return () => {
+      clearInterval(tick);
+      clearTimeout(timer);
+    };
+  }, [guest, guestExpiry]);
 
   const view = (id: number) => {
     if (selection?.mode === "view" && selection.id === id) return;
@@ -365,7 +401,7 @@ export default function App() {
   const inv = useInvitations(myId, () => void refreshMe().catch(onError));
 
   const openLogin = () => {
-    closeSelection(); // ข้อมูลทดลองที่วาดค้างไว้จะหายเมื่อ login
+    closeSelection(); // draft ที่ยังไม่กด Save จะหายเมื่อ login (ที่บันทึกแล้วยังอยู่ใน localStorage)
     setAuthOpen(true);
   };
 
@@ -423,6 +459,17 @@ export default function App() {
     });
   };
 
+  /** ช่องค้นหา: เว้นขอบส่วนที่ถูกบัง (พาเนลขวาบนจอคอม / แผ่นล่าง 60% บนมือถือ) */
+  const searchPadding = (): L.FitBoundsOptions => {
+    if (!panelOpen) return { paddingTopLeft: [40, 40], paddingBottomRight: [40, 40] };
+    if (isMobile) {
+      const h = mapRef.current?.getSize().y ?? 0;
+      return { paddingTopLeft: [40, 40], paddingBottomRight: [40, h * 0.6 + 16] };
+    }
+    const panelW = document.querySelector<HTMLElement>("[data-feature-panel]")?.offsetWidth ?? 0;
+    return { paddingTopLeft: [40, 40], paddingBottomRight: [panelW + 40, 40] };
+  };
+
   const focus = (item: Item) => {
     const map = mapRef.current;
     if (map && !isHidden(item)) {
@@ -450,8 +497,9 @@ export default function App() {
       const draft = selection.layer as Editable;
       const geometry = geometryOf(draft);
       const f = guest
-        ? localFeature(nextLocalId.current--, selection.type, geometry, props)
+        ? localFeature(nextGuestId(), selection.type, geometry, props)
         : await createFeature(geometry, props);
+      if (guest) persistGuest(() => upsertGuest(f));
       if (draft.pm.enabled()) draft.pm.disable();
       mapRef.current?.removeLayer(draft);
       registerRef.current?.(L.GeoJSON.geometryToLayer(f), f); // layer จริงจากข้อมูลที่ API ตอบกลับมา
@@ -465,6 +513,7 @@ export default function App() {
       let f: ApiFeature;
       if (guest) {
         f = localFeature(id, type, geometry, props); // โหมดทดลอง: ไม่ผ่าน API
+        persistGuest(() => upsertGuest(f));
       } else {
         // ส่งเฉพาะสิ่งที่เปลี่ยนจริง (PATCH)
         const patch: FeaturePatch = {};
@@ -492,7 +541,8 @@ export default function App() {
   };
 
   const removeItem = async (item: Item) => {
-    if (!guest) await deleteFeature(item.id);
+    if (guest) persistGuest(() => removeGuest(item.id));
+    else await deleteFeature(item.id);
     releaseLayer(item.layer);
     detach(item.layer);
     setItems((list) => list.filter((i) => i.id !== item.id));
@@ -538,6 +588,11 @@ export default function App() {
 
   const creating = selection?.mode === "create";
   const selectionKey = selection ? (selection.mode === "create" ? "create" : `${selection.mode}-${selection.id}`) : null;
+  // now อัปเดตทุก 30 วินาที อาจช้ากว่าเวลาจริงเล็กน้อย → จำกัดไม่ให้เกิน 1 ชั่วโมง
+  const guestMinutesLeft =
+    guestExpiry === null
+      ? null
+      : Math.min(GUEST_TTL_MS / 60000, Math.max(1, Math.ceil((guestExpiry - now) / 60000)));
   const panelVars = { "--panel-w": "clamp(20rem, 28vw, 26rem)" } as CSSProperties;
 
   return (
@@ -563,7 +618,7 @@ export default function App() {
           onLogin={openLogin}
           onLogout={logout}
           onRefresh={() => refreshMe().catch(onError)}
-          search={isMobile ? <MobileSearch mapRef={mapRef} /> : undefined}
+          search={isMobile ? <MobileSearch mapRef={mapRef} getPadding={searchPadding} /> : undefined}
           bell={
             activeMe && (
               <NotificationBell
@@ -679,6 +734,7 @@ export default function App() {
             {/* ช่องค้นหาหดหลบพาเนลที่เปิดอยู่ (ปุ่มเปิด/ปิดพาเนลเกาะขอบพาเนลเอง) */}
             <SearchBox
               mapRef={mapRef}
+              getPadding={searchPadding}
               className={`absolute top-4 left-16 z-20 ${
                 panelOpen ? "w-[min(20rem,calc(100%_-_var(--panel-w)_-_8rem))]" : "w-[min(20rem,calc(100%_-_8rem))]"
               }`}
@@ -707,10 +763,24 @@ export default function App() {
         )}
 
         {guest && !(isMobile && (mobileDraw || creating)) && (
-          <div className="absolute top-3 left-[4.5rem] right-3 md:top-auto md:right-auto md:bottom-8 md:left-4 z-20 md:max-w-[calc(100%-2rem)] flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg shadow-md text-xs">
+          <div
+            className={`absolute top-3 left-[4.5rem] right-3 md:top-auto md:right-auto md:bottom-8 md:left-4 z-20 md:max-w-[calc(100%-2rem)] flex items-center gap-2 px-3 py-2 border rounded-lg shadow-md text-xs ${
+              guestMinutesLeft !== null && guestMinutesLeft <= 5
+                ? "bg-red-50 border-red-300 text-red-900"
+                : "bg-amber-50 border-amber-300 text-amber-900"
+            }`}
+          >
             <span className="material-symbols-outlined text-[18px]">science</span>
             <span>
-              <strong>โหมดทดลอง</strong> — วาดได้ แต่ข้อมูลไม่ถูกบันทึก (หายเมื่อรีเฟรช)
+              <strong>โหมดทดลอง</strong> —{" "}
+              {guestExpiry === null ? (
+                "เก็บในเบราว์เซอร์นี้ 1 ชั่วโมงแล้วลบ"
+              ) : (
+                <>
+                  ลบเวลา {new Date(guestExpiry).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.
+                  (อีก {guestMinutesLeft} นาที)
+                </>
+              )}
             </span>
             <button type="button" onClick={openLogin} className="font-semibold text-teal-800 hover:underline shrink-0">
               เข้าสู่ระบบเพื่อบันทึก

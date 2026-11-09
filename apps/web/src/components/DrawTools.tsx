@@ -16,6 +16,7 @@ import {
   setEditable,
   type Meta,
 } from "../lib/featureMeta";
+import { loadGuest } from "../lib/guestStore";
 import { subscribeFeatures, type FeatureChange } from "../lib/realtime";
 import type { DrawShape, GeomType, Item } from "../lib/types";
 
@@ -39,7 +40,7 @@ type Callbacks = {
 
 /**
  * ผูก layer บนแผนที่กับ feature ใน database
- * - โหลด feature ทั้งหมดตอน mount (GeoJSON FeatureCollection จาก API)
+ * - โหลด feature ทั้งหมดตอน mount (GeoJSON FeatureCollection จาก API / localStorage ในโหมดทดลอง)
  * - Point รวมเป็น cluster เมื่ออยู่ใกล้กัน (Line/Polygon อยู่ใน featureGroup ปกติ)
  * - คลิก layer = เลือก (ยังไม่เปิดให้ลากแก้จนกว่าจะเลือก — App เป็นคนเปิด pm.enable)
  * - แก้/ย้ายเสร็จ = แจ้ง App ให้บันทึกตำแหน่งใหม่
@@ -156,8 +157,10 @@ export default function DrawTools({
     const handleMoveToggled = ((e: { enabled: boolean }) =>
       cb.current.onMoveModeChange(e.enabled)) as unknown as L.LeafletEventHandlerFn;
 
-    // โหมดทดลอง (ยังไม่ login): ไม่โหลดจาก API และไม่ฟัง Realtime — feature อยู่แค่ในหน้านี้
-    if (!guest) {
+    // โหมดทดลอง (ยังไม่ login): โหลดจาก localStorage แทน API และไม่ฟัง Realtime
+    if (guest) {
+      for (const f of loadGuest()) register(L.GeoJSON.geometryToLayer(f), f);
+    } else {
       listFeatures()
         .then((features) => {
           if (!alive) return;
