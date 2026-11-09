@@ -1,8 +1,9 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronUpIcon, EyeIcon, EyeOffIcon, LockIcon, MapIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CATEGORY_STYLE } from "../lib/categories";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
@@ -29,99 +30,26 @@ function RowButton({
   children: ReactNode;
 }) {
   return (
-    <Button
-      type="button"
-      variant={active ? "default" : "ghost"}
-      size="icon"
-      title={title}
-      aria-label={title}
-      className={cn("size-8", danger && "text-muted-foreground hover:bg-red-50 hover:text-destructive")}
-      onClick={(e) => {
-        e.stopPropagation(); // ไม่ให้ไปเข้า onClick ของแถว
-        onClick();
-      }}
-    >
-      {children}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant={active ? "default" : "ghost"}
+          size="icon"
+          aria-label={title}
+          className={cn("size-8", danger && "text-muted-foreground hover:bg-red-50 hover:text-destructive")}
+          onClick={(e) => {
+            e.stopPropagation(); // ไม่ให้ไปเข้า onClick ของแถว
+            onClick();
+          }}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
   );
 }
-
-type RowHandlers = {
-  onFocus: (item: Item) => void;
-  onEdit: (item: Item) => void;
-  onToggleVisible: (item: Item) => void;
-  onRemove: (item: Item) => void;
-  onHover: (id: number | null) => void;
-};
-
-/** แถวรายการ — memo: render ใหม่เฉพาะแถวที่ข้อมูล/สถานะเปลี่ยน (ไม่ใช่ทุกแถวทุกครั้งที่ App เปลี่ยน state) */
-const FeatureRow = memo(function FeatureRow({
-  item,
-  selected,
-  hidden,
-  hovered,
-  editing,
-  modifiable,
-  showOwner,
-  h,
-}: {
-  item: Item;
-  selected: boolean;
-  hidden: boolean;
-  hovered: boolean;
-  editing: boolean;
-  modifiable: boolean;
-  showOwner: boolean;
-  h: RowHandlers;
-}) {
-  const category = item.props.category ?? "Other";
-  return (
-    <li
-      id={`feature-${item.id}`}
-      onClick={() => h.onFocus(item)}
-      onMouseEnter={() => h.onHover(item.id)}
-      onMouseLeave={() => h.onHover(null)}
-      className={cn(
-        "flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
-        selected ? "bg-primary/10" : hovered ? "bg-muted" : "hover:bg-muted",
-        hidden && "opacity-55",
-      )}
-    >
-      <span className={cn("size-2.5 shrink-0 rounded-full", CATEGORY_STYLE[category].dot)} title={category} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">{item.props.name}</span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {TYPE_LABEL[item.type]}
-          {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
-        </span>
-      </span>
-      {item.props.category && (
-        <Badge className={cn("shrink-0 border-0 text-[0.625rem]", CATEGORY_STYLE[item.props.category].badge)}>
-          {item.props.category}
-        </Badge>
-      )}
-      <div className="flex shrink-0 items-center">
-        <RowButton title={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"} onClick={() => h.onToggleVisible(item)}>
-          {hidden ? <EyeOffIcon /> : <EyeIcon />}
-        </RowButton>
-        {modifiable ? (
-          <>
-            <RowButton title="แก้ไข" active={editing} onClick={() => h.onEdit(item)}>
-              <PencilIcon />
-            </RowButton>
-            <RowButton title="ลบ" danger onClick={() => h.onRemove(item)}>
-              <Trash2Icon />
-            </RowButton>
-          </>
-        ) : (
-          <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="px-2 text-muted-foreground/60">
-            <LockIcon className="size-4" />
-          </span>
-        )}
-      </div>
-    </li>
-  );
-});
 
 /**
  * การ์ดลอยซ้ายบน: โลโก้ + ค้นหา + ตัวกรอง + รายการ feature
@@ -144,6 +72,7 @@ export default function FeaturePanel({
   showOwner,
   open,
   onToggle,
+  footer,
 }: {
   items: Item[];
   filter: GeomType | "All";
@@ -166,20 +95,10 @@ export default function FeaturePanel({
   open: boolean;
   /** ย่อ/ขยายการ์ด */
   onToggle: () => void;
+  /** ท้ายการ์ด (แสดงแม้ย่อรายการ) เช่นแบนเนอร์โหมดทดลอง */
+  footer?: ReactNode;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
-  // handler คงที่ตลอดอายุ component (อ่านตัวล่าสุดผ่าน ref) → FeatureRow ที่ memo ไว้ไม่ render ใหม่โดยไม่จำเป็น
-  const latest = useRef<RowHandlers>({ onFocus, onEdit, onToggleVisible, onRemove, onHover });
-  useEffect(() => {
-    latest.current = { onFocus, onEdit, onToggleVisible, onRemove, onHover };
-  });
-  const [handlers] = useState<RowHandlers>(() => ({
-    onFocus: (i) => latest.current.onFocus(i),
-    onEdit: (i) => latest.current.onEdit(i),
-    onToggleVisible: (i) => latest.current.onToggleVisible(i),
-    onRemove: (i) => latest.current.onRemove(i),
-    onHover: (id) => latest.current.onHover(id),
-  }));
 
   // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
   // เลื่อนเฉพาะในรายการเอง ไม่ใช้ scrollIntoView เพราะมันเลื่อนกล่องแผนที่ด้านนอกด้วย
@@ -203,7 +122,7 @@ export default function FeaturePanel({
         <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
           <MapIcon className="size-4" />
         </span>
-        <span className="flex-1 text-[0.9375rem] font-bold">Web Mapping</span>
+        <span className="flex-1 text-[15px] font-bold">Web Mapping</span>
         <Button
           type="button"
           variant="ghost"
@@ -250,22 +169,63 @@ export default function FeaturePanel({
           {items.length === 0 && (
             <li className="px-2 py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล ใช้เครื่องมือด้านล่างวาดบนแผนที่</li>
           )}
-          {items.map((item) => (
-            <FeatureRow
-              key={item.id}
-              item={item}
-              selected={item.id === selectedId}
-              hidden={hiddenIds.has(item.id)}
-              hovered={item.id === hoveredId}
-              editing={item.id === editingId}
-              modifiable={canModify(item)}
-              showOwner={showOwner}
-              h={handlers}
-            />
-          ))}
+          {items.map((item) => {
+            const selected = item.id === selectedId;
+            const hidden = hiddenIds.has(item.id);
+            const hovered = item.id === hoveredId;
+            const category = item.props.category ?? "Other";
+            return (
+              <li
+                key={item.id}
+                id={`feature-${item.id}`}
+                onClick={() => onFocus(item)}
+                onMouseEnter={() => onHover(item.id)}
+                onMouseLeave={() => onHover(null)}
+                className={cn(
+                  "flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+                  selected ? "bg-primary/10" : hovered ? "bg-muted" : "hover:bg-muted",
+                  hidden && "opacity-55",
+                )}
+              >
+                <span className={cn("size-2.5 shrink-0 rounded-full", CATEGORY_STYLE[category].dot)} title={category} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{item.props.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {TYPE_LABEL[item.type]}
+                    {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
+                  </span>
+                </span>
+                {item.props.category && (
+                  <Badge className={cn("shrink-0 border-0 text-[10px]", CATEGORY_STYLE[item.props.category].badge)}>
+                    {item.props.category}
+                  </Badge>
+                )}
+                <div className="flex shrink-0 items-center">
+                  <RowButton title={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"} onClick={() => onToggleVisible(item)}>
+                    {hidden ? <EyeOffIcon /> : <EyeIcon />}
+                  </RowButton>
+                  {canModify(item) ? (
+                    <>
+                      <RowButton title="แก้ไข" active={item.id === editingId} onClick={() => onEdit(item)}>
+                        <PencilIcon />
+                      </RowButton>
+                      <RowButton title="ลบ" danger onClick={() => onRemove(item)}>
+                        <Trash2Icon />
+                      </RowButton>
+                    </>
+                  ) : (
+                    <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="px-2 text-muted-foreground/60">
+                      <LockIcon className="size-4" />
+                    </span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </div>
 
+      {footer && <div className="shrink-0 border-t p-2">{footer}</div>}
     </div>
   );
 }

@@ -3,9 +3,7 @@ import { CircleCheckIcon, InfoIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /** name = แจ้งว่าบันทึก feature แล้ว, message = ข้อความอื่น (เช่น ลบข้อมูลทดลองแล้ว) */
-export type ToastData =
-  | { id: number; name: string; temp?: boolean; message?: undefined }
-  | { id: number; message: string; name?: undefined; temp?: undefined };
+export type ToastData = { id: number; name: string; message?: undefined } | { id: number; message: string; name?: undefined };
 
 /** แจ้งว่าบันทึกแล้ว — ล่างกลางแผนที่ (เหนือ pill เครื่องมือ) ปิดเองใน 4 วินาที (บันทึกซ้ำ = id ใหม่ = เริ่มนับใหม่) */
 export default function Toast({ toast, onClose }: { toast: ToastData; onClose: () => void }) {
@@ -28,7 +26,7 @@ export default function Toast({ toast, onClose }: { toast: ToastData; onClose: (
       <span className="truncate">
         {toast.message ?? (
           <>
-            บันทึก <strong className="text-emerald-200">&quot;{toast.name}&quot;</strong> {toast.temp ? "ชั่วคราวในเบราว์เซอร์นี้" : "แล้ว"}
+            บันทึก <strong className="text-emerald-200">&quot;{toast.name}&quot;</strong> แล้ว
           </>
         )}
       </span>

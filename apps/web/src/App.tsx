@@ -18,9 +18,8 @@ import NotificationBell from "./components/NotificationBell";
 import FeatureEditor from "./components/FeatureEditor";
 import MapView, { type MapCtx } from "./components/MapView";
 import AccountMenu from "./components/AccountMenu";
-import GuestIndicator from "./components/GuestIndicator";
 import DetailCard from "./components/DetailCard";
-import { AlertCircleIcon, XIcon } from "lucide-react";
+import { AlertCircleIcon, FlaskConicalIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import Toast, { type ToastData } from "./components/Toast";
@@ -453,12 +452,10 @@ export default function App() {
       persistGuest(() => upsertGuest(localFeature(id, item.type, geometry, item.props)));
       return;
     }
-    // optimistic: ปล่อยเมาส์แล้วรูปอยู่ที่ใหม่ทันที ไม่รอ API (บันทึกเงียบ ไม่ขึ้น toast)
-    apply(geometry);
     patchFeature(id, { geometry })
+      .then((f) => apply(f.geometry)) // บันทึกเงียบ ไม่ขึ้น toast
       .catch((err) => {
-        // API ไม่รับ = คืนตำแหน่งเดิมทั้งใน items และใน draw
-        apply(item.geometry);
+        // API ไม่รับ = คืนตำแหน่งเดิม
         if (ctx?.draw.get(moveDrawId(id))) {
           loadIntoDraw(moveDrawId(id), item.geometry);
           setDrawMode(ctx.draw, "simple_select", { featureIds: [moveDrawId(id)] });
@@ -607,7 +604,7 @@ export default function App() {
       // Realtime อาจส่ง INSERT ของเรามาก่อนแล้ว → แทนที่ ไม่เพิ่มซ้ำ
       setItems((list) => [...list.filter((i) => i.id !== f.id), toItem(f)]);
       setSelection({ mode: "view", id: f.id });
-      setToast({ id: Date.now(), name: f.properties.name, temp: guest });
+      setToast({ id: Date.now(), name: f.properties.name });
     } else if (selection?.mode === "edit" && selectedItem) {
       const { id, type } = selectedItem;
       let f: ApiFeature;
@@ -637,7 +634,7 @@ export default function App() {
       setDraftGeom(null);
       setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved, geometry: f.geometry } : i)));
       setSelection({ mode: "view", id });
-      setToast({ id: Date.now(), name: saved.name, temp: guest });
+      setToast({ id: Date.now(), name: saved.name });
     }
   };
 
@@ -698,6 +695,32 @@ export default function App() {
       ? null
       : Math.min(GUEST_TTL_MS / 60000, Math.max(1, Math.ceil((guestExpiry - now) / 60000)));
   const panelVars = { "--panel-w": "clamp(20rem, 28vw, 26rem)" } as CSSProperties;
+
+  const guestBanner = (positionClass: string) => (
+    <div
+            className={`flex items-start gap-2 px-3 py-2 border rounded-xl shadow-float text-xs ${positionClass} ${
+              guestMinutesLeft !== null && guestMinutesLeft <= 5
+                ? "bg-red-50 border-red-300 text-red-900"
+                : "bg-amber-50 border-amber-300 text-amber-900"
+            }`}
+          >
+            <FlaskConicalIcon className="mt-0.5 size-[18px] shrink-0" />
+            <span>
+              <strong>โหมดทดลอง</strong> —{" "}
+              {guestExpiry === null ? (
+                "เก็บในเบราว์เซอร์นี้ 1 ชั่วโมงแล้วลบ"
+              ) : (
+                <>
+                  ลบเวลา {new Date(guestExpiry).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.
+                  (อีก {guestMinutesLeft} นาที)
+                </>
+              )}
+            </span>
+            <button type="button" onClick={openLogin} className="shrink-0 font-semibold text-teal-800 hover:underline">
+              เข้าสู่ระบบเพื่อบันทึก
+            </button>
+          </div>
+  );
 
   const renderAccount = (className: string) => (
     <AccountMenu
@@ -771,7 +794,6 @@ export default function App() {
           ) : (
             <div className="absolute inset-x-3 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-30 flex items-start justify-end gap-2">
               <SearchToggle mapRef={mapRef} getPadding={visiblePadding} fill />
-              {guest && <GuestIndicator expiry={guestExpiry} minutesLeft={guestMinutesLeft} ttlMinutes={GUEST_TTL_MS / 60000} onLogin={openLogin} />}
               {renderAccount("shrink-0")}
             </div>
           ))}
@@ -861,11 +883,11 @@ export default function App() {
               showOwner={!guest}
               hoveredId={activeHoverId}
               onHover={onHover}
+              footer={guest ? guestBanner("w-full") : undefined}
             />
 
             <div className="absolute top-4 right-4 z-30 flex items-start gap-2">
               <SearchToggle mapRef={mapRef} getPadding={visiblePadding} />
-              {guest && <GuestIndicator expiry={guestExpiry} minutesLeft={guestMinutesLeft} ttlMinutes={GUEST_TTL_MS / 60000} onLogin={openLogin} />}
               {renderAccount("")}
             </div>
 
@@ -873,6 +895,8 @@ export default function App() {
           </>
         )}
 
+        {/* มือถือ: แบนเนอร์โหมดทดลองลอยบน / จอคอมอยู่ท้ายการ์ดรายการซ้าย */}
+        {guest && isMobile && !(mobileDraw || creating) && guestBanner("absolute top-[calc(4.5rem+env(safe-area-inset-top,0px))] left-3 right-3 z-20")}
         {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
       </div>
 
