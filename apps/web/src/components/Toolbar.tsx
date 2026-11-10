@@ -42,6 +42,8 @@ export default function Toolbar({
   collapsible = false,
   onDrawSelect,
   onToggleMove,
+  tableOpen,
+  onToggleTable,
 }: {
   mapRef: React.MutableRefObject<MlMap | null>;
   activeTool: DrawShape | null;
@@ -55,6 +57,9 @@ export default function Toolbar({
   onDrawSelect: (shape: DrawShape) => void;
   /** เปิด/ปิดเครื่องมือ Move (ย้ายทั้งก้อน) */
   onToggleMove: () => void;
+  /** Attribute table (ระบบ layer ในโหมดทดลอง) — ไม่ส่ง = ไม่มีปุ่ม */
+  tableOpen?: boolean;
+  onToggleTable?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +122,17 @@ export default function Toolbar({
           <ToolButton icon="add" label="Zoom In" onClick={() => mapRef.current?.zoomIn()} />
           <ToolButton icon="remove" label="Zoom Out" onClick={() => mapRef.current?.zoomOut()} />
           <ToolButton icon="view_in_ar" label={is3D ? "กลับเป็น 2D" : "มุมมอง 3D"} active={is3D} onClick={onToggle3D} />
+          {onToggleTable && (
+            <ToolButton
+              icon="table_view"
+              label={tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}
+              active={tableOpen}
+              onClick={() => {
+                onToggleTable();
+                setExpanded(false);
+              }}
+            />
+          )}
 
           {collapsible && (
             <button

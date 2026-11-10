@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CATEGORY_STYLE } from "../../lib/categories";
+import type { Layer } from "../../lib/layers";
 import { geometrySummary } from "../../lib/measure";
 import { FILTERS, type GeomType, type Item } from "../../lib/types";
 
@@ -21,7 +21,14 @@ export default function MobileFeatureList({
   onFocus,
   onToggleVisible,
   onRemove,
+  layers,
+  onEditLayer,
+  onAddLayer,
 }: {
+  /** layer ทั้งหมด: แสดงชื่อ/สี layer ของแต่ละ feature + แถบ layer (แตะเพื่อตั้งค่า เฉพาะคนที่จัดการได้) */
+  layers?: Layer[];
+  onEditLayer?: (layer: Layer) => void;
+  onAddLayer?: () => void;
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
@@ -38,10 +45,12 @@ export default function MobileFeatureList({
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const count = (f: GeomType | "All") => (f === "All" ? items.length : items.filter((i) => i.type === f).length);
+  const layerOf = (i: Item) => layers?.find((l) => l.id === i.props.layerId);
+  const groupName = (i: Item) => layerOf(i)?.name ?? "";
   const shown = items.filter(
     (i) =>
       (filter === "All" || i.type === filter) &&
-      (!q || i.props.name.toLowerCase().includes(q) || (i.props.category ?? "").toLowerCase().includes(q)),
+      (!q || i.props.name.toLowerCase().includes(q) || groupName(i).toLowerCase().includes(q)),
   );
 
   return (
@@ -52,7 +61,7 @@ export default function MobileFeatureList({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by name or category…"
+            placeholder="Filter by name or layer…"
             aria-label="กรอง feature"
             className="w-full h-10 pl-9 pr-9 bg-slate-100 rounded-lg text-base text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:ring-1 focus:ring-teal-700"
           />
@@ -68,6 +77,33 @@ export default function MobileFeatureList({
           )}
         </div>
       </div>
+
+      {layers && (
+        <div className="shrink-0 px-4 mb-3 flex gap-2 overflow-x-auto no-scrollbar">
+          {layers.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => onEditLayer?.(l)}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 shrink-0"
+            >
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: l.color }} />
+              {l.name}
+              <span className="material-symbols-outlined text-[14px] text-slate-400">settings</span>
+            </button>
+          ))}
+          {onAddLayer && (
+            <button
+              type="button"
+              onClick={onAddLayer}
+              className="flex items-center gap-0.5 px-3 py-1 rounded-lg border border-dashed border-teal-600 text-xs font-semibold text-teal-700 shrink-0"
+            >
+              <span className="material-symbols-outlined text-[16px]">add</span>
+              Layer
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="shrink-0 px-4 mb-3 flex gap-2 overflow-x-auto no-scrollbar">
         {FILTERS.map((f) => (
@@ -111,9 +147,10 @@ export default function MobileFeatureList({
                 <div className="text-[15px] font-semibold text-slate-900 truncate">{item.props.name}</div>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">{item.type}</span>
-                  {item.props.category && (
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${CATEGORY_STYLE[item.props.category].badge}`}>
-                      {item.props.category}
+                  {layerOf(item) && (
+                    <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: layerOf(item)!.color }} />
+                      {layerOf(item)!.name}
                     </span>
                   )}
                 </div>

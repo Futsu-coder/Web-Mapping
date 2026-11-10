@@ -25,17 +25,20 @@ apps/server/src/
   index.ts                    สร้าง app prefix /api, openapi docs (dev หรือ ENABLE_DOCS=true), /health
   server.ts                   app.listen(3000) สำหรับ dev
   auth.ts                     ตรวจ Bearer token ของ Supabase → CurrentUser { id, groupId, isGroupOwner }
-  validation.ts               TypeBox schema: FeatureIn (GeoJSON Feature), FeaturePatch (Merge Patch), GeomType
+  validation.ts               TypeBox schema: FeatureIn (GeoJSON Feature), FeaturePatch (Merge Patch), GeomType, Layer/Table/Record
   routes/features.ts          CRUD /api/features — ตรวจรูปทรงด้วย ST_IsValid → 422
   routes/{auth,groups,notifications}.ts
-  db/schema.ts                groups, profiles, invitations, notifications, features (geom = geometry 4326)
-apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime) — รันใน Supabase SQL Editor
-apps/shared/                  ใช้ร่วม web+server: categories.ts, auth.ts
+  db/schema.ts                groups, profiles, invitations, notifications, features (geom = geometry 4326), layers, related_tables, related_records
+  routes/layers.ts            layer + ตารางย่อย (/api/layers, /api/related-tables) — เขียนได้เฉพาะเจ้าของ group
+  routes/records.ts           แถวของตารางย่อย (/api/related-records) — สิทธิ์เดียวกับ feature (checkModify)
+apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime), layers.sql (RLS + Realtime ของ layer, ล้าง feature เก่า) — รันใน Supabase SQL Editor
+apps/shared/                  ใช้ร่วม web+server: auth.ts, layers.ts (type หัวข้อ + checkValues / checkFields)
 apps/web/src/
   App.tsx                     state หลักทั้งหมด (items, selection, draw, guest, save/remove/edit) — ไฟล์ใหญ่
   api.ts                      fetch wrapper + Bearer token, listFeatures/createFeature/patchFeature/deleteFeature
   components/MapView.tsx      สร้างแผนที่ MapLibre + mapbox-gl-draw (setWorkerUrl + prewarm, fallback เป็น OSM PNG)
   hooks/useFeatureData.ts     โหลด feature (API / localStorage) + ฟัง Realtime → items ใน App
+  hooks/useLayerData.ts       login: โหลด layer / ตารางย่อย / แถว จาก API + ฟัง Realtime (โหมดทดลองอ่าน guestStore ใน App)
   hooks/useMapEvents.ts       click/hover บนแผนที่ + event ของ draw (create/update/selectionchange/modechange)
   lib/mapLayers.ts            source/layer ของเรา (shapes, points แบบ cluster, crosshair) + feature-state hover/selected
   lib/mapStyle.ts             URL style vector, style สำรอง, WORLD_BOUNDS
@@ -53,7 +56,34 @@ apps/web/src/
 - **PATCH = JSON Merge Patch (RFC 7396)**: ส่งเฉพาะที่เปลี่ยน, `null` ใน properties = ลบ key; เว็บส่งเฉพาะ diff (ดู `save` ใน App.tsx)
 - `name` เก็บเป็นคอลัมน์แยก, ฟิลด์อื่นอยู่ใน `properties` (jsonb); SYSTEM_KEYS (name, geom_type, owner_*, *_at) client เขียนทับไม่ได้
 - Polygon ห้ามตัดกันเอง (เว็บตรวจด้วย `selfIntersects` ตอนวาด/ลากจุด/บันทึก, server ตรวจ ST_IsValid)
-- **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจาก feature ชิ้นแรก
+- **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจากสิ่งแรกที่สร้าง (feature หรือ layer)
+- **ระบบ Layer + Attribute table + ตารางย่อย** (ใช้ทั้ง login และโหมดทดลอง — category ถูกเอาออกแล้ว)
+  - login เก็บใน database ผ่าน API (`layerApi` ใน api.ts), โหมดทดลองเก็บ localStorage (`guestStore`) — ฟังก์ชันใน App แยก 2 ทาง (async, UI ครอบด้วย `attempt` → error ขึ้นแถบแดง)
+  - โครงสร้าง (layer / ตารางย่อย / คอลัมน์) จัดการได้เฉพาะ `canManageLayers = guest || groupOwner` — คนอื่นไม่เห็นปุ่มจัดการ (server ตอบ 403)
+  - **feature ไม่อยู่ใน layer ได้** (`layer_id` null) — ฟอร์มมี "— ไม่มี layer —", attribute table มีแท็บ "ไม่มี layer" (`NO_LAYER_ID`)
+    ลบ layer → feature ไม่ถูกลบ กลายเป็นไม่มี layer (FK `on delete set null` + ล้างค่าของหัวข้อ layer นั้น) — โหมดทดลองทำแบบเดียวกัน
+  - layer = กลุ่ม feature: รูปทรงชนิดเดียว + สี + หัวข้อ property (`lib/layers.ts`) — key ของหัวข้อสุ่มให้ไม่เปลี่ยน (เปลี่ยน label ได้ ค่าไม่หาย)
+  - ใน properties เก็บแบบแบน: `layer_id` + ค่าของแต่ละหัวข้อ (key = `f_xxxx`) — แปลงไป/กลับด้วย `propsOf` / `toStoredProps` (`lib/featureMeta.ts`)
+  - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ, ลบ layer = feature ใน layer ถูกลบด้วย
+  - UI: `LayerDialog` (สร้าง/แก้), `AttributeTable` (ตารางด้านล่างแผนที่ — ดับเบิลคลิกช่องแก้ค่า, ปุ่ม + เพิ่มคอลัมน์, ดินสอที่หัวคอลัมน์เปลี่ยนชื่อ), กลุ่มตาม layer ใน `FeaturePanel`
+  - **ตารางย่อย (related table)**: layer มีได้หลายตาราง (เช่น "ปลาที่พบ") 1 feature มีได้หลายแถว — `RelatedTable` / `RelatedRecord` ใน `lib/layers.ts`
+    นิยามตาราง (หัวข้อ) เก็บเป็นข้อมูล ไม่ได้สร้างตารางจริง → ผู้ใช้สร้างเองได้โดยไม่ต้องแก้ DB (`related_tables` + `related_records`, ค่าเป็น jsonb)
+    แถวแก้ใน `RelatedRecords` (ในฟอร์มรายละเอียด บันทึกทันที), attribute table มีคอลัมน์สรุปที่ระบบนับเอง (`summarize`: จำนวนแถว หรือค่าไม่ซ้ำของ `countKey`)
+    attribute table สลับไปดูตารางย่อยได้ (`RelatedTableView`): แท็บข้าง layer = ทุก feature, คลิกตัวเลขสรุป = เฉพาะ feature นั้น (เพิ่มแถวได้)
+    สร้างตารางย่อยจากปุ่ม + ของตารางหลัก (ชนิด "ตารางย่อย" — เริ่มแบบไม่มีคอลัมน์) แล้วเพิ่ม/เปลี่ยนชื่อคอลัมน์และชื่อตารางในมุมมองตารางย่อยได้ (`AddColumn`, `HeaderCell` ใช้ร่วมกันทั้ง 2 ตาราง)
+    คลิกชื่อคอลัมน์ = เมนู (`HeaderCell`): เรียง / เปลี่ยนชื่อ / เปลี่ยนชนิด (ค่าเดิมล้าง) / แปลงเป็นตารางย่อย (`convertFieldToTable` ใน App — ค่าเดิมย้ายเป็นแถวแรก) / ลบ
+    เมนูใช้ position fixed เพราะกล่องเลื่อนของตารางตัด absolute
+    ฟอร์ม layer: ตารางย่อยอยู่ในรายการหัวข้อเดียวกัน (ชนิด "ตารางย่อย" = `TABLE_TYPE` ใน `lib/fieldDrafts.ts`) เลือกได้ตั้งแต่สร้าง layer
+    บันทึกแล้ว App (`saveLayerFromDialog`) สร้าง/แปลง/เปลี่ยนชื่อ/ลบตารางย่อยตาม `TableChanges` — ตารางที่บันทึกแล้วเปลี่ยนชนิดไม่ได้ (ลบได้), ⚙ = ตั้งค่าคอลัมน์
+    แถวมี `createdAt` (ระบบใส่ตอนเพิ่ม, แก้แถวแล้วคงเดิม — `saveRecord` ใน App) → คอลัมน์ "วันที่สร้าง" + กรองตามเดือนในตารางย่อย
+    (ข้อมูลหลายรอบสำรวจ/หลายเดือนอยู่ตารางเดียว ไม่ต้องสร้างตารางใหม่ทุกเดือน)
+    ลบ feature / layer / ตารางย่อย → แถวที่เกี่ยวข้องถูกลบตาม (`guestStore`)
+  - กรอกผิดต้องแจ้งเตือน ไม่ทิ้งค่าเงียบๆ: ข้อความกลางใน `lib/layers.ts` (`badNumberMessage`, `EMPTY_ROW_MESSAGE`, `NO_COLUMN_MESSAGE`)
+    ช่องตัวเลขที่พิมพ์ผิดตรวจจาก DOM ตอนบันทึก (`badInputLabel` + `validity.badInput`) — input type=number ให้ "" และ React อาจไม่ยิง onChange
+    ส่ง element มากับ event (`e.currentTarget.closest("tr")`) แทน useRef เพราะ lint ของ React Compiler ห้ามอ่าน ref ในฟังก์ชันที่สร้างตอน render
+  - ห้าม `<form>` ซ้อนใน `<form>`: ตารางย่อยอยู่ในฟอร์ม feature → `AddColumn` ใช้ div + จัดการ Enter เอง (form ซ้อนทำให้ browser ส่งฟอร์มจริง → หน้า reload)
+  - server ตรวจค่าด้วย `checkValues` (apps/shared/layers.ts) → 422, key ที่ไม่มีในหัวข้อถูกตัดทิ้ง; ลบ/เปลี่ยนชนิดหัวข้อ = `properties - key` ใน transaction
+  - แปลงคอลัมน์เป็นตารางย่อยตอน login ทำที่ server endpoint เดียว (`/api/layers/:id/fields/:key/to-table`) แล้วเว็บโหลดใหม่ (`reloadLayerData`)
 - เปลี่ยนบัญชี/group → `viewKey` เปลี่ยน → ล้าง items แล้ว `useFeatureData` โหลดชุดใหม่
 - เทียบรูปทรงที่ 6 ทศนิยม (`sameGeometry`) เพราะ PostGIS ตอบละเอียดกว่าที่วาดบนเว็บ
 - **items ใน App คือข้อมูลจริง** แผนที่แค่วาดตาม (`setFeatureData`); รูปที่กำลังแก้/ย้ายอยู่ใน draw และถูกซ่อนจาก source ปกติ
@@ -70,7 +100,8 @@ apps/web/src/
 ## งานที่วางแผนไว้
 แผนละเอียด: `~/.claude/plans/home-panapong-downloads-docx-mossy-nautilus.md`
 1. ✅ ทำใน branch `group/realtime`: SearchBox autocomplete (debounce + AbortController + throttle + cache) และ guest เก็บ localStorage ลบทุก 1 ชม. พร้อมแบนเนอร์นับถอยหลัง
-2. 🚧 branch `feat/maplibre`: ย้าย Leaflet/Geoman → MapLibre + @mapbox/mapbox-gl-draw, vector tiles (OpenFreeMap), ปุ่ม 3D (ภูเขา + ตึก)
+2. ✅ branch `feat/maplibre`: ย้าย Leaflet/Geoman → MapLibre + @mapbox/mapbox-gl-draw, vector tiles (OpenFreeMap), ปุ่ม 3D (ภูเขา + ตึก)
+3. 🚧 branch `feat/layers`: ระบบ Layer + Attribute table + ตารางย่อย (ทั้ง login และโหมดทดลอง) — ต้องรัน `db:push` + `layers.sql` ก่อนใช้
 
 ## Git
 - branch หลัก `main`, ทำงานผ่าน PR ไปที่ `Futsu-coder/Web-Mapping`

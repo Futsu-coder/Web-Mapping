@@ -1,11 +1,41 @@
-import type { ApiFeature, FeatureProps } from "../api";
+import type { ApiFeature, FeatureProps, StoredProps } from "../api";
+import type { FieldValues } from "./layers";
 
-// ดึงฟิลด์ที่ผู้ใช้กรอกออกจาก properties ของ GeoJSON Feature ที่ API ตอบมา
-export const propsOf = (f: ApiFeature): FeatureProps => ({
-  name: f.properties.name,
-  category: f.properties.category,
-  description: f.properties.description,
-});
+// key ใน properties ที่ไม่ใช่ค่าของหัวข้อใน layer ("category" = ข้อมูลเก่าในโหมดทดลองสมัยก่อนมี layer)
+const RESERVED = new Set([
+  "name",
+  "category",
+  "description",
+  "layer_id",
+  "geom_type",
+  "owner_id",
+  "owner_name",
+  "created_at",
+  "updated_at",
+]);
+
+// ดึงฟิลด์ที่ผู้ใช้กรอกออกจาก properties ของ GeoJSON Feature (API / localStorage)
+export function propsOf(f: ApiFeature): FeatureProps {
+  const p = f.properties;
+  const props: FeatureProps = { name: p.name };
+  if (typeof p.description === "string" && p.description) props.description = p.description;
+  if (typeof p.layer_id === "number") {
+    props.layerId = p.layer_id;
+    const values: FieldValues = {};
+    for (const [k, v] of Object.entries(p)) {
+      if (!RESERVED.has(k) && (typeof v === "string" || typeof v === "number" || typeof v === "boolean")) values[k] = v;
+    }
+    if (Object.keys(values).length) props.values = values;
+  }
+  return props;
+}
+
+/** กลับด้านของ propsOf: layerId / values → properties แบบแบน (layer_id + key ของแต่ละหัวข้อ) */
+export function toStoredProps({ layerId, values, ...rest }: FeatureProps): StoredProps {
+  const out: StoredProps = { ...rest };
+  if (layerId !== undefined) Object.assign(out, values, { layer_id: layerId });
+  return out;
+}
 
 const roundCoords = (c: unknown): unknown =>
   Array.isArray(c) ? c.map(roundCoords) : typeof c === "number" ? Math.round(c * 1e6) / 1e6 : c;

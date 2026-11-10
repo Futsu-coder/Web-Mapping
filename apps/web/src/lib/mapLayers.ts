@@ -21,6 +21,8 @@ const BLUE = "#3388ff";
 const ORANGE = "#f59e0b";
 const TEAL = "#0f766e";
 const hover: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
+// สีของ layer ที่ feature อยู่ (ใส่ไว้ใน properties.color) — ไม่มี layer = สีฟ้าเดิม
+const baseColor: ExpressionSpecification = ["coalesce", ["get", "color"], BLUE];
 const selected: ExpressionSpecification = ["boolean", ["feature-state", "selected"], false];
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -54,7 +56,7 @@ export function addFeatureLayers(map: MlMap) {
     type: "fill",
     source: SHAPES,
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "fill-color": ["case", hover, ORANGE, BLUE], "fill-opacity": 0.2 },
+    paint: { "fill-color": ["case", hover, ORANGE, baseColor], "fill-opacity": 0.2 },
   });
   map.addLayer({
     id: "shape-line",
@@ -62,7 +64,7 @@ export function addFeatureLayers(map: MlMap) {
     source: SHAPES,
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
-      "line-color": ["case", hover, ORANGE, BLUE],
+      "line-color": ["case", hover, ORANGE, baseColor],
       "line-width": ["case", hover, 6, selected, 5, 3],
     },
   });
@@ -92,7 +94,7 @@ export function addFeatureLayers(map: MlMap) {
     source: POINTS,
     filter: ["!", ["has", "point_count"]],
     paint: {
-      "circle-color": ["case", hover, ORANGE, BLUE],
+      "circle-color": ["case", hover, ORANGE, baseColor],
       "circle-radius": ["case", hover, 10, selected, 9, 8],
       "circle-stroke-width": 2,
       "circle-stroke-color": "#ffffff",
@@ -133,13 +135,19 @@ export function addFeatureLayers(map: MlMap) {
 const setData = (map: MlMap, source: string, features: GeoJSON.Feature[]) =>
   (map.getSource(source) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features });
 
-/** วาด feature ที่บันทึกแล้วตาม items (ไม่รวมตัวที่ซ่อน / กำลังแก้อยู่ใน draw) */
-export function setFeatureData(map: MlMap, items: Item[]) {
-  const toFeature = (i: Item): GeoJSON.Feature => ({
-    type: "Feature",
-    geometry: i.geometry,
-    properties: { fid: String(i.id), name: i.props.name },
-  });
+/**
+ * วาด feature ที่บันทึกแล้วตาม items (ไม่รวมตัวที่ซ่อน / กำลังแก้อยู่ใน draw)
+ * colorOf = สีของ layer ที่ feature อยู่ (ไม่มี = ใช้สีปกติ)
+ */
+export function setFeatureData(map: MlMap, items: Item[], colorOf: (i: Item) => string | undefined = () => undefined) {
+  const toFeature = (i: Item): GeoJSON.Feature => {
+    const color = colorOf(i);
+    return {
+      type: "Feature",
+      geometry: i.geometry,
+      properties: color ? { fid: String(i.id), name: i.props.name, color } : { fid: String(i.id), name: i.props.name },
+    };
+  };
   setData(map, POINTS, items.filter((i) => i.type === "Point").map(toFeature));
   setData(map, SHAPES, items.filter((i) => i.type !== "Point").map(toFeature));
 }
