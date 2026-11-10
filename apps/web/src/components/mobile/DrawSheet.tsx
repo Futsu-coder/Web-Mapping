@@ -65,7 +65,7 @@ export default function DrawSheet({
           )}
           <Button
             type="button"
-            className="h-[3.125rem] w-full rounded-xl text-[15px]"
+            className="h-[3.125rem] w-full rounded-xl text-[0.9375rem]"
             onClick={() => {
               const c = mapRef.current?.getCenter();
               if (c) onAdd([c.lng, c.lat]);

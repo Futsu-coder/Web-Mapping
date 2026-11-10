@@ -176,7 +176,7 @@ export default function SearchBox({
             : "flex h-10 items-center gap-1 rounded-lg bg-muted pr-1 pl-3 focus-within:ring-2 focus-within:ring-primary/40"
         }
       >
-        <SearchIcon className="size-[18px] text-muted-foreground" />
+        <SearchIcon className="size-4.5 text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => onChange(e.target.value)}

@@ -51,7 +51,7 @@ export default function MobileFeatureList({
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-3 shrink-0 px-4">
         <div className="relative flex items-center">
-          <SearchIcon className="absolute left-3 size-[18px] text-muted-foreground" />
+          <SearchIcon className="absolute left-3 size-4.5 text-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -61,7 +61,7 @@ export default function MobileFeatureList({
           />
           {query && (
             <button type="button" aria-label="ล้าง" onClick={() => setQuery("")} className="absolute right-1 grid size-9 place-items-center text-muted-foreground">
-              <CircleXIcon className="size-[18px]" />
+              <CircleXIcon className="size-4.5" />
             </button>
           )}
         </div>
@@ -80,7 +80,7 @@ export default function MobileFeatureList({
             <ToggleGroupItem
               key={f}
               value={f}
-              className="h-9 rounded-full px-3.5 text-[13px] data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+              className="h-9 rounded-full px-3.5 text-[0.8125rem] data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
             >
               {FILTER_LABEL[f]}
               <span className="font-normal opacity-80">({count(f)})</span>
@@ -111,16 +111,16 @@ export default function MobileFeatureList({
             >
               <span className={cn("ml-1 size-3 shrink-0 rounded-full", CATEGORY_STYLE[category].dot)} title={category} />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-semibold">{item.props.name}</div>
+                <div className="truncate text-[0.9375rem] font-semibold">{item.props.name}</div>
                 <div className="mt-0.5 flex items-center gap-1.5">
-                  <Badge variant="secondary" className="text-[10px]">
+                  <Badge variant="secondary" className="text-[0.625rem]">
                     {TYPE_LABEL[item.type]}
                   </Badge>
                   {item.props.category && (
-                    <Badge className={cn("border-0 text-[10px]", CATEGORY_STYLE[item.props.category].badge)}>{item.props.category}</Badge>
+                    <Badge className={cn("border-0 text-[0.625rem]", CATEGORY_STYLE[item.props.category].badge)}>{item.props.category}</Badge>
                   )}
                 </div>
-                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                <div className="mt-1 truncate text-[0.6875rem] text-muted-foreground">
                   {geometrySummary(item.geometry)}
                   {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
                 </div>
@@ -154,7 +154,7 @@ export default function MobileFeatureList({
                 </Button>
               ) : (
                 <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="grid size-11 shrink-0 place-items-center text-muted-foreground/60">
-                  <LockIcon className="size-[18px]" />
+                  <LockIcon className="size-4.5" />
                 </span>
               )}
             </li>
