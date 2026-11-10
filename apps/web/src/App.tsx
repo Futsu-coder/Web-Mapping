@@ -23,7 +23,8 @@ import DetailCard from "./components/DetailCard";
 import { AlertCircleIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import Toast, { type ToastData } from "./components/Toast";
+import { notifyInfo, notifySaved } from "./components/Toast";
+import { Toaster } from "@/components/ui/sonner";
 import Toolbar from "./components/Toolbar";
 import MapControls from "./components/MapControls";
 import DrawFab from "./components/mobile/DrawFab";
@@ -76,7 +77,6 @@ export default function App() {
   // รูปทรงล่าสุดของสิ่งที่วาด/แก้อยู่ใน draw (ยังไม่บันทึก) — ใช้แสดงตำแหน่ง/พื้นที่ในฟอร์ม
   const [draftGeom, setDraftGeom] = useState<GeoJSON.Geometry | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
-  const [toast, setToast] = useState<ToastData | null>(null);
   const [moveMode, setMoveMode] = useState(false);
   // โหมด 3D: แผนที่เอียง 60° หมุนได้ เห็นภูเขาและตึก 3D (ตึกมีตั้งแต่ซูม 14)
   const [is3D, setIs3D] = useState(false);
@@ -113,7 +113,6 @@ export default function App() {
   const [now, setNow] = useState(Date.now);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
-  const closeToast = useCallback(() => setToast(null), []);
   const onMapReady = useCallback((c: MapCtx | null) => {
     mapRef.current = c?.map ?? null;
     setCtx(c);
@@ -373,7 +372,7 @@ export default function App() {
       clearGuest();
       setGuestExpiry(null);
       setGuestEpoch((e) => e + 1);
-      setToast({ id: Date.now(), message: "ลบข้อมูลทดลองแล้ว (เก็บไว้ครบ 1 ชั่วโมง)" });
+      notifyInfo("ลบข้อมูลทดลองแล้ว (เก็บไว้ครบ 1 ชั่วโมง)");
     }, Math.max(0, guestExpiry - Date.now()));
     return () => {
       clearInterval(tick);
@@ -679,8 +678,10 @@ export default function App() {
       setDraftGeom(null);
       // Realtime อาจส่ง INSERT ของเรามาก่อนแล้ว → แทนที่ ไม่เพิ่มซ้ำ
       setItems((list) => [...list.filter((i) => i.id !== f.id), toItem(f)]);
-      setSelection({ mode: "view", id: f.id });
-      setToast({ id: Date.now(), name: f.properties.name, temp: guest });
+      // บันทึกแล้ว → ปิดรายละเอียดกับแถบรายการ เหลือแต่แผนที่ + toast
+      setSelection(null);
+      setPanelOpen(false);
+      notifySaved({ name: f.properties.name, type: selection.type, category: f.properties.category, temp: guest });
     } else if (selection?.mode === "edit" && selectedItem) {
       const { id, type } = selectedItem;
       let f: ApiFeature;
@@ -701,6 +702,7 @@ export default function App() {
           clearDraw(); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
           setDraftGeom(null);
           setSelection(null);
+          setPanelOpen(false);
           return;
         }
         f = await patchFeature(id, patch);
@@ -710,7 +712,8 @@ export default function App() {
       setDraftGeom(null);
       setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved, geometry: f.geometry } : i)));
       setSelection(null);
-      setToast({ id: Date.now(), name: saved.name, temp: guest });
+      setPanelOpen(false);
+      notifySaved({ name: saved.name, type, category: saved.category, temp: guest });
     }
   };
 
@@ -943,7 +946,7 @@ export default function App() {
           </>
         )}
 
-        {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
+        <Toaster />
       </div>
 
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}

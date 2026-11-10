@@ -153,19 +153,27 @@
   }
 }
 
-/* toast แจ้งผลการบันทึก: เลื่อนขึ้นมาครั้งเดียว */
-@keyframes toast-in {
+/* toast แจ้งผลการบันทึก: แถบเวลาขอบล่างหดลง (นับต่อแม้ชี้เมาส์ค้าง — ตรงกับ setTimeout ใน Toast.tsx) */
+@keyframes toast-timer {
   from {
-    opacity: 0;
-    transform: translate(-50%, 0.75rem);
+    transform: scaleX(1);
   }
   to {
-    opacity: 1;
-    transform: translate(-50%, 0);
+    transform: scaleX(0);
   }
 }
-.animate-toast-in {
-  animation: toast-in 200ms ease-out;
+.toast-timer {
+  transform-origin: left;
+  animation: toast-timer linear forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-timer {
+    display: none;
+  }
+}
+/* toast.custom ของ sonner ไม่กำหนดความกว้าง → การ์ดหดตามเนื้อหาและเยื้องซ้าย ให้กว้างเท่า toaster เสมอ */
+[data-sonner-toast] {
+  width: var(--width);
 }
 
 /* การ์ดคำเชิญ: เลื่อนเข้ามาจากขวา */
