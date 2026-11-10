@@ -2,10 +2,18 @@ import { supabase } from "./supabase";
 
 // Realtime ส่ง event เฉพาะแถวที่ RLS อนุญาต (feature ใน group ตัวเอง / คำเชิญถึงเรา) ตาม session ที่ login อยู่
 
+/**
+ * onReady ถูกเรียกทุกครั้งที่ channel ต่อได้ (ครั้งแรก + ต่อใหม่หลังหลุด) → ผู้ใช้โหลดรายการใหม่ ได้ของที่พลาดไประหว่างหลุด
+ * ครั้งแรกเรียกด้วยเหมือนกัน (ซ้ำกับการโหลดตอนเปิดหน้า 1 รอบ — ถูกกว่าการพลาดของที่เข้ามาก่อนต่อติด)
+ */
+const readyHandler = (onReady?: () => void) => (status: string) => {
+  if (status === "SUBSCRIBED") onReady?.();
+};
+
 export type FeatureChange = { type: "INSERT" | "UPDATE" | "DELETE"; id: number };
 
 /** ฟังการเปลี่ยนแปลงตาราง features ของ group ตัวเอง — คืนฟังก์ชันเลิกฟัง */
-export function subscribeFeatures(onChange: (change: FeatureChange) => void): () => void {
+export function subscribeFeatures(onChange: (change: FeatureChange) => void, onReady?: () => void): () => void {
   const client = supabase;
   if (!client) return () => {};
   const channel = client
@@ -14,7 +22,7 @@ export function subscribeFeatures(onChange: (change: FeatureChange) => void): ()
       const row = (payload.eventType === "DELETE" ? payload.old : payload.new) as { id?: number | string };
       if (row?.id != null) onChange({ type: payload.eventType, id: Number(row.id) });
     })
-    .subscribe();
+    .subscribe(readyHandler(onReady));
   return () => {
     client.removeChannel(channel);
   };
@@ -24,13 +32,13 @@ export function subscribeFeatures(onChange: (change: FeatureChange) => void): ()
  * ฟังการเปลี่ยนแปลงทุกแบบของตาราง (layers / related_tables / related_records) — RLS ส่งเฉพาะของ group ตัวเอง
  * ไม่ส่งข้อมูลแถวต่อ: ผู้ใช้โหลดรายการใหม่เองใน onChange (ข้อมูลระดับ group ไม่เยอะ) — คืนฟังก์ชันเลิกฟัง
  */
-export function subscribeTable(table: string, onChange: () => void): () => void {
+export function subscribeTable(table: string, onChange: () => void, onReady?: () => void): () => void {
   const client = supabase;
   if (!client) return () => {};
   const channel = client
     .channel(`table-${table}`)
     .on("postgres_changes", { event: "*", schema: "public", table }, () => onChange())
-    .subscribe();
+    .subscribe(readyHandler(onReady));
   return () => {
     client.removeChannel(channel);
   };

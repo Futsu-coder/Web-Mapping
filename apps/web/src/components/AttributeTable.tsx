@@ -14,13 +14,13 @@ import {
   type FieldValue,
   type Layer,
   type LayerField,
+  type RecordDraft,
   type RelatedRecord,
   type RelatedTable,
   summarize,
 } from "../lib/layers";
 import { describeGeometry, geometrySize } from "../lib/measure";
 import type { Item } from "../lib/types";
-import type { RecordDraft } from "./RelatedRecords";
 import AddColumn from "./AddColumn";
 import HeaderCell from "./HeaderCell";
 import RelatedTableView from "./RelatedTableView";

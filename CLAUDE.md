@@ -38,7 +38,7 @@ apps/web/src/
   api.ts                      fetch wrapper + Bearer token, listFeatures/createFeature/patchFeature/deleteFeature
   components/MapView.tsx      สร้างแผนที่ MapLibre + mapbox-gl-draw (setWorkerUrl + prewarm, fallback เป็น OSM PNG)
   hooks/useFeatureData.ts     โหลด feature (API / localStorage) + ฟัง Realtime → items ใน App
-  hooks/useLayerData.ts       login: โหลด layer / ตารางย่อย / แถว จาก API + ฟัง Realtime (โหมดทดลองอ่าน guestStore ใน App)
+  hooks/useLayerData.ts       login: โหลด layer / ตารางย่อย / แถว จาก API + ฟัง Realtime + poll ทุก 5 วิ (ไม่ต้องเปิด Realtime ใน DB) / โหมดทดลองอ่าน guestStore ใน App และซิงก์ระหว่างแถบด้วย event `storage`
   hooks/useMapEvents.ts       click/hover บนแผนที่ + event ของ draw (create/update/selectionchange/modechange)
   lib/mapLayers.ts            source/layer ของเรา (shapes, points แบบ cluster, crosshair) + feature-state hover/selected
   lib/mapStyle.ts             URL style vector, style สำรอง, WORLD_BOUNDS
@@ -69,9 +69,10 @@ apps/web/src/
   - UI: `LayerDialog` (สร้าง/แก้), `AttributeTable` (ตารางด้านล่างแผนที่ — ดับเบิลคลิกช่องแก้ค่า, ปุ่ม + เพิ่มคอลัมน์, ดินสอที่หัวคอลัมน์เปลี่ยนชื่อ), กลุ่มตาม layer ใน `FeaturePanel`
     ปุ่มเปิดตารางอยู่ใน `MapControls` — จอคอม: ตารางอยู่นอก `.map-area` แล้ว App หดพื้นที่แผนที่ขึ้น (`tableDocked`) การ์ด/ปุ่มที่ลอยบนแผนที่เลยขยับตามเอง
     `DetailCard` ยืดลงเกือบสุดจอเสมอ และ `MapControls` ย้ายไปซ้ายของการ์ดเมื่อมีฟอร์ม / มือถือ: ตารางเต็มจอ
+  - **การ์ดรายละเอียด (`FeatureEditor`) ไม่มีค่าคอลัมน์/ตารางย่อยของ layer แล้ว** — แก้ใน attribute table อย่างเดียว (การ์ดเก็บ `values` เดิมไว้ส่งกลับตอนบันทึก); เปิดตาราง = ปิดการ์ด + ย่อรายการ + ซ่อน Toolbar/DrawFab (`openTable`, `showTable` ใน App)
   - **ตารางย่อย (related table)**: layer มีได้หลายตาราง (เช่น "ปลาที่พบ") 1 feature มีได้หลายแถว — `RelatedTable` / `RelatedRecord` ใน `lib/layers.ts`
     นิยามตาราง (หัวข้อ) เก็บเป็นข้อมูล ไม่ได้สร้างตารางจริง → ผู้ใช้สร้างเองได้โดยไม่ต้องแก้ DB (`related_tables` + `related_records`, ค่าเป็น jsonb)
-    แถวแก้ใน `RelatedRecords` (ในฟอร์มรายละเอียด บันทึกทันที), attribute table มีคอลัมน์สรุปที่ระบบนับเอง (`summarize`: จำนวนแถว หรือค่าไม่ซ้ำของ `countKey`)
+    แถวแก้ใน attribute table (`RelatedTableView`), attribute table มีคอลัมน์สรุปที่ระบบนับเอง (`summarize`: จำนวนแถว หรือค่าไม่ซ้ำของ `countKey`)
     attribute table สลับไปดูตารางย่อยได้ (`RelatedTableView`): แท็บข้าง layer = ทุก feature, คลิกตัวเลขสรุป = เฉพาะ feature นั้น (เพิ่มแถวได้)
     สร้างตารางย่อยจากปุ่ม + ของตารางหลัก (ชนิด "ตารางย่อย" — เริ่มแบบไม่มีคอลัมน์) แล้วเพิ่ม/เปลี่ยนชื่อคอลัมน์และชื่อตารางในมุมมองตารางย่อยได้ (`AddColumn`, `HeaderCell` ใช้ร่วมกันทั้ง 2 ตาราง)
     คลิกชื่อคอลัมน์ = เมนู (`HeaderCell`): เรียง / เปลี่ยนชื่อ / เปลี่ยนชนิด (ค่าเดิมล้าง) / แปลงเป็นตารางย่อย (`convertFieldToTable` ใน App — ค่าเดิมย้ายเป็นแถวแรก) / ลบ

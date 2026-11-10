@@ -16,6 +16,7 @@ import {
   type FieldValue,
   type FieldValues,
   type LayerField,
+  type RecordDraft,
   type RelatedRecord,
   type RelatedTable,
 } from "../lib/layers";
@@ -23,7 +24,6 @@ import type { Item } from "../lib/types";
 import AddColumn from "./AddColumn";
 import FieldInput from "./FieldInput";
 import HeaderCell from "./HeaderCell";
-import type { RecordDraft } from "./RelatedRecords";
 import { CalendarIcon, CheckIcon, CircleAlertIcon, FilterIcon, PencilIcon, PlusIcon, Rows3Icon, Trash2Icon, XIcon } from "lucide-react";
 
 type Sort = { id: string; dir: 1 | -1 };

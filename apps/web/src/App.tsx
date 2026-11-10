@@ -19,7 +19,6 @@ import InvitationToasts from "./components/InvitationToasts";
 import NotificationBell from "./components/NotificationBell";
 import FeatureEditor from "./components/FeatureEditor";
 import LayerDialog, { type LayerDraft, type TableChanges } from "./components/LayerDialog";
-import RelatedRecords, { type RecordDraft } from "./components/RelatedRecords";
 import RelatedTableDialog, { type RelatedTableDraft } from "./components/RelatedTableDialog";
 import MapView, { type MapCtx } from "./components/MapView";
 import AccountMenu from "./components/AccountMenu";
@@ -50,8 +49,10 @@ import { setFeatureData, setItemState, setTerrainEnabled } from "./lib/mapLayers
 import { selfIntersects } from "./lib/measure";
 import {
   clearGuest,
+  GUEST_KEY,
   GUEST_TTL_MS,
   guestExpiresAt,
+  loadGuest,
   loadGuestLayers,
   loadGuestRecords,
   loadGuestTables,
@@ -65,7 +66,7 @@ import {
   upsertGuestRecord,
   upsertGuestTable,
 } from "./lib/guestStore";
-import type { Layer, LayerField, RelatedRecord, RelatedTable } from "./lib/layers";
+import type { Layer, LayerField, RecordDraft, RelatedRecord, RelatedTable } from "./lib/layers";
 import { isIdleExpired, watchIdle } from "./lib/idleLogout";
 import { supabase } from "./lib/supabase";
 import { useInvitations } from "./lib/useInvitations";
@@ -440,6 +441,22 @@ export default function App() {
     closeSelectionRef.current = closeSelection;
   });
 
+  // โหมดทดลอง: แถบอื่นของเบราว์เซอร์เดียวกันแก้ localStorage → เบราว์เซอร์ยิง `storage` มาที่แถบนี้ (แถบที่เขียนเองไม่ได้รับ) → โหลดใหม่ทั้งชุด
+  useEffect(() => {
+    if (!guest) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== GUEST_KEY && e.key !== null) return; // key เป็น null = ล้าง localStorage ทั้งหมด
+      closeSelectionRef.current(); // ของที่เลือก/วาดค้างอาจถูกแก้หรือลบจากอีกแถบ
+      setItems(loadGuest().map(toItem));
+      setLayers(loadGuestLayers());
+      setTables(loadGuestTables());
+      setRecords(loadGuestRecords());
+      setGuestExpiry(guestExpiresAt());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [guest]);
+
   // โหมดทดลอง: นับถอยหลังบนแบนเนอร์ และลบข้อมูลเมื่อครบเวลา (ระหว่างเปิดหน้าเว็บค้างไว้)
   useEffect(() => {
     if (!guest || guestExpiry === null) return;
@@ -717,6 +734,9 @@ export default function App() {
 
   const openTable = (layer?: Layer) => {
     if (layer) setTableLayerId(layer.id);
+    // เปิดตาราง = ปิดการ์ดรายละเอียด + ย่อรายการ (แถบเครื่องมือล่างซ่อนตาม showTable) ให้ตารางมีที่เต็มๆ
+    closeSelection();
+    setPanelOpen(false);
     setTableOpen(true);
   };
 
@@ -1021,21 +1041,6 @@ export default function App() {
     }
   };
 
-  const selectedLayer = selectedItem ? layerOf(selectedItem) : undefined;
-  const related = selectedItem && selectedLayer && (
-    <RelatedRecords
-      key={selectedItem.id}
-      tables={tables.filter((t) => t.layerId === selectedLayer.id)}
-      records={records.filter((r) => r.featureId === selectedItem.id)}
-      featureId={selectedItem.id}
-      canEdit={canModify(selectedItem)}
-      onSave={(r) => void attempt(() => saveRecord(r))}
-      onDelete={(id) => void attempt(() => deleteRecord(id))}
-      onCreateTable={canManageLayers ? () => setTableDialog({ layerId: selectedLayer.id, table: null }) : undefined}
-      onUpdateTable={canManageLayers ? (t) => void attempt(() => saveTable(t)) : undefined}
-    />
-  );
-
   const editor =
     selection?.mode === "create" && draftGeom ? (
       <FeatureEditor
@@ -1062,7 +1067,6 @@ export default function App() {
         initial={selectedItem.props}
         layers={layers}
         onCreateLayer={canManageLayers ? openNewLayer : undefined}
-        related={related}
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
         onEdit={() => startEdit(selectedItem)}
@@ -1187,7 +1191,8 @@ export default function App() {
         />
         {isMobile ? (
           !mobileDraw &&
-          !creating && (
+          !creating &&
+          !showTable && (
             <DrawFab
               moveActive={moveMode}
               onDrawSelect={onMobileDrawSelect}
@@ -1196,6 +1201,7 @@ export default function App() {
             />
           )
         ) : (
+          !showTable && (
           <Toolbar
             activeTool={activeTool}
             moveActive={moveMode}
@@ -1203,6 +1209,7 @@ export default function App() {
             onToggleMove={onToggleMove}
             shortcutsEnabled={!selection || selection.mode === "view"}
           />
+          )
         )}
 
         {isMobile ? (

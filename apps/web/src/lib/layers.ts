@@ -69,6 +69,8 @@ export type RelatedTable = { id: number; layerId: number; name: string; fields: 
  * (แถวที่สร้างก่อนมีฟิลด์นี้ = ไม่มีค่า)
  */
 export type RelatedRecord = { id: number; tableId: number; featureId: number; values: FieldValues; createdAt?: string };
+/** แถวที่กำลังบันทึก (id ไม่มี = แถวใหม่) */
+export type RecordDraft = Omit<RelatedRecord, "id"> & { id?: number };
 
 /** วันที่แบบไทยสั้นๆ เช่น "10 พ.ย. 2569" */
 export const formatDate = (iso: string | undefined) =>
