@@ -428,7 +428,7 @@ export default function AttributeTable({
       )}
 
       {!layer ? (
-        <p className="m-auto px-4 text-center text-sm text-muted-foreground">ยังไม่มี layer — สร้างจากปุ่ม "+ Layer" ในพาเนลรายการ</p>
+        <p className="m-auto px-4 text-center text-sm text-muted-foreground">{canManage ? 'ยังไม่มี layer — สร้างจากปุ่ม "+ Layer" ในพาเนลรายการ' : "ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง layer"}</p>
       ) : viewTable ? (
         <RelatedTableView
           key={viewTable.id}

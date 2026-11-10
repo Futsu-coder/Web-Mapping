@@ -43,6 +43,8 @@ export default function RelatedTableDialog({
   const [fields, setFields] = useState<DraftField[]>(() => toDrafts(table?.fields));
   const [countKey, setCountKey] = useState(table?.countKey ?? "");
   const [error, setError] = useState<string | null>(null);
+  // ชื่อว่าง/ซ้ำ → กรอบแดงที่ช่องชื่อ + ข้อความใต้ช่อง (แยกจาก error ของหัวข้อด้านล่าง)
+  const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const originalKeys = new Set(table?.fields.map((f) => f.key));
 
@@ -52,8 +54,12 @@ export default function RelatedTableDialog({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return setError("ใส่ชื่อตาราง");
-    if (takenNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return setError(`มีตารางชื่อ "${trimmed}" แล้ว`);
+    const badName = (msg: string) => {
+      setNameError(msg);
+      e.currentTarget.querySelector<HTMLInputElement>("#table-name")?.focus();
+    };
+    if (!trimmed) return badName("ลืมใส่ชื่อตาราง");
+    if (takenNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return badName(`มีตารางชื่อ "${trimmed}" แล้ว`);
     const out = parseDrafts(fields);
     if (typeof out === "string") return setError(out);
     onSave({ id: table?.id, layerId: layer.id, name: trimmed, fields: out, countKey: countField ? countKey : undefined });
@@ -80,11 +86,19 @@ export default function RelatedTableDialog({
                 maxLength={60}
                 autoFocus
                 placeholder="เช่น ปลาที่พบ, แผนก, ผลตรวจน้ำ"
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? "table-name-error" : undefined}
                 onChange={(e) => {
                   setName(e.target.value);
                   setError(null);
+                  setNameError(null);
                 }}
               />
+              {nameError && (
+                <p id="table-name-error" role="alert" className="text-xs text-destructive">
+                  {nameError}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-2">

@@ -66,6 +66,8 @@ export default function LayerDialog({
   // ชื่อตารางย่อยตอนเปิดฟอร์ม — เปลี่ยนชื่อเฉพาะแถวที่ผู้ใช้แก้ในฟอร์มนี้ (ไม่ทับชื่อที่แก้จากหน้าต่าง ⚙)
   const [initialTableNames] = useState(() => new Map(tables.map((t) => [t.id, t.name])));
   const [error, setError] = useState<string | null>(null);
+  // ชื่อว่าง/ซ้ำ → กรอบแดงที่ช่องชื่อ + ข้อความใต้ช่อง (แยกจาก error ของหัวข้อด้านล่าง)
+  const [nameError, setNameError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const originalKeys = new Set(layer?.fields.map((f) => f.key));
   const typeLocked = !!layer || !!lockType;
@@ -73,8 +75,12 @@ export default function LayerDialog({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return setError("ใส่ชื่อ layer");
-    if (takenNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return setError(`มี layer ชื่อ "${trimmed}" แล้ว`);
+    const badName = (msg: string) => {
+      setNameError(msg);
+      e.currentTarget.querySelector<HTMLInputElement>("#layer-name")?.focus();
+    };
+    if (!trimmed) return badName("ลืมใส่ชื่อ layer");
+    if (takenNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return badName(`มี layer ชื่อ "${trimmed}" แล้ว`);
     const out = parseDrafts(fields, ["ชื่อ", "คำอธิบาย"]);
     if (typeof out === "string") return setError(out);
     const rows = fields.filter((f) => f.type === TABLE_TYPE);
@@ -112,11 +118,19 @@ export default function LayerDialog({
                 maxLength={60}
                 autoFocus
                 placeholder="เช่น โรงเรียน, แม่น้ำ"
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? "layer-name-error" : undefined}
                 onChange={(e) => {
                   setName(e.target.value);
                   setError(null);
+                  setNameError(null);
                 }}
               />
+              {nameError && (
+                <p id="layer-name-error" role="alert" className="text-xs text-destructive">
+                  {nameError}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">

@@ -183,7 +183,7 @@ export default function RelatedRecords({
             ) : table.fields.length === 0 ? (
               // ยังไม่มีคอลัมน์ → เพิ่มคอลัมน์ได้ตรงนี้เลย (ไม่ต้องไป Attribute table)
               <div className="flex items-center justify-between gap-2 rounded-lg border border-dashed px-2 py-2 text-xs text-muted-foreground">
-                <span>ยังไม่มีคอลัมน์</span>
+                <span>{canEdit && onUpdateTable ? "ยังไม่มีคอลัมน์" : "ยังไม่มีคอลัมน์ — ให้เจ้าของ group เพิ่มคอลัมน์"}</span>
                 {canEdit && onUpdateTable && (
                   <AddColumn
                     text="เพิ่มคอลัมน์"
@@ -213,7 +213,7 @@ export default function RelatedRecords({
                     {rows.length === 0 && !editRow(null) && (
                       <tr>
                         <td colSpan={table.fields.length + 2} className="px-2 py-2 text-center text-muted-foreground">
-                          {table.fields.length ? "ยังไม่มีข้อมูล" : "ยังไม่มีคอลัมน์ — เพิ่มได้ในตารางย่อยของ Attribute table"}
+                          {table.fields.length ? "ยังไม่มีข้อมูล" : "ยังไม่มีคอลัมน์ — ให้เจ้าของ group เพิ่มคอลัมน์"}
                         </td>
                       </tr>
                     )}

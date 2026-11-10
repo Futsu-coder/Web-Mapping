@@ -60,7 +60,7 @@ apps/web/src/
 - **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจากสิ่งแรกที่สร้าง (feature หรือ layer)
 - **ระบบ Layer + Attribute table + ตารางย่อย** (ใช้ทั้ง login และโหมดทดลอง — category ถูกเอาออกแล้ว)
   - login เก็บใน database ผ่าน API (`layerApi` ใน api.ts), โหมดทดลองเก็บ localStorage (`guestStore`) — ฟังก์ชันใน App แยก 2 ทาง (async, UI ครอบด้วย `attempt` → error ขึ้นแถบแดง)
-  - โครงสร้าง (layer / ตารางย่อย / คอลัมน์) จัดการได้เฉพาะ `canManageLayers = guest || groupOwner` — คนอื่นไม่เห็นปุ่มจัดการ (server ตอบ 403)
+  - โครงสร้าง (layer / ตารางย่อย / คอลัมน์) จัดการได้เฉพาะ `canManageLayers = guest || groupOwner` — คนอื่นไม่เห็นปุ่มจัดการ (server ตอบ 403) สมาชิกเห็นข้อความจาง "ให้เจ้าของ group …" แทน แต่ยังเพิ่ม/แก้ค่าในตารางของ feature ตัวเองได้
   - **feature ไม่อยู่ใน layer ได้** (`layer_id` null) — ฟอร์มมี "— ไม่มี layer —", attribute table มีแท็บ "ไม่มี layer" (`NO_LAYER_ID`)
     ลบ layer → feature ไม่ถูกลบ กลายเป็นไม่มี layer (FK `on delete set null` + ล้างค่าของหัวข้อ layer นั้น) — โหมดทดลองทำแบบเดียวกัน
   - layer = กลุ่ม feature: รูปทรงชนิดเดียว + สี + หัวข้อ property (`lib/layers.ts`) — key ของหัวข้อสุ่มให้ไม่เปลี่ยน (เปลี่ยน label ได้ ค่าไม่หาย)
@@ -68,14 +68,14 @@ apps/web/src/
   - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ, ลบ layer = feature ใน layer ถูกลบด้วย
   - UI: `LayerDialog` (สร้าง/แก้), `AttributeTable` (ตารางด้านล่างแผนที่ — ดับเบิลคลิกช่องแก้ค่า, ปุ่ม + เพิ่มคอลัมน์, ดินสอที่หัวคอลัมน์เปลี่ยนชื่อ), กลุ่มตาม layer ใน `FeaturePanel`
     ปุ่มเปิดตารางอยู่ใน `MapControls` — จอคอม: ตารางอยู่นอก `.map-area` แล้ว App หดพื้นที่แผนที่ขึ้น (`tableDocked`) การ์ด/ปุ่มที่ลอยบนแผนที่เลยขยับตามเอง
-    ถ้าเปิดฟอร์มด้วย `DetailCard tall` ยืดลงเต็ม และ `MapControls` ย้ายไปซ้ายของการ์ด / มือถือ: ตารางเต็มจอ
+    `DetailCard` ยืดลงเกือบสุดจอเสมอ และ `MapControls` ย้ายไปซ้ายของการ์ดเมื่อมีฟอร์ม / มือถือ: ตารางเต็มจอ
   - **ตารางย่อย (related table)**: layer มีได้หลายตาราง (เช่น "ปลาที่พบ") 1 feature มีได้หลายแถว — `RelatedTable` / `RelatedRecord` ใน `lib/layers.ts`
     นิยามตาราง (หัวข้อ) เก็บเป็นข้อมูล ไม่ได้สร้างตารางจริง → ผู้ใช้สร้างเองได้โดยไม่ต้องแก้ DB (`related_tables` + `related_records`, ค่าเป็น jsonb)
     แถวแก้ใน `RelatedRecords` (ในฟอร์มรายละเอียด บันทึกทันที), attribute table มีคอลัมน์สรุปที่ระบบนับเอง (`summarize`: จำนวนแถว หรือค่าไม่ซ้ำของ `countKey`)
     attribute table สลับไปดูตารางย่อยได้ (`RelatedTableView`): แท็บข้าง layer = ทุก feature, คลิกตัวเลขสรุป = เฉพาะ feature นั้น (เพิ่มแถวได้)
     สร้างตารางย่อยจากปุ่ม + ของตารางหลัก (ชนิด "ตารางย่อย" — เริ่มแบบไม่มีคอลัมน์) แล้วเพิ่ม/เปลี่ยนชื่อคอลัมน์และชื่อตารางในมุมมองตารางย่อยได้ (`AddColumn`, `HeaderCell` ใช้ร่วมกันทั้ง 2 ตาราง)
     คลิกชื่อคอลัมน์ = เมนู (`HeaderCell`): เรียง / เปลี่ยนชื่อ / เปลี่ยนชนิด (ค่าเดิมล้าง) / แปลงเป็นตารางย่อย (`convertFieldToTable` ใน App — ค่าเดิมย้ายเป็นแถวแรก) / ลบ
-    เมนูใช้ position fixed เพราะกล่องเลื่อนของตารางตัด absolute
+    เมนูเป็น Popover ของ shadcn (วาดใน portal ไม่โดนกล่องเลื่อนตัด)
     ฟอร์ม layer: ตารางย่อยอยู่ในรายการหัวข้อเดียวกัน (ชนิด "ตารางย่อย" = `TABLE_TYPE` ใน `lib/fieldDrafts.ts`) เลือกได้ตั้งแต่สร้าง layer
     บันทึกแล้ว App (`saveLayerFromDialog`) สร้าง/แปลง/เปลี่ยนชื่อ/ลบตารางย่อยตาม `TableChanges` — ตารางที่บันทึกแล้วเปลี่ยนชนิดไม่ได้ (ลบได้), ⚙ = ตั้งค่าคอลัมน์
     แถวมี `createdAt` (ระบบใส่ตอนเพิ่ม, แก้แถวแล้วคงเดิม — `saveRecord` ใน App) → คอลัมน์ "วันที่สร้าง" + กรองตามเดือนในตารางย่อย

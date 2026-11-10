@@ -107,6 +107,10 @@ export default function MobileFeatureList({
         </div>
       )}
 
+      {layers && layers.length === 0 && !onAddLayer && (
+        <p className="mb-3 shrink-0 px-4 text-xs text-muted-foreground">ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง</p>
+      )}
+
       <div className="no-scrollbar mb-3 shrink-0 overflow-x-auto px-4">
         <ToggleGroup
           type="single"
