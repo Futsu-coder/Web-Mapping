@@ -54,6 +54,7 @@ apps/web/src/
 ## กฎ/แนวคิดที่ต้องรู้
 - **API features ต้อง login** (Bearer token) ยกเว้น `/api/health`, `/api/auth/signup`; เห็นเฉพาะ feature ใน group ตัวเอง (group อื่น = 404)
 - แก้/ลบได้เมื่อเป็นเจ้าของ feature หรือเจ้าของ group → ไม่งั้น 403 (ฝั่งเว็บใช้ `canModifyOwner` ใน App.tsx)
+  ข้อยกเว้น: **สมาชิกทุกคนใน group ดับเบิลคลิกใส่/แก้ค่าหัวข้อ layer (PATCH เฉพาะ key `f_xxxx`) และค่าในแถวตารางย่อยที่มีอยู่ได้ทุก feature** — เพิ่ม/ลบแถว + จัดการ layer/คอลัมน์ = เจ้าของ group เท่านั้น
 - **PATCH = JSON Merge Patch (RFC 7396)**: ส่งเฉพาะที่เปลี่ยน, `null` ใน properties = ลบ key; เว็บส่งเฉพาะ diff (ดู `save` ใน App.tsx)
 - `name` เก็บเป็นคอลัมน์แยก, ฟิลด์อื่นอยู่ใน `properties` (jsonb); SYSTEM_KEYS (name, geom_type, owner_*, *_at) client เขียนทับไม่ได้
 - Polygon ห้ามตัดกันเอง (เว็บตรวจด้วย `selfIntersects` ตอนวาด/ลากจุด/บันทึก, server ตรวจ ST_IsValid)

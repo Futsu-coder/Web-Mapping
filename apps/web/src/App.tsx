@@ -478,7 +478,7 @@ export default function App() {
     if (selection?.mode === "view" && selection.id === id) return;
     discardPending();
     setSelection({ mode: "view", id });
-    setPanelOpen(true);
+    setPanelOpen(isMobile); // คอม: ย่อรายการ (ฟอร์มอยู่ในการ์ดขวา) / มือถือ: เปิด sheet แสดงฟอร์ม
   };
 
   const showItem = (item: Item) =>
@@ -498,7 +498,7 @@ export default function App() {
     if (item.ownerId !== null && hiddenOwners.has(item.ownerId)) toggleOwner(item.ownerId);
     const itemLayer = layerOf(item);
     if (itemLayer && hiddenLayers.has(itemLayer.id)) toggleLayer(itemLayer);
-    setPanelOpen(true);
+    setPanelOpen(isMobile);
     loadIntoDraw(editDrawId(item.id), item.geometry);
     selectInDraw(editDrawId(item.id), item.type);
     setDraftGeom(item.geometry);
@@ -771,6 +771,7 @@ export default function App() {
       return;
     }
     closeSelection(); // เริ่มวาดใหม่ = ทิ้งสิ่งที่ค้างอยู่
+    setPanelOpen(false); // ระหว่างวาดย่อรายการ
     exitMove();
     closePopup();
     ctx.draw.deleteAll();
@@ -865,7 +866,7 @@ export default function App() {
       setActiveTool(null);
       setSelection({ mode: "create", drawId: f.id, type });
       setDraftGeom(f.geometry);
-      setPanelOpen(true);
+      setPanelOpen(isMobile);
       // draw สลับโหมดเองหลังยิง draw.create → รอให้เสร็จก่อนค่อยเลือกให้ลากแก้ได้
       setTimeout(() => selectInDraw(f.id, type), 0);
     },
@@ -973,6 +974,12 @@ export default function App() {
     }
     if (editable) return startEdit(item);
     view(item.id);
+  };
+
+  /** คลิกแถวใน attribute table (จอคอม) = ซูมไปหา feature อย่างเดียว ไม่เปิดโหมดแก้ไข — ไม่งั้นแถวถูกล็อกแก้ในตารางไม่ได้ (ดับเบิลคลิกช่องต้องแก้ได้เลย) */
+  const locate = (item: Item) => {
+    if (isHidden(item)) return;
+    requestFit(item.geometry, { fly: true, maxZoom: item.type === "Point" ? 17 : 16 });
   };
 
   // บันทึกจากฟอร์ม — throw เมื่อ API ไม่รับ เพื่อให้ฟอร์มแสดง error และคงข้อมูลที่กรอกไว้
@@ -1289,7 +1296,8 @@ export default function App() {
           onLayerChange={setTableLayerId}
           onClose={() => setTableOpen(false)}
           onFocus={(item) => {
-            if (isMobile) setTableOpen(false); // มือถือ: ตารางบังแผนที่ทั้งจอ → ปิดก่อนแล้วค่อยซูมไปหา
+            if (!isMobile) return locate(item);
+            setTableOpen(false); // มือถือ: ตารางบังแผนที่ทั้งจอ → ปิดก่อนแล้วค่อยซูมไปหา
             focus(item);
           }}
           onHover={onHover}

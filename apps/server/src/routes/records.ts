@@ -17,7 +17,7 @@ const recordColumns = {
 }
 
 const notFound = { detail: 'Record not found' }
-const forbidden = { detail: 'แก้ไขได้เฉพาะแถวของ feature ตัวเอง (หรือเจ้าของ group)' }
+const ownerOnlyRows = { detail: 'เพิ่ม/ลบแถวได้เฉพาะเจ้าของ group' }
 const emptyRow = { detail: 'แถวนี้ยังว่างอยู่ — กรอกอย่างน้อย 1 ช่อง' }
 
 /** แถวใน group ของผู้ใช้ (ผ่าน feature) */
@@ -52,9 +52,9 @@ export const recordRoutes = new Elysia({ prefix: '/related-records', tags: ['rel
     async ({ user, body, status }) => {
       const table = await findTable(user, body.tableId)
       if (!table) return status(404, { detail: 'Related table not found' })
-      const denied = await checkModify(user, body.featureId)
-      if (denied === 404) return status(404, { detail: 'Feature not found' })
-      if (denied === 403) return status(403, forbidden)
+      // เพิ่มแถว = เจ้าของ group เท่านั้น (สมาชิกแก้ค่าในแถวที่มีอยู่ได้อย่างเดียว) — feature ต้องอยู่ใน group (404 ถ้าไม่พบ)
+      if (!user.isGroupOwner) return status(403, ownerOnlyRows)
+      if ((await checkModify(user, body.featureId)) === 404) return status(404, { detail: 'Feature not found' })
       const [feature] = await db.select({ layerId: features.layerId }).from(features).where(eq(features.id, body.featureId))
       if (feature?.layerId !== table.layerId) return status(422, { detail: 'feature นี้ไม่ได้อยู่ใน layer ของตารางย่อยนี้' })
       const checked = checkValues(table.fields, body.values)
@@ -75,7 +75,7 @@ export const recordRoutes = new Elysia({ prefix: '/related-records', tags: ['rel
     async ({ user, params, body, status }) => {
       const record = await findRecord(user, params.id)
       if (!record) return status(404, notFound)
-      if ((await checkModify(user, record.featureId)) !== null) return status(403, forbidden)
+      // สมาชิกทุกคนใน group แก้ค่าในแถวได้ (ไม่ต้องเป็นเจ้าของ feature) — findRecord กรอง group ให้แล้ว
       const table = await findTable(user, record.tableId)
       if (!table) return status(404, notFound)
       const checked = checkValues(table.fields, body.values)
@@ -96,7 +96,7 @@ export const recordRoutes = new Elysia({ prefix: '/related-records', tags: ['rel
     async ({ user, params, status }) => {
       const record = await findRecord(user, params.id)
       if (!record) return status(404, notFound)
-      if ((await checkModify(user, record.featureId)) !== null) return status(403, forbidden)
+      if (!user.isGroupOwner) return status(403, ownerOnlyRows)
       await db.delete(relatedRecords).where(eq(relatedRecords.id, record.id))
       return status(204)
     },

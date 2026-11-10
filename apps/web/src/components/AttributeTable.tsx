@@ -444,10 +444,6 @@ export default function AttributeTable({
           onDelete={onDeleteRecord}
           onUpdateTable={onUpdateTable}
           canManage={canManage}
-          canEditFeature={(id) => {
-            const item = items.find((i) => i.id === id);
-            return !!item && canModify(item);
-          }}
           takenTableNames={layerTables.filter((t) => t.id !== viewTable.id).map((t) => t.name)}
         />
       ) : (
@@ -497,11 +493,9 @@ export default function AttributeTable({
                 return (
                   <tr
                     key={item.id}
-                    onClick={() => onFocus(item)}
                     onMouseEnter={() => onHover(item.id)}
                     onMouseLeave={() => onHover(null)}
                     className={cn(
-                      "cursor-pointer",
                       active ? "bg-primary/10" : "hover:bg-muted/60",
                       hiddenIds.has(item.id) ? "text-muted-foreground/60" : "text-foreground",
                     )}
@@ -516,7 +510,8 @@ export default function AttributeTable({
                           </td>
                         );
                       }
-                      const editable = !!c.edit && item.id !== editingId && canModify(item);
+                      // ค่าของหัวข้อ layer (c.field) สมาชิกทุกคนแก้ได้ / ชื่อ-คำอธิบายต้องเป็นเจ้าของ feature หรือเจ้าของ group
+                      const editable = !!c.edit && item.id !== editingId && (!!c.field || canModify(item));
                       return (
                         <td
                           key={c.id}
@@ -550,6 +545,21 @@ export default function AttributeTable({
                             >
                               {text}
                               <ChevronRightIcon />
+                            </Button>
+                          ) : c.id === "name" && text ? (
+                            // คลิกที่ชื่ออย่างเดียวถึงพาไปที่ feature — ช่องอื่นไว้ดับเบิลคลิกแก้ค่า
+                            <Button
+                              type="button"
+                              variant="link"
+                              size="xs"
+                              title="ซูมไปที่ feature นี้"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onFocus(item);
+                              }}
+                              className="h-auto max-w-full p-0 text-sm font-medium"
+                            >
+                              <span className="truncate">{text}</span>
                             </Button>
                           ) : (
                             text || <span className="text-muted-foreground/40">—</span>
