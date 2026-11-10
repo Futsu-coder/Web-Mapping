@@ -16,6 +16,7 @@ import {
   type FieldValue,
   type FieldValues,
   type LayerField,
+  type RecordDraft,
   type RelatedRecord,
   type RelatedTable,
 } from "../lib/layers";
@@ -23,7 +24,6 @@ import type { Item } from "../lib/types";
 import AddColumn from "./AddColumn";
 import FieldInput from "./FieldInput";
 import HeaderCell from "./HeaderCell";
-import type { RecordDraft } from "./RelatedRecords";
 import { CalendarIcon, CheckIcon, CircleAlertIcon, FilterIcon, PencilIcon, PlusIcon, Rows3Icon, Trash2Icon, XIcon } from "lucide-react";
 
 type Sort = { id: string; dir: 1 | -1 };
@@ -37,7 +37,7 @@ const compare = (a: FieldValue | undefined, b: FieldValue | undefined) => {
 
 /**
  * มุมมองตารางย่อยใน attribute table: แถวของตารางย่อยรวมทุก feature ใน layer (หรือเฉพาะ feature เดียว)
- * ดับเบิลคลิกช่องเพื่อแก้, ลบแถวได้, เพิ่มแถวได้เมื่อกรองเฉพาะ feature (ต้องรู้ว่าแถวใหม่เป็นของ feature ไหน)
+ * ดับเบิลคลิกช่องเพื่อแก้ (ทุกคนใน group), ลบแถว/เพิ่มแถวได้เฉพาะเจ้าของ group (เพิ่มได้เมื่อกรองเฉพาะ feature (ต้องรู้ว่าแถวใหม่เป็นของ feature ไหน)
  */
 export default function RelatedTableView({
   table,
@@ -53,12 +53,9 @@ export default function RelatedTableView({
   onUpdateTable,
   takenTableNames,
   canManage,
-  canEditFeature,
 }: {
   /** จัดการโครงสร้างได้ (ชื่อตาราง / คอลัมน์) — โหมดทดลองหรือเจ้าของ group */
   canManage: boolean;
-  /** เพิ่ม/แก้/ลบแถวของ feature นี้ได้ (สิทธิ์เดียวกับ feature) */
-  canEditFeature: (featureId: number) => boolean;
   /** แก้ตารางย่อย: เปลี่ยนชื่อตาราง / เพิ่มคอลัมน์ / เปลี่ยนชื่อคอลัมน์ */
   onUpdateTable: (table: RelatedTable) => void;
   /** ชื่อตารางย่อยอื่นใน layer (ห้ามซ้ำ) */
@@ -236,7 +233,7 @@ export default function RelatedTableView({
             </select>
           </label>
         )}
-        {featureId !== null && canEditFeature(featureId) && (
+        {featureId !== null && canManage && (
           <Button
             type="button"
             variant="ghost"
@@ -326,10 +323,14 @@ export default function RelatedTableView({
                   {activeMonth
                     ? `ไม่มีข้อมูลในเดือน ${formatMonth(activeMonth)}`
                     : table.fields.length === 0
-                    ? 'ยังไม่มีคอลัมน์ — กดปุ่ม + ที่หัวตารางเพื่อเพิ่มคอลัมน์ เช่น "ชนิดปลา", "จำนวน"'
-                    : featureId === null
-                      ? `ยังไม่มีข้อมูลในตาราง "${table.name}" — คลิกตัวเลขในคอลัมน์สรุปของตารางหลัก แล้วกด "เพิ่มแถว"`
-                      : 'ยังไม่มีข้อมูล — กด "เพิ่มแถว"'}
+                    ? canManage
+                      ? 'ยังไม่มีคอลัมน์ — กดปุ่ม + ที่หัวตารางเพื่อเพิ่มคอลัมน์ เช่น "ชนิดปลา", "จำนวน"'
+                      : "ยังไม่มีคอลัมน์ — ให้เจ้าของ group เพิ่มคอลัมน์ก่อน"
+                    : !canManage
+                      ? "ยังไม่มีข้อมูล — เจ้าของ group เป็นคนเพิ่มแถว"
+                      : featureId === null
+                        ? `ยังไม่มีข้อมูลในตาราง "${table.name}" — คลิกตัวเลขในคอลัมน์สรุปของตารางหลัก แล้วกด "เพิ่มแถว"`
+                        : 'ยังไม่มีข้อมูล — กด "เพิ่มแถว"'}
                 </td>
               </tr>
             )}
@@ -367,7 +368,7 @@ export default function RelatedTableView({
                         key={f.key}
                         title={editing ? undefined : `${text}${text ? "\n" : ""}(ดับเบิลคลิกเพื่อแก้)`}
                         onDoubleClick={() =>
-                          !editing && canEditFeature(r.featureId) && setCell({ record: r.id, key: f.key, value: r.values[f.key] })
+                          !editing && setCell({ record: r.id, key: f.key, value: r.values[f.key] })
                         }
                         className={cn(
                           "max-w-[16rem] truncate border-b",
@@ -398,7 +399,7 @@ export default function RelatedTableView({
                     {formatDate(r.createdAt) || <span className="text-muted-foreground/40">—</span>}
                   </td>
                   <td className="border-b px-1">
-                    {canEditFeature(r.featureId) && (
+                    {canManage && (
                       <Button
                         type="button"
                         variant="ghost"

@@ -20,14 +20,14 @@ function show(render: (close: () => void) => React.ReactElement) {
   setTimeout(() => toast.dismiss(id), TOAST_DURATION);
 }
 
-/** แจ้งว่าบันทึก feature แล้ว — ล่างกลางแผนที่ ปิดเองใน 4 วินาที */
+/** แจ้งว่าบันทึก feature แล้ว — ขวาบนใต้ปุ่มโปรไฟล์ ปิดเองใน 4 วินาที */
 export function notifySaved({ name, type, layerName, temp }: { name: string; type: GeomType; layerName?: string; temp?: boolean }) {
   const { label, Icon } = SHAPE[type];
   show((close) => (
     <ToastCard
       duration={TOAST_DURATION}
       badge
-      icon={<Icon className="size-4.5" />}
+      icon={<Icon className="size-4" />}
       title={
         <>
           บันทึก <strong className="font-semibold">&quot;{name}&quot;</strong> แล้ว
@@ -50,5 +50,5 @@ export function notifySaved({ name, type, layerName, temp }: { name: string; typ
 
 /** ข้อความแจ้งทั่วไป (เช่น ลบข้อมูลทดลองแล้ว) */
 export function notifyInfo(message: string) {
-  show((close) => <ToastCard duration={TOAST_DURATION} icon={<InfoIcon className="size-4.5" />} title={message} onClose={close} />);
+  show((close) => <ToastCard duration={TOAST_DURATION} icon={<InfoIcon className="size-4" />} title={message} onClose={close} />);
 }

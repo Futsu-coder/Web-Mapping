@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useState } from "react";
 import { InfoIcon, MoveIcon, PencilIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
 import type { FeatureProps } from "../api";
 import { Badge } from "@/components/ui/badge";
@@ -9,19 +9,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { message } from "../lib/featureMeta";
-import {
-  badInputLabel,
-  badNumberMessage,
-  formatValue,
-  pickValues,
-  type FieldValue,
-  type FieldValues,
-  type Layer,
-  type LayerField,
-} from "../lib/layers";
+import { pickValues, type FieldValues, type Layer } from "../lib/layers";
 import { fmtLat, fmtLng, formatArea, formatLength, lineLength, polygonArea, polygonPerimeter } from "../lib/measure";
 import type { GeomType } from "../lib/types";
-import FieldInput from "./FieldInput";
 
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
@@ -66,55 +56,25 @@ function GeometryInfo({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile
 const NO_LAYER = "none";
 const NEW_LAYER = "__new";
 
-// ช่องกรอกของหัวข้อ layer (input/select ธรรมดา) ให้หน้าตาเหมือน Input ของ shadcn
-const FIELD_CLS =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
-
-/** เลือก layer (หรือไม่อยู่ใน layer) + ช่องกรอกตามหัวข้อของ layer ที่เลือก */
+/** เลือก layer (หรือไม่อยู่ใน layer) — ค่าของหัวข้อ layer / ตารางย่อยแก้ใน Attribute table */
 function LayerFields({
   type,
   layers,
   layer,
-  values,
   readOnly,
   mobile,
   onLayerChange,
-  onValueChange,
   onCreateLayer,
 }: {
   type: GeomType;
   /** layer ที่รูปทรงตรงกับ feature นี้ */
   layers: Layer[];
   layer: Layer | undefined;
-  values: FieldValues;
   readOnly: boolean;
   mobile: boolean;
   onLayerChange: (id: number | null) => void;
-  onValueChange: (key: string, v: FieldValue | undefined) => void;
   onCreateLayer?: (type: GeomType) => void;
 }) {
-  const input = (f: LayerField) => {
-    const v = values[f.key];
-    const id = `fe-${f.key}`;
-    if (readOnly) {
-      const text = formatValue(f, v);
-      return (
-        <div id={id} className={cn("rounded-md border bg-muted/50 px-3 py-2 text-sm", !text && "text-muted-foreground")}>
-          {text || "—"}
-        </div>
-      );
-    }
-    return (
-      <FieldInput
-        id={id}
-        field={f}
-        value={v}
-        onChange={(nv) => onValueChange(f.key, nv)}
-        className={cn(FIELD_CLS, mobile && "h-11 text-base")}
-      />
-    );
-  };
-
   return (
     <>
       <div className="flex flex-col gap-1.5">
@@ -146,12 +106,9 @@ function LayerFields({
           </SelectContent>
         </Select>
       </div>
-      {layer?.fields.map((f) => (
-        <div key={f.key} className="flex flex-col gap-1.5">
-          <Label htmlFor={`fe-${f.key}`}>{f.label}</Label>
-          {input(f)}
-        </div>
-      ))}
+      {!readOnly && layer && layer.fields.length > 0 && (
+        <p className="text-[0.6875rem] text-muted-foreground">ค่าของคอลัมน์และตารางย่อยของ layer แก้ได้ใน Attribute table</p>
+      )}
     </>
   );
 }
@@ -176,10 +133,7 @@ export default function FeatureEditor({
   canModify = true,
   layers,
   onCreateLayer,
-  related,
 }: {
-  /** ตารางย่อยของ feature (ระบบ layer) — แสดงใต้คำอธิบาย */
-  related?: ReactNode;
   /** layer ทั้งหมด (dropdown แสดงเฉพาะที่รูปทรงตรงกัน) */
   layers: Layer[];
   /** ตัวเลือก "+ สร้าง layer ใหม่…" (เฉพาะคนที่จัดการ layer ได้) */
@@ -210,11 +164,10 @@ export default function FeatureEditor({
       ? (initial.layerId ?? layers.find((l) => l.geomType === type)?.id ?? null)
       : (initial.layerId ?? null),
   );
-  // ฟอร์ม — ตอนบันทึกตรวจช่องตัวเลขที่พิมพ์ไม่เป็นตัวเลข (ไม่ทิ้งค่าเงียบๆ)
-  const formRef = useRef<HTMLFormElement>(null);
   // กดสร้าง layer จากฟอร์ม → จำ layer ที่มีอยู่ตอนนั้นไว้ พอมี layer ใหม่โผล่มาให้เลือกอันนั้นให้เลย
   const [knownLayers, setKnownLayers] = useState<Set<number> | null>(null);
-  const [values, setValues] = useState<FieldValues>(initial.values ?? {});
+  // ค่าของหัวข้อ layer ไม่แก้ในการ์ดนี้ — เก็บไว้ส่งกลับตอนบันทึก (ค่าเดิมไม่หาย; เปลี่ยน layer = ตัดค่าของ layer เก่า)
+  const [values] = useState<FieldValues>(initial.values ?? {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -248,8 +201,6 @@ export default function FeatureEditor({
   const layer = matching.find((l) => l.id === layerId);
   const trimmed = name.trim();
   const save = () => {
-    const wrong = badInputLabel(formRef.current);
-    if (wrong !== null) return setError(badNumberMessage(wrong));
     return run(() =>
       onSave({
         name: trimmed,
@@ -260,13 +211,6 @@ export default function FeatureEditor({
     );
   };
 
-  const setValue = (key: string, v: FieldValue | undefined) =>
-    setValues((old) => {
-      const next = { ...old };
-      if (v === undefined || v === "") delete next[key];
-      else next[key] = v;
-      return next;
-    });
   // มือถือ: input สูง 44px+ และตัวอักษร 16px กัน iOS ซูมเอง
   const ctl = mobile ? "h-11 text-base md:text-base" : "";
 
@@ -308,11 +252,9 @@ export default function FeatureEditor({
         type={type}
         layers={matching}
         layer={layer}
-        values={values}
         readOnly={readOnly}
         mobile={mobile}
         onLayerChange={setLayerId}
-        onValueChange={setValue}
         onCreateLayer={createLayer}
       />
 
@@ -336,8 +278,6 @@ export default function FeatureEditor({
           สร้างโดย <strong className="text-foreground">{ownerName}</strong>
         </p>
       )}
-
-      {related}
 
       <GeometryInfo geometry={geometry} mobile={mobile} />
 
@@ -397,7 +337,7 @@ export default function FeatureEditor({
           </div>
         )}
 
-        <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-1 pb-4" onSubmit={onSubmit}>
+        <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-1 pb-4" onSubmit={onSubmit}>
           {fields}
         </form>
 
@@ -445,7 +385,7 @@ export default function FeatureEditor({
         </h2>
       </div>
 
-      <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
+      <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
         {fields}
       </form>
 

@@ -4,7 +4,9 @@ import type { ApiFeature } from "../api";
 import type { Layer, RelatedRecord, RelatedTable } from "./layers";
 
 export const GUEST_TTL_MS = 60 * 60 * 1000;
-const KEY = "webmap:guest";
+/** key ใน localStorage — App ฟัง event `storage` ของ key นี้เพื่อซิงก์ระหว่างแถบ */
+export const GUEST_KEY = "webmap:guest";
+const KEY = GUEST_KEY;
 
 // layers: ข้อมูลที่บันทึกก่อนมีระบบ layer ไม่มี key นี้ → อ่านเป็น []
 // tables / records = ตารางย่อยของ layer และแถวข้อมูลของตารางย่อย

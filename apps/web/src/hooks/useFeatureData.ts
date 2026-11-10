@@ -48,7 +48,12 @@ export function useFeatureData(viewKey: string, guest: boolean, setItems: SetIte
       };
     }
 
-    listFeatures().then(load).catch(onError);
+    const reload = () => void listFeatures().then(load).catch(onError);
+    reload();
+    // กลับมาที่แท็บ/หน้าต่าง (เครื่องพับจอ websocket อาจหลุดเงียบๆ) → โหลดใหม่กันของตกหล่น
+    const onVisible = () => document.visibilityState === "visible" && reload();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     const unsubscribe = subscribeFeatures(async ({ type, id }) => {
       if (type === "DELETE") return setItems((items) => items.filter((i) => i.id !== id));
       if (isOwnEcho(id)) return; // เราเพิ่งบันทึกเอง — App อัปเดต items จากผลลัพธ์ไปแล้ว
@@ -58,9 +63,11 @@ export function useFeatureData(viewKey: string, guest: boolean, setItems: SetIte
       } catch {
         // ถูกลบไปแล้วระหว่างรอ
       }
-    });
+    }, reload); // ต่อ Realtime ได้ใหม่หลังหลุด → โหลดรายการใหม่
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
       unsubscribe();
     };
   }, [viewKey, guest, setItems, onError]);

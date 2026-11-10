@@ -199,7 +199,9 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
       }
       const denied = await checkModify(user, params.id)
       if (denied === 404) return status(404, notFound)
-      if (denied === 403) return status(403, forbidden)
+      // สมาชิกที่ไม่ใช่เจ้าของ feature แก้ได้เฉพาะ "ค่าของหัวข้อ layer" (key f_xxxx) — รูปทรง / ชื่อ / คำอธิบาย / layer ยังต้องเป็นเจ้าของ
+      const valuesOnly = !body.geometry && Object.keys(body.properties ?? {}).every((k) => k.startsWith('f_') && !SYSTEM_KEYS.includes(k))
+      if (denied === 403 && !valuesOnly) return status(403, forbidden)
 
       const geo = body.geometry ? await validateGeometry(body.geometry) : null
 
