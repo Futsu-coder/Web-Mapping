@@ -43,6 +43,7 @@ apps/web/src/
   components/mobile/          UI มือถือ: วาดด้วยกากบาทกลางจอ (CrosshairDraw + hooks/useCrosshairDraw), sheet ด้านล่าง
   lib/featureMeta.ts          propsOf, sameGeometry, bbox/center ของ geometry
   lib/measure.ts              พื้นที่/ความยาว/ตัดกันเอง (จุดเป็น [lng, lat])
+  lib/scaleControl.ts         สเกลบาร์ซ้ายล่าง (มือถือ+คอม) ความยาวคงที่ 96px เลขเปลี่ยนตามซูม
   lib/realtime.ts             Supabase Realtime subscribe feature changes
   lib/idleLogout.ts           auto logout เมื่อไม่ใช้งาน 1 วัน (localStorage)
 ```

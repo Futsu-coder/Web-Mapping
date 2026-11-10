@@ -29,7 +29,7 @@ import MapControls from "./components/MapControls";
 import DrawFab from "./components/mobile/DrawFab";
 import FeaturePanel from "./components/FeaturePanel";
 import SearchToggle from "./components/SearchToggle";
-import CrosshairDraw, { Crosshair, MobileScale } from "./components/mobile/CrosshairDraw";
+import CrosshairDraw, { Crosshair } from "./components/mobile/CrosshairDraw";
 import DrawSheet from "./components/mobile/DrawSheet";
 import MobileFeatureList from "./components/mobile/MobileFeatureList";
 import MobileHeader from "./components/mobile/MobileHeader";
@@ -807,7 +807,6 @@ export default function App() {
       >
         <MapView className="absolute inset-0 w-full h-full z-0" onReady={onMapReady} />
         <CrosshairDraw map={ctx?.map ?? null} draw={mobileDraw} />
-        {isMobile && <MobileScale map={ctx?.map ?? null} />}
 
         {mobileDraw && <Crosshair />}
 

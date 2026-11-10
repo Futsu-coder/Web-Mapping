@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ScaleControl, type Map as MlMap } from "maplibre-gl";
+import type { Map as MlMap } from "maplibre-gl";
 import type { MobileDraw } from "../../hooks/useCrosshairDraw";
 import { setCrosshairData } from "../../lib/mapLayers";
 
@@ -48,17 +48,6 @@ export default function CrosshairDraw({ map, draw }: { map: MlMap | null; draw: 
     };
   }, [map, draw]);
 
-  return null;
-}
-
-/** สเกลบาร์ (เมตร) มุมซ้ายล่างตามดีไซน์มือถือ */
-export function MobileScale({ map }: { map: MlMap | null }) {
-  useEffect(() => {
-    if (!map) return;
-    const control = new ScaleControl({ unit: "metric" });
-    map.addControl(control, "bottom-left");
-    return () => void map.removeControl(control);
-  }, [map]);
   return null;
 }
 
