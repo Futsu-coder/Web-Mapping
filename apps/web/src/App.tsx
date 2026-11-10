@@ -211,8 +211,8 @@ export default function App() {
 
   // วาด / แก้จุด / Move ต้องทำบนแผนที่แบนเสมอ (draw คำนวณตำแหน่งคลาดเมื่อแผนที่เอียง)
   // → ระหว่างนั้นกลับเป็น 2D ชั่วคราว ทำเสร็จแล้วเอียงกลับให้เอง
-  const mustBeFlat =
-    !!activeTool || !!mobileDraw || moveMode || selection?.mode === "create" || selection?.mode === "edit";
+  // โหมดดูรายละเอียด (view) ก็แบนด้วย เพื่อให้ทุกครั้งที่เลือก feature ได้มุมมองเดียวกัน
+  const mustBeFlat = !!activeTool || !!mobileDraw || moveMode || !!selection;
   useEffect(() => {
     if (!ctx) return;
     const { map } = ctx;
@@ -251,14 +251,14 @@ export default function App() {
   /**
    * ขอให้กล้องไปอยู่กลางพื้นที่ที่มองเห็นของ feature (ซูมออกถ้าใหญ่เกิน) — ทำ "หลัง" commit ถัดไป
    * เพราะการ์ดรายการ/รายละเอียด (จอคอม) หรือ sheet (มือถือ) เพิ่งสั่งเปิด ยังไม่อยู่ใน DOM ตอนนี้ วัดระยะเว้นขอบตอนนี้จะผิด
-   * flatten = กำลังจะเข้าโหมดแก้ไข (ต้องแบนเป็น 2D): ถ้าเปิด 3D อยู่ ให้แบนในคำสั่งกล้องเดียวกัน
+   * ถ้าเปิด 3D อยู่ (และยังไม่แบน) จะแบนเป็น 2D ในคำสั่งกล้องเดียวกัน
    * ไม่ปล่อยให้ effect mustBeFlat easeTo แยก เพราะมันจะตัดการบิน/เลื่อนที่ค้างอยู่
    */
   const requestFit = (
     geometry: GeoJSON.Geometry,
-    opts: { fly?: boolean; maxZoom?: number; flatten?: boolean },
+    opts: { fly?: boolean; maxZoom?: number } = {},
   ) => {
-    const flat = !!opts.flatten && is3D && !mustBeFlat;
+    const flat = is3D && !mustBeFlat;
     if (flat) skipFlatEase.current = true;
     pendingFit.current = { geometry, fly: !!opts.fly, maxZoom: opts.maxZoom, flat };
     bumpFit(); // ถ้า state อื่นไม่เปลี่ยน (เช่น เปิดการ์ดอยู่แล้ว) ก็ยังต้อง render เพื่อให้ effect ด้านล่างทำงาน
@@ -507,7 +507,7 @@ export default function App() {
         view(id);
       }
       // เลื่อนให้อยู่กลางพื้นที่ที่มองเห็น (ไม่ถูกการ์ด/sheet บัง) ซูมออกถ้ารูปใหญ่เกิน
-      requestFit(item.geometry, { flatten: editable });
+      requestFit(item.geometry);
     },
     // คลิกพื้นที่ว่าง: ดูอยู่ / แก้อยู่ → ทิ้งการแก้ที่ยังไม่บันทึก แล้วปิดรายละเอียดกับการ์ดรายการ
     // (โหมด create ไม่ทำอะไร กัน draft หายเพราะเผลอคลิก)
@@ -609,6 +609,7 @@ export default function App() {
     const map = mapRef.current;
     if (!fit || !map) return;
     pendingFit.current = null;
+    skipFlatEase.current = false; // ถ้า effect mustBeFlat ไม่ได้รันรอบนี้ ไม่ให้ค่าค้างไปข้าม easeTo ครั้งหน้า
     const camera = map.cameraForBounds(bboxOf(fit.geometry), {
       padding: visiblePadding(),
       maxZoom: fit.maxZoom ?? map.getZoom(), // ไม่ระบุ = ซูมออกได้อย่างเดียว ไม่ซูมเข้าเพิ่ม
@@ -624,7 +625,7 @@ export default function App() {
     const editable = canModify(item) && !isHidden(item);
     if (!isHidden(item)) {
       // หมุดอาจอยู่ใน cluster → ซูมไป 17 (cluster แตกหมด)
-      requestFit(item.geometry, { fly: true, maxZoom: item.type === "Point" ? 17 : 16, flatten: editable });
+      requestFit(item.geometry, { fly: true, maxZoom: item.type === "Point" ? 17 : 16 });
       if (!editable) showPopup(centerOf(item.geometry), item.props.name);
     }
     if (editable) return startEdit(item);

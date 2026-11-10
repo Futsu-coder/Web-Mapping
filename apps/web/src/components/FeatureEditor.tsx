@@ -9,23 +9,38 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, CATEGORY_STYLE, type Category } from "../lib/categories";
-import { centerOf, message } from "../lib/featureMeta";
-import { describeGeometry, fmtLat, fmtLng } from "../lib/measure";
+import { message } from "../lib/featureMeta";
+import { fmtLat, fmtLng, formatArea, formatLength, lineLength, polygonArea, polygonPerimeter } from "../lib/measure";
 import type { GeomType } from "../lib/types";
 
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
-/** Point = ตำแหน่งจุด, Line/Polygon = จุดกึ่งกลางของกรอบ (อัปเดตเมื่อลากแก้เสร็จ) */
-function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
-  const [lng, lat] = centerOf(geometry);
+/** ข้อมูลรูปทรงตามชนิด: Point = ตำแหน่ง, Line = ความยาวรวม, Polygon = พื้นที่ + ความยาวรอบรูป (อัปเดตตาม geometry ล่าสุด) */
+function GeometryInfo({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
+  let title = "ขนาด";
+  let rows: [string, string][] = [];
+  if (geometry.type === "Point") {
+    title = "ตำแหน่ง";
+    const [lng, lat] = geometry.coordinates;
+    rows = [
+      ["ละติจูด", fmtLat(lat)],
+      ["ลองจิจูด", fmtLng(lng)],
+    ];
+  } else if (geometry.type === "LineString") {
+    rows = [["ความยาวรวม", formatLength(lineLength(geometry.coordinates))]];
+  } else if (geometry.type === "Polygon") {
+    const ring = geometry.coordinates[0] ?? [];
+    rows = [
+      ["พื้นที่", formatArea(polygonArea(ring))],
+      ["ความยาวรอบรูป", formatLength(polygonPerimeter(ring))],
+    ];
+  }
+  if (!rows.length) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-semibold text-muted-foreground">ตำแหน่ง</span>
-      <div className="grid grid-cols-2 gap-2">
-        {[
-          ["ละติจูด", fmtLat(lat)],
-          ["ลองจิจูด", fmtLng(lng)],
-        ].map(([label, value]) => (
+      <span className="text-xs font-semibold text-muted-foreground">{title}</span>
+      <div className={cn("grid gap-2", rows.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+        {rows.map(([label, value]) => (
           <div key={label} className={cn("rounded-lg border bg-muted/50 text-xs", mobile ? "p-3" : "p-2.5")}>
             <span className="block text-[0.6875rem] text-muted-foreground">{label}</span>
             <span className="font-mono font-medium">{value}</span>
@@ -95,7 +110,6 @@ export default function FeatureEditor({
   const readOnly = mode === "view";
   const trimmed = name.trim();
   const save = () => run(() => onSave({ name: trimmed, category, description: description.trim() || undefined }));
-  const info = describeGeometry(geometry);
   // มือถือ: input สูง 44px+ และตัวอักษร 16px กัน iOS ซูมเอง
   const ctl = mobile ? "h-11 text-base md:text-base" : "";
 
@@ -112,9 +126,13 @@ export default function FeatureEditor({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="fe-name" className="justify-between">
-          <span>ชื่อ</span>
-          <span className="font-normal text-destructive">จำเป็น</span>
+        <Label htmlFor="fe-name">
+          ชื่อ
+          {!readOnly && (
+            <span aria-hidden="true" className="text-destructive">
+              *
+            </span>
+          )}
         </Label>
         <Input
           id="fe-name"
@@ -169,7 +187,7 @@ export default function FeatureEditor({
         </p>
       )}
 
-      <LocationView geometry={geometry} mobile={mobile} />
+      <GeometryInfo geometry={geometry} mobile={mobile} />
 
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-800">
@@ -209,7 +227,6 @@ export default function FeatureEditor({
               <span className="size-2.5 rounded-full bg-primary" />
               <h2 className="text-lg font-bold">{TYPE_LABEL[type]}</h2>
             </div>
-            <span className="text-xs font-medium text-muted-foreground">{[info.metric, info.count].filter(Boolean).join(" · ")}</span>
           </div>
         ) : (
           <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3">
@@ -222,12 +239,6 @@ export default function FeatureEditor({
               </div>
               <h2 className="truncate text-lg font-semibold">{initial.name}</h2>
             </div>
-            {info.metric && (
-              <div className="flex shrink-0 flex-col items-end">
-                <span className="text-[0.9375rem] font-semibold text-primary">{info.metric}</span>
-                <span className="font-mono text-[0.6875rem] text-muted-foreground">{info.count}</span>
-              </div>
-            )}
           </div>
         )}
 
@@ -274,7 +285,6 @@ export default function FeatureEditor({
         <h2 className="text-sm font-semibold">
           {mode === "create" ? "เพิ่มรายการใหม่" : mode === "view" ? "รายละเอียด" : "แก้ไขรายละเอียด"} · {TYPE_LABEL[type]}
         </h2>
-        {info.metric && <span className="ml-auto text-xs font-medium text-muted-foreground">{info.metric}</span>}
       </div>
 
       <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>

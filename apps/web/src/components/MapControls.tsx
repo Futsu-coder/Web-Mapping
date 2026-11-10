@@ -3,7 +3,6 @@ import type { Map as MlMap } from "maplibre-gl";
 import { CompassIcon, MinusIcon, PlusIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const CARD = "bg-card rounded-xl shadow-float border border-black/5";
@@ -11,7 +10,7 @@ const SEG = "w-full font-semibold data-[state=on]:bg-primary data-[state=on]:tex
 
 /**
  * กลุ่มควบคุมมุมมอง (ขวาล่าง): สลับ 2D/3D, ซูม +/− (เฉพาะจอคอม), เข็มทิศ (เฉพาะตอน 3D)
- * paused = แอปบังคับให้แผนที่แบนชั่วคราวระหว่างวาด/แก้/ย้าย → ปุ่ม 3D จางลงพร้อมป้ายอธิบาย
+ * paused = แอปบังคับให้แผนที่แบนชั่วคราวระหว่างวาด/แก้/ย้าย → ปุ่ม 3D จางลง
  */
 export default function MapControls({
   map,
@@ -30,7 +29,6 @@ export default function MapControls({
   className?: string;
 }) {
   const [bearing, setBearing] = useState(0);
-  const [tipOpen, setTipOpen] = useState(false);
   useEffect(() => {
     if (!map) return;
     const onRotate = () => setBearing(map.getBearing());
@@ -60,28 +58,23 @@ export default function MapControls({
         <CompassIcon style={{ transform: `rotate(${-bearing}deg)` }} />
       </Button>
 
-      <Tooltip open={paused && tipOpen} onOpenChange={setTipOpen}>
-        <TooltipTrigger asChild>
-          <div className={cn(CARD, "p-1", paused && "opacity-60")}>
-            <ToggleGroup
-              type="single"
-              value={is3D ? "3d" : "2d"}
-              onValueChange={(v) => v && (v === "3d") !== is3D && onToggle3D()}
-              aria-label="มุมมองแผนที่"
-              spacing={0.5}
-              className={cn("flex-col", compact && "min-w-12")}
-            >
-              <ToggleGroupItem value="2d" aria-label="มุมมองแบน 2D" className={cn(SEG, segH)}>
-                2D
-              </ToggleGroupItem>
-              <ToggleGroupItem value="3d" aria-label="มุมมอง 3D" className={cn(SEG, segH)}>
-                3D
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="left">พัก 3D ขณะวาด/แก้ไข เสร็จแล้วจะเอียงกลับให้เอง</TooltipContent>
-      </Tooltip>
+      <div className={cn(CARD, "p-1", paused && "opacity-60")}>
+        <ToggleGroup
+          type="single"
+          value={is3D ? "3d" : "2d"}
+          onValueChange={(v) => v && (v === "3d") !== is3D && onToggle3D()}
+          aria-label="มุมมองแผนที่"
+          spacing={0.5}
+          className={cn("flex-col", compact && "min-w-12")}
+        >
+          <ToggleGroupItem value="2d" aria-label="มุมมองแบน 2D" className={cn(SEG, segH)}>
+            2D
+          </ToggleGroupItem>
+          <ToggleGroupItem value="3d" aria-label="มุมมอง 3D" className={cn(SEG, segH)}>
+            3D
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
 
       {!compact && (
         <div className={cn(CARD, "flex flex-col p-1")}>
