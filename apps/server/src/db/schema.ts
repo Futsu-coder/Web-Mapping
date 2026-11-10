@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import type { FieldValues, LayerField } from '../../../shared/layers'
 import {
   bigint,
   check,
@@ -99,6 +100,28 @@ export const notifications = pgTable(
   ]
 )
 
+// layer = กลุ่ม feature ชนิดเดียวกันใน group (เช่น โรงเรียน / แม่น้ำ): รูปทรงชนิดเดียว + สี + หัวข้อ property ของตัวเอง
+// หัวข้อเก็บเป็นข้อมูล (fields jsonb) ไม่ได้สร้างคอลัมน์จริง → เจ้าของ group สร้าง/แก้เองได้โดยไม่ต้องแก้ database
+export const layers = pgTable(
+  'layers',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    groupId: bigint('group_id', { mode: 'number' })
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    geomType: text('geom_type').notNull(),
+    color: text('color').notNull(),
+    fields: jsonb('fields').$type<LayerField[]>().notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    check('layers_geom_type_check', sql`${t.geomType} in ('Point', 'LineString', 'Polygon')`),
+    uniqueIndex('layers_group_name_uq').on(t.groupId, t.name)
+  ]
+)
+
 export const features = pgTable(
   'features',
   {
@@ -111,13 +134,51 @@ export const features = pgTable(
     // แถวที่ไม่มีเจ้าของจะไม่แสดงในโค้ดใหม่ และถูกลบด้วย apps/server/sql/realtime.sql
     ownerId: uuid('owner_id').references(() => profiles.id, { onDelete: 'cascade' }),
     groupId: bigint('group_id', { mode: 'number' }).references(() => groups.id, { onDelete: 'cascade' }),
+    // ไม่อยู่ใน layer ได้ (null) — ลบ layer แล้ว feature ไม่หาย แค่กลายเป็น "ไม่มี layer"
+    layerId: bigint('layer_id', { mode: 'number' }).references(() => layers.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [
     check('features_geom_type_check', sql`${t.geomType} in ('Point', 'LineString', 'Polygon')`),
+    index('features_layer_id_idx').on(t.layerId),
     index('features_geom_idx').using('gist', t.geom),
     index('features_geom_type_idx').on(t.geomType),
     index('features_group_id_idx').on(t.groupId)
   ]
+)
+
+// ตารางย่อยของ layer — 1 feature มีได้หลายแถว (เช่น "ปลาที่พบ" ในแม่น้ำ)
+// count_key = คอลัมน์สรุปใน attribute table นับค่าไม่ซ้ำของหัวข้อนี้ (null = นับจำนวนแถว)
+export const relatedTables = pgTable(
+  'related_tables',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    layerId: bigint('layer_id', { mode: 'number' })
+      .notNull()
+      .references(() => layers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    fields: jsonb('fields').$type<LayerField[]>().notNull().default([]),
+    countKey: text('count_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex('related_tables_layer_name_uq').on(t.layerId, t.name)]
+)
+
+// แถวของตารางย่อย — created_at = วันที่เพิ่มแถว (แก้แถวแล้วไม่เปลี่ยน) ใช้แยกข้อมูลแต่ละรอบสำรวจ/เดือนในตารางเดียว
+export const relatedRecords = pgTable(
+  'related_records',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tableId: bigint('table_id', { mode: 'number' })
+      .notNull()
+      .references(() => relatedTables.id, { onDelete: 'cascade' }),
+    featureId: bigint('feature_id', { mode: 'number' })
+      .notNull()
+      .references(() => features.id, { onDelete: 'cascade' }),
+    values: jsonb('values').$type<FieldValues>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index('related_records_table_idx').on(t.tableId), index('related_records_feature_idx').on(t.featureId)]
 )
