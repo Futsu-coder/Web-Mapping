@@ -1,4 +1,8 @@
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   badInputLabel,
   badNumberMessage,
@@ -147,21 +151,23 @@ export default function RelatedTableView({
     if (e.key === "Escape") cancel();
   };
 
+  // ช่องกรอกในตาราง (FieldInput ส่งต่อให้ input/select ดั้งเดิม) หน้าตาเหมือน Input ของ shadcn แบบเตี้ย
   const inputCls =
-    "w-full min-w-[7rem] px-1.5 py-0.5 bg-white border border-teal-600 rounded text-base md:text-sm text-slate-900 outline-none ring-2 ring-teal-600/20";
+    "h-7 w-full min-w-[7rem] rounded-md border border-input bg-card px-1.5 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm";
   const filterItem = featureId !== null ? itemOf(featureId) : undefined;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex items-center gap-2 px-3 py-1 border-b border-slate-100 bg-teal-50/60 text-xs text-slate-700 shrink-0">
-        <Rows3Icon className="size-[16px] shrink-0 text-teal-700" />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b bg-primary/5 px-3 py-1 text-xs">
+        <Rows3Icon className="size-4 shrink-0 text-primary" />
         {nameDraft !== null ? (
           <span className="relative">
-            <input
+            <Input
               autoFocus
               value={nameDraft}
               maxLength={60}
               aria-label="ชื่อตารางย่อย"
+              aria-invalid={nameError ? true : undefined}
               onChange={(e) => {
                 setNameDraft(e.target.value);
                 setNameError(null);
@@ -174,10 +180,10 @@ export default function RelatedTableView({
                   setNameError(null);
                 }
               }}
-              className="w-40 px-1.5 py-0.5 bg-white border border-teal-600 rounded text-base md:text-xs font-semibold text-slate-900 outline-none"
+              className="h-7 w-40 bg-card px-1.5 text-base font-semibold md:text-xs"
             />
             {nameError && (
-              <span className="absolute left-0 top-full mt-1 z-20 px-2 py-1 rounded bg-red-50 border border-red-200 text-[11px] text-red-700 whitespace-nowrap">
+              <span className="absolute top-full left-0 z-20 mt-1 rounded-md border bg-popover px-2 py-1 text-[0.6875rem] whitespace-nowrap text-destructive shadow-float">
                 {nameError}
               </span>
             )}
@@ -186,38 +192,40 @@ export default function RelatedTableView({
           <span className="inline-flex items-center gap-0.5">
             <strong>{table.name}</strong>
             {canManage && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 title="เปลี่ยนชื่อตารางย่อย"
                 aria-label="เปลี่ยนชื่อตารางย่อย"
+                className="text-muted-foreground"
                 onClick={() => setNameDraft(table.name)}
-                className="p-0.5 rounded flex text-slate-400 hover:bg-teal-100 hover:text-teal-700"
               >
-                <PencilIcon className="size-[14px] shrink-0" />
-              </button>
+                <PencilIcon />
+              </Button>
             )}
           </span>
         )}
         {featureId !== null && (
           <>
-            <span className="text-slate-300">|</span>
-            <FilterIcon className="size-[16px] shrink-0 text-teal-700" />
+            <span className="text-muted-foreground/50">|</span>
+            <FilterIcon className="size-4 shrink-0 text-primary" />
             เฉพาะ <strong>{filterItem?.props.name ?? "—"}</strong>
-            <button type="button" onClick={onClearFilter} className="flex items-center gap-0.5 px-1.5 rounded text-teal-700 hover:bg-teal-100">
-              <XIcon className="size-[14px] shrink-0" />
+            <Button type="button" variant="ghost" size="xs" className="h-6 text-primary hover:bg-primary/10 hover:text-primary" onClick={onClearFilter}>
+              <XIcon />
               ดูทุก feature
-            </button>
+            </Button>
           </>
         )}
         <span className="flex-1" />
         {months.length > 0 && (
-          <label className="flex items-center gap-1 text-slate-600">
-            <CalendarIcon className="size-[16px] shrink-0 text-teal-700" />
+          <label className="flex items-center gap-1 text-muted-foreground">
+            <CalendarIcon className="size-4 shrink-0 text-primary" />
             <select
               value={activeMonth ?? ""}
               aria-label="กรองตามเดือน"
               onChange={(e) => setMonth(e.target.value || null)}
-              className="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-base md:text-xs text-slate-800"
+              className="h-7 rounded-md border border-input bg-card px-1.5 text-base text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-xs"
             >
               <option value="">ทุกเดือน</option>
               {months.map((m) => (
@@ -229,31 +237,35 @@ export default function RelatedTableView({
           </label>
         )}
         {featureId !== null && canEditFeature(featureId) && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             disabled={!!draft}
+            className="h-6 font-medium text-primary hover:bg-primary/10 hover:text-primary"
             onClick={() => (table.fields.length ? setDraft({}) : setError(NO_COLUMN_MESSAGE))}
-            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-40"
           >
-            <PlusIcon className="size-[16px] shrink-0" />
+            <PlusIcon />
             เพิ่มแถว
-          </button>
+          </Button>
         )}
       </div>
       {error && (
-        <div role="alert" className="flex items-center gap-1.5 px-3 py-1 border-b border-red-200 bg-red-50 text-xs text-red-800 shrink-0">
-          <CircleAlertIcon className="size-[16px] shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setError(null)} className="p-0.5 rounded flex hover:bg-red-100">
-            <XIcon className="size-[14px] shrink-0" />
-          </button>
-        </div>
+        <Alert variant="destructive" className="shrink-0 rounded-none border-x-0 border-t-0 px-3 py-1.5">
+          <CircleAlertIcon />
+          <AlertDescription className="flex items-center gap-2">
+            <span className="flex-1">{error}</span>
+            <Button type="button" variant="ghost" size="icon-xs" aria-label="ปิดการแจ้งเตือน" onClick={() => setError(null)}>
+              <XIcon />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
-      <div className="flex-1 min-h-0 overflow-auto">
-        <table className="min-w-full text-sm border-separate border-spacing-0">
-          <thead className="sticky top-0 z-10 bg-slate-50">
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="min-w-full border-separate border-spacing-0 text-sm">
+          <thead className="sticky top-0 z-10 bg-muted">
             <tr>
-              <th className="w-10 px-2 py-1.5 text-[11px] font-semibold text-slate-400 text-right border-b border-slate-200">#</th>
+              <th className="w-10 border-b px-2 py-1.5 text-right text-[0.6875rem] font-semibold text-muted-foreground">#</th>
               <HeaderCell
                 label="Feature"
                 sortDir={sort?.id === "feature" ? sort.dir : null}
@@ -297,7 +309,7 @@ export default function RelatedTableView({
                 sortDir={sort?.id === "createdAt" ? sort.dir : null}
                 onSort={(dir) => setSort(dir ? { id: "createdAt", dir } : null)}
               />
-              <th className="w-full px-2 py-1 border-b border-slate-200 text-left">
+              <th className="w-full border-b px-2 py-1 text-left">
                 {canManage && (
                   <AddColumn
                     taken={["Feature", "วันที่สร้าง", ...table.fields.map((f) => f.label)]}
@@ -310,7 +322,7 @@ export default function RelatedTableView({
           <tbody>
             {rows.length === 0 && !draft && (
               <tr>
-                <td colSpan={table.fields.length + 4} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={table.fields.length + 4} className="px-3 py-6 text-center text-sm text-muted-foreground">
                   {activeMonth
                     ? `ไม่มีข้อมูลในเดือน ${formatMonth(activeMonth)}`
                     : table.fields.length === 0
@@ -328,21 +340,23 @@ export default function RelatedTableView({
                   key={r.id}
                   onMouseEnter={() => onHover(r.featureId)}
                   onMouseLeave={() => onHover(null)}
-                  className={hoveredId === r.featureId ? "bg-amber-50" : "hover:bg-slate-50"}
+                  className={hoveredId === r.featureId ? "bg-primary/10" : "hover:bg-muted/60"}
                 >
-                  <td className="px-2 py-1.5 text-[11px] text-slate-400 text-right border-b border-slate-100">{n + 1}</td>
-                  <td className="px-3 py-1.5 border-b border-slate-100 whitespace-nowrap">
+                  <td className="border-b px-2 py-1.5 text-right text-[0.6875rem] text-muted-foreground">{n + 1}</td>
+                  <td className="border-b px-3 py-1.5 whitespace-nowrap">
                     {item ? (
-                      <button
+                      <Button
                         type="button"
+                        variant="link"
+                        size="xs"
                         title="ซูมไปที่ feature นี้"
+                        className="h-auto p-0 text-sm font-medium"
                         onClick={() => onFocus(item)}
-                        className="font-medium text-teal-800 hover:underline"
                       >
                         {item.props.name}
-                      </button>
+                      </Button>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </td>
                   {table.fields.map((f) => {
@@ -355,9 +369,11 @@ export default function RelatedTableView({
                         onDoubleClick={() =>
                           !editing && canEditFeature(r.featureId) && setCell({ record: r.id, key: f.key, value: r.values[f.key] })
                         }
-                        className={`border-b border-slate-100 max-w-[16rem] truncate ${editing ? "px-2 py-1" : "px-3 py-1.5"} ${
-                          f.type === "number" ? "text-right tabular-nums" : ""
-                        }`}
+                        className={cn(
+                          "max-w-[16rem] truncate border-b",
+                          editing ? "px-2 py-1" : "px-3 py-1.5",
+                          f.type === "number" && "text-right tabular-nums",
+                        )}
                       >
                         {editing ? (
                           <FieldInput
@@ -370,37 +386,39 @@ export default function RelatedTableView({
                             onKeyDown={keys(commitCell, () => setCell(null))}
                           />
                         ) : (
-                          text || <span className="text-slate-300">—</span>
+                          text || <span className="text-muted-foreground/40">—</span>
                         )}
                       </td>
                     );
                   })}
                   <td
                     title={r.createdAt ? new Date(r.createdAt).toLocaleString("th-TH") : "แถวที่สร้างก่อนมีการเก็บวันที่"}
-                    className="px-3 py-1.5 border-b border-slate-100 whitespace-nowrap text-xs text-slate-500 tabular-nums"
+                    className="border-b px-3 py-1.5 text-xs whitespace-nowrap text-muted-foreground tabular-nums"
                   >
-                    {formatDate(r.createdAt) || <span className="text-slate-300">—</span>}
+                    {formatDate(r.createdAt) || <span className="text-muted-foreground/40">—</span>}
                   </td>
-                  <td className="px-1 border-b border-slate-100">
+                  <td className="border-b px-1">
                     {canEditFeature(r.featureId) && (
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon-xs"
                         aria-label="ลบแถว"
                         title="ลบแถว"
+                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => onDelete(r.id)}
-                        className="p-0.5 rounded flex text-slate-400 hover:bg-red-50 hover:text-red-700"
                       >
-                        <Trash2Icon className="size-[16px] shrink-0" />
-                      </button>
+                        <Trash2Icon />
+                      </Button>
                     )}
                   </td>
                 </tr>
               );
             })}
             {draft && filterItem && (
-              <tr className="bg-teal-50/50">
-                <td className="px-2 py-1 text-[11px] text-slate-400 text-right">+</td>
-                <td className="px-3 py-1 font-medium text-slate-700 whitespace-nowrap">{filterItem.props.name}</td>
+              <tr className="bg-primary/5">
+                <td className="px-2 py-1 text-right text-[0.6875rem] text-muted-foreground">+</td>
+                <td className="px-3 py-1 font-medium whitespace-nowrap">{filterItem.props.name}</td>
                 {table.fields.map((f, i) => (
                   <td key={f.key} className="px-2 py-1">
                     <FieldInput
@@ -420,15 +438,22 @@ export default function RelatedTableView({
                     />
                   </td>
                 ))}
-                <td className="px-3 py-1 text-xs text-slate-400 whitespace-nowrap">วันนี้</td>
+                <td className="px-3 py-1 text-xs whitespace-nowrap text-muted-foreground">วันนี้</td>
                 <td className="px-1">
                   <div className="flex">
-                    <button type="button" aria-label="บันทึกแถว" onClick={(e) => commitDraft(e.currentTarget)} className="p-0.5 rounded flex text-teal-700 hover:bg-teal-100">
-                      <CheckIcon className="size-[18px] shrink-0" />
-                    </button>
-                    <button type="button" aria-label="ยกเลิก" onClick={closeDraft} className="p-0.5 rounded flex text-slate-500 hover:bg-slate-100">
-                      <XIcon className="size-[18px] shrink-0" />
-                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="บันทึกแถว"
+                      className="text-primary hover:bg-primary/10 hover:text-primary"
+                      onClick={(e) => commitDraft(e.currentTarget)}
+                    >
+                      <CheckIcon />
+                    </Button>
+                    <Button type="button" variant="ghost" size="icon-xs" aria-label="ยกเลิก" className="text-muted-foreground" onClick={closeDraft}>
+                      <XIcon />
+                    </Button>
                   </div>
                 </td>
               </tr>

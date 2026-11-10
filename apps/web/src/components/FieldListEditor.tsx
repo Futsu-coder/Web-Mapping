@@ -1,3 +1,6 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TABLE_TYPE, type DraftField } from "../lib/fieldDrafts";
 import { FIELD_TYPE_LABEL, newFieldKey, type FieldType } from "../lib/layers";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Rows3Icon, SettingsIcon, Trash2Icon } from "lucide-react";
@@ -12,7 +15,6 @@ export default function FieldListEditor({
   originalKeys,
   editing,
   emptyHint,
-  inputCls,
   allowTables,
   tableColumns,
   onEditTable,
@@ -30,7 +32,6 @@ export default function FieldListEditor({
   /** แก้ของเดิม (ไม่ใช่สร้างใหม่) → แสดงคำเตือนเรื่องค่าที่จะหาย */
   editing: boolean;
   emptyHint: string;
-  inputCls: string;
 }) {
   const update = (i: number, patch: Partial<DraftField>) => onChange((list) => list.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   // เป็นตารางย่อย = เก็บ key เดิมไว้ (รู้ว่าแปลงจากหัวข้อไหน ค่าเดิมย้ายไปเป็นแถวแรก)
@@ -47,112 +48,123 @@ export default function FieldListEditor({
   return (
     <>
       {fields.length === 0 && (
-        <p className="text-xs text-slate-500 bg-slate-50 border border-dashed border-slate-300 rounded-lg px-3 py-3 text-center">
-          {emptyHint}
-        </p>
+        <p className="rounded-lg border border-dashed bg-muted/50 px-3 py-3 text-center text-xs text-muted-foreground">{emptyHint}</p>
       )}
       {fields.map((f, i) => (
-        <div key={f.uid} className="border border-slate-200 rounded-lg p-2 space-y-2 bg-slate-50/60">
+        <div key={f.uid} className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-2">
           <div className="flex items-center gap-1.5">
-            <input
+            <Input
               value={f.label}
               maxLength={40}
               placeholder="ชื่อหัวข้อ"
               aria-label="ชื่อหัวข้อ"
               onChange={(e) => update(i, { label: e.target.value })}
-              className={`${inputCls} flex-1 min-w-0`}
+              className="min-w-0 flex-1 bg-card"
             />
-            <select
-              value={f.type}
-              aria-label="ชนิดข้อมูล"
-              disabled={f.tableId !== undefined}
-              title={f.tableId !== undefined ? "ตารางย่อยที่บันทึกแล้วเปลี่ยนชนิดไม่ได้ (ลบได้)" : undefined}
-              onChange={(e) => changeType(i, e.target.value as DraftField["type"])}
-              className={`${inputCls} w-28 shrink-0 disabled:bg-slate-50 disabled:text-slate-500`}
-            >
-              {(Object.keys(FIELD_TYPE_LABEL) as FieldType[]).map((t) => (
-                <option key={t} value={t}>
-                  {FIELD_TYPE_LABEL[t]}
-                </option>
-              ))}
-              {(allowTables || f.type === TABLE_TYPE) && <option value={TABLE_TYPE}>ตารางย่อย</option>}
-            </select>
+            <Select value={f.type} disabled={f.tableId !== undefined} onValueChange={(v) => changeType(i, v as DraftField["type"])}>
+              <SelectTrigger
+                aria-label="ชนิดข้อมูล"
+                title={f.tableId !== undefined ? "ตารางย่อยที่บันทึกแล้วเปลี่ยนชนิดไม่ได้ (ลบได้)" : undefined}
+                className="w-32 shrink-0 bg-card"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {(Object.keys(FIELD_TYPE_LABEL) as FieldType[]).map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {FIELD_TYPE_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                  {(allowTables || f.type === TABLE_TYPE) && <SelectItem value={TABLE_TYPE}>ตารางย่อย</SelectItem>}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <div className="flex shrink-0">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 aria-label="เลื่อนขึ้น"
                 disabled={i === 0 || f.type === TABLE_TYPE}
+                className="text-muted-foreground"
                 onClick={() => move(i, -1)}
-                className="p-1 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex"
               >
-                <ArrowUpIcon className="size-[18px] shrink-0" />
-              </button>
-              <button
+                <ArrowUpIcon />
+              </Button>
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 aria-label="เลื่อนลง"
                 disabled={i === fields.length - 1 || f.type === TABLE_TYPE}
+                className="text-muted-foreground"
                 onClick={() => move(i, 1)}
-                className="p-1 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex"
               >
-                <ArrowDownIcon className="size-[18px] shrink-0" />
-              </button>
-              <button
+                <ArrowDownIcon />
+              </Button>
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 aria-label="ลบหัวข้อ"
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => onChange((list) => list.filter((_, j) => j !== i))}
-                className="p-1 rounded text-slate-500 hover:bg-red-50 hover:text-red-700 flex"
               >
-                <Trash2Icon className="size-[18px] shrink-0" />
-              </button>
+                <Trash2Icon />
+              </Button>
             </div>
           </div>
           {f.type === "choice" && (
-            <input
+            <Input
               value={f.options}
               placeholder="ตัวเลือก คั่นด้วย , เช่น สพฐ., อบจ., เทศบาล"
               aria-label="ตัวเลือก"
               onChange={(e) => update(i, { options: e.target.value })}
-              className={`${inputCls} w-full`}
+              className="w-full bg-card"
             />
           )}
           {f.type === TABLE_TYPE ? (
             f.tableId !== undefined ? (
               onEditTable && (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-fit px-2 text-xs text-primary hover:bg-primary/10 hover:text-primary"
                   onClick={() => onEditTable(f.tableId!)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-teal-700 hover:bg-teal-50"
                 >
-                  <SettingsIcon className="size-[16px] shrink-0" />
+                  <SettingsIcon />
                   ตั้งค่าคอลัมน์ของตารางย่อย ({tableColumns?.(f.tableId) ?? 0} คอลัมน์)
-                </button>
+                </Button>
               )
             ) : (
-              <p className="flex items-start gap-1 text-[11px] text-teal-800">
-                <Rows3Icon className="size-[15px] shrink-0" />
+              <p className="flex items-start gap-1 text-[0.6875rem] text-primary">
+                <Rows3Icon className="size-4 shrink-0" />
                 {originalKeys.has(f.key)
                   ? "แปลงเป็นตารางย่อย — ค่าเดิมของหัวข้อนี้ย้ายไปเป็นแถวแรกของแต่ละ feature"
                   : "ตารางย่อย (หลายแถวต่อ feature) — บันทึกแล้วเพิ่มคอลัมน์ได้ที่ ⚙ หรือในตารางย่อยของ Attribute table"}
               </p>
             )
           ) : originalKeys.has(f.key) || !editing ? null : (
-            <p className="text-[11px] text-amber-700">หัวข้อใหม่ — ข้อมูลเดิมจะมีค่าว่างในหัวข้อนี้</p>
+            <p className="text-[0.6875rem] text-muted-foreground">หัวข้อใหม่ — ข้อมูลเดิมจะมีค่าว่างในหัวข้อนี้</p>
           )}
         </div>
       ))}
-      <button
+      <Button
         type="button"
+        variant="outline"
+        className="border-dashed text-primary hover:bg-primary/5 hover:text-primary"
         onClick={() => {
           const key = newFieldKey();
           onChange((list) => [...list, { uid: key, key, label: "", type: "text", options: "" }]);
         }}
-        className="flex items-center justify-center gap-1 py-1.5 rounded-lg border border-dashed border-teal-600 text-teal-700 text-sm font-medium hover:bg-teal-50"
       >
-        <PlusIcon className="size-[18px] shrink-0" />
+        <PlusIcon />
         เพิ่มหัวข้อ
-      </button>
+      </Button>
       {editing && (
-        <p className="text-[11px] text-slate-400">ลบหัวข้อ หรือเปลี่ยนชนิดของหัวข้อเดิม = ค่าที่กรอกไว้ในหัวข้อนั้นถูกลบ</p>
+        <p className="text-[0.6875rem] text-muted-foreground">ลบหัวข้อ หรือเปลี่ยนชนิดของหัวข้อเดิม = ค่าที่กรอกไว้ในหัวข้อนั้นถูกลบ</p>
       )}
     </>
   );

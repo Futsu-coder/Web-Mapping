@@ -63,6 +63,12 @@
   * {
     box-sizing: border-box;
   }
+  /* Tailwind 4: border ที่ไม่ระบุสีเป็น currentColor (เส้นดำ) — ใช้สี border ของธีมเป็นค่าเริ่มต้นตามแบบ shadcn */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
   html,
   body,
   #root {

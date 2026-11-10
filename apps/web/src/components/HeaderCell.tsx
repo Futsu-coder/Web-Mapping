@@ -1,9 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { FIELD_TYPE_LABEL, type FieldType, type LayerField } from "../lib/layers";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronDownIcon, PencilIcon, Rows3Icon, ShapesIcon, SigmaIcon, Trash2Icon } from "lucide-react";
 
 /** ฟอร์มย่อยในเมนูที่เปิดอยู่ */
 type Panel = null | "rename" | "type" | "delete";
+
+const ITEM = "h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal";
 
 /**
  * หัวคอลัมน์ของตาราง: คลิกชื่อ = เมนู (เรียง / เปลี่ยนชื่อ / เปลี่ยนชนิด / แปลงเป็นตารางย่อย / ลบ)
@@ -40,55 +48,22 @@ export default function HeaderCell({
   onConvertToTable?: () => void;
   onDelete?: () => void;
 }) {
-  // ตำแหน่งเมนู (fixed ตามปุ่ม — ไม่ให้ถูกกล่องเลื่อนของตารางตัด) / null = ปิด
-  const [pos, setPos] = useState<React.CSSProperties | null>(null);
-  const open = pos !== null;
+  const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [draft, setDraft] = useState("");
   const [type, setType] = useState<FieldType>(field?.type ?? "text");
   const [options, setOptions] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const ref = useRef<HTMLTableCellElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  /** เปิดเมนูใต้ปุ่ม — ที่ว่างด้านล่างไม่พอ (ตารางอยู่ล่างจอ) เปิดขึ้นด้านบนแทน */
-  const openMenu = (button: HTMLElement) => {
-    const r = button.getBoundingClientRect();
-    const left = Math.min(r.left, window.innerWidth - 248);
-    setPos(
-      window.innerHeight - r.bottom < 320
-        ? { left, bottom: window.innerHeight - r.top + 4, maxHeight: r.top - 8 }
-        : { left, top: r.bottom + 4, maxHeight: window.innerHeight - r.bottom - 8 },
-    );
+  // เปิด/ปิดเมนู — ปิดเมื่อไหร่ก็กลับไปหน้าคำสั่งหลักและล้าง error (Popover ของ shadcn จัดการตำแหน่ง/Esc/คลิกนอกให้)
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      setPanel(null);
+      setError(null);
+    }
   };
-
-  const close = () => {
-    setPos(null);
-    setPanel(null);
-    setError(null);
-  };
-
-  // คลิกนอกเมนู / Esc / เลื่อนตาราง (เมนู fixed จะไม่ตามไป) = ปิด
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    const onScroll = (e: Event) => {
-      if (!menuRef.current?.contains(e.target as Node)) close();
-    };
-    document.addEventListener("pointerdown", onDown, true);
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("pointerdown", onDown, true);
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [open]);
+  const close = () => onOpenChange(false);
 
   const rename = () => {
     const next = draft.trim();
@@ -114,202 +89,196 @@ export default function HeaderCell({
     close();
   };
 
-  const item =
-    "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs font-normal text-slate-700 hover:bg-slate-100";
-  const inputCls =
-    "w-full px-2 py-1 bg-white border border-slate-300 rounded-md text-base md:text-sm font-normal text-slate-900 focus:outline-none focus:border-teal-700";
   const hasEdit = !!(onRename || onChangeType || onConvertToTable || onDelete);
+
+  const backButton = (
+    <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setPanel(null)}>
+      กลับ
+    </Button>
+  );
 
   return (
     <th
-      ref={ref}
-      className={`px-3 py-1.5 border-b border-slate-200 whitespace-nowrap ${numeric ? "text-right" : "text-left"} ${
-        computed ? "bg-teal-50/60" : ""
-      }`}
+      className={cn("border-b px-3 py-1.5 whitespace-nowrap", numeric ? "text-right" : "text-left", computed && "bg-primary/5")}
       title={computed ? "ระบบนับจากตารางย่อยให้เอง (แก้ไม่ได้) — คลิกตัวเลขเพื่อเปิดตารางย่อย" : undefined}
     >
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={(e) => (open ? close() : openMenu(e.currentTarget))}
-        className={`inline-flex items-center gap-0.5 px-1 -mx-1 rounded text-xs font-semibold hover:bg-slate-200/70 ${
-          open ? "bg-slate-200/70 text-slate-900" : "text-slate-600"
-        }`}
-      >
-        {computed && <SigmaIcon className="size-[14px] shrink-0 text-teal-700" />}
-        {label}
-        {sortDir === 1 ? (
-          <ArrowUpIcon className="size-[15px] shrink-0 text-slate-400" />
-        ) : sortDir === -1 ? (
-          <ArrowDownIcon className="size-[15px] shrink-0 text-slate-400" />
-        ) : (
-          <ChevronDownIcon className="size-[15px] shrink-0 text-slate-400" />
-        )}
-      </button>
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            aria-haspopup="menu"
+            className={cn(
+              "-mx-1 h-6 gap-0.5 px-1 text-xs font-semibold text-muted-foreground hover:text-foreground",
+              open && "bg-accent text-foreground",
+            )}
+          >
+            {computed && <SigmaIcon className="text-primary" />}
+            {label}
+            {sortDir === 1 ? <ArrowUpIcon /> : sortDir === -1 ? <ArrowDownIcon /> : <ChevronDownIcon className="text-muted-foreground/60" />}
+          </Button>
+        </PopoverTrigger>
 
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          style={pos}
-          className="fixed z-50 w-60 overflow-y-auto p-1 bg-white border border-slate-200 rounded-lg shadow-lg text-left whitespace-normal"
-        >
+        <PopoverContent align="start" collisionPadding={8} className="w-60 max-w-[calc(100vw-1rem)] rounded-xl p-1 text-left font-normal whitespace-normal shadow-float">
           {panel === null && (
-            <>
-              <button type="button" role="menuitem" className={item} onClick={run(() => onSort(1))}>
-                <ArrowUpIcon className="size-[16px] shrink-0 text-slate-500" />
+            <div role="menu" className="flex flex-col">
+              <Button type="button" role="menuitem" variant="ghost" className={ITEM} onClick={run(() => onSort(1))}>
+                <ArrowUpIcon className="text-muted-foreground" />
                 เรียงน้อย → มาก
-              </button>
-              <button type="button" role="menuitem" className={item} onClick={run(() => onSort(-1))}>
-                <ArrowDownIcon className="size-[16px] shrink-0 text-slate-500" />
+              </Button>
+              <Button type="button" role="menuitem" variant="ghost" className={ITEM} onClick={run(() => onSort(-1))}>
+                <ArrowDownIcon className="text-muted-foreground" />
                 เรียงมาก → น้อย
-              </button>
+              </Button>
               {sortDir !== null && (
-                <button type="button" role="menuitem" className={item} onClick={run(() => onSort(null))}>
-                  <ArrowUpDownIcon className="size-[16px] shrink-0 text-slate-500" />
+                <Button type="button" role="menuitem" variant="ghost" className={ITEM} onClick={run(() => onSort(null))}>
+                  <ArrowUpDownIcon className="text-muted-foreground" />
                   เลิกเรียง
-                </button>
+                </Button>
               )}
-              {hasEdit && <div className="h-px bg-slate-200 my-1" />}
+              {hasEdit && <Separator className="my-1" />}
               {onRename && (
-                <button
+                <Button
                   type="button"
                   role="menuitem"
-                  className={item}
+                  variant="ghost"
+                  className={ITEM}
                   onClick={() => {
                     setDraft(label);
                     setPanel("rename");
                   }}
                 >
-                  <PencilIcon className="size-[16px] shrink-0 text-slate-500" />
+                  <PencilIcon className="text-muted-foreground" />
                   เปลี่ยนชื่อ
-                </button>
+                </Button>
               )}
               {onChangeType && (
-                <button
+                <Button
                   type="button"
                   role="menuitem"
-                  className={item}
+                  variant="ghost"
+                  className={ITEM}
                   onClick={() => {
                     setType(field?.type ?? "text");
                     setOptions(field?.options?.join(", ") ?? "");
                     setPanel("type");
                   }}
                 >
-                  <ShapesIcon className="size-[16px] shrink-0 text-slate-500" />
+                  <ShapesIcon className="text-muted-foreground" />
                   เปลี่ยนชนิด
-                  {field && <span className="ml-auto text-[11px] text-slate-400">{FIELD_TYPE_LABEL[field.type]}</span>}
-                </button>
+                  {field && <span className="ml-auto text-[0.6875rem] text-muted-foreground">{FIELD_TYPE_LABEL[field.type]}</span>}
+                </Button>
               )}
               {onConvertToTable && (
-                <button type="button" role="menuitem" className={item} onClick={run(onConvertToTable)}>
-                  <Rows3Icon className="size-[16px] shrink-0 text-teal-700" />
-                  <span>
+                <Button type="button" role="menuitem" variant="ghost" className={cn(ITEM, "h-auto items-start py-1.5")} onClick={run(onConvertToTable)}>
+                  <Rows3Icon className="mt-0.5 text-primary" />
+                  <span className="text-left whitespace-normal">
                     แปลงเป็นตารางย่อย
-                    <span className="block text-[11px] text-slate-400">หลายค่าต่อ feature — ค่าเดิมย้ายไปเป็นแถวแรก</span>
+                    <span className="block text-[0.6875rem] text-muted-foreground">หลายค่าต่อ feature — ค่าเดิมย้ายไปเป็นแถวแรก</span>
                   </span>
-                </button>
+                </Button>
               )}
               {onDelete && (
-                <button type="button" role="menuitem" className={`${item} text-red-700 hover:bg-red-50`} onClick={() => setPanel("delete")}>
-                  <Trash2Icon className="size-[16px] shrink-0" />
+                <Button
+                  type="button"
+                  role="menuitem"
+                  variant="ghost"
+                  className={cn(ITEM, "text-destructive hover:bg-destructive/10 hover:text-destructive")}
+                  onClick={() => setPanel("delete")}
+                >
+                  <Trash2Icon />
                   ลบคอลัมน์
-                </button>
+                </Button>
               )}
-            </>
+            </div>
           )}
 
           {panel === "rename" && (
             <form
-              className="p-1.5 space-y-1.5"
+              className="flex flex-col gap-2 p-1.5"
               onSubmit={(e) => {
                 e.preventDefault();
                 rename();
               }}
             >
-              <input
+              <Input
                 autoFocus
                 value={draft}
                 maxLength={60}
                 aria-label="ชื่อคอลัมน์ใหม่"
+                aria-invalid={error ? true : undefined}
                 onChange={(e) => {
                   setDraft(e.target.value);
                   setError(null);
                 }}
-                className={inputCls}
+                className="h-8"
               />
-              {error && <p className="text-[11px] font-normal text-red-700">{error}</p>}
+              {error && <p className="text-[0.6875rem] text-destructive">{error}</p>}
               <div className="flex justify-end gap-1.5">
-                <button type="button" onClick={() => setPanel(null)} className="px-2 py-1 rounded-md text-xs font-medium text-slate-600 hover:bg-slate-100">
-                  กลับ
-                </button>
-                <button type="submit" className="px-2.5 py-1 rounded-md text-xs font-medium bg-teal-700 text-white hover:bg-teal-800">
+                {backButton}
+                <Button type="submit" size="sm" className="h-7 px-3 text-xs">
                   บันทึก
-                </button>
+                </Button>
               </div>
             </form>
           )}
 
           {panel === "type" && (
             <form
-              className="p-1.5 space-y-1.5"
+              className="flex flex-col gap-2 p-1.5"
               onSubmit={(e) => {
                 e.preventDefault();
                 changeType();
               }}
             >
-              <select autoFocus value={type} aria-label="ชนิดใหม่" onChange={(e) => setType(e.target.value as FieldType)} className={inputCls}>
-                {(Object.keys(FIELD_TYPE_LABEL) as FieldType[]).map((t) => (
-                  <option key={t} value={t}>
-                    {FIELD_TYPE_LABEL[t]}
-                  </option>
-                ))}
-              </select>
+              <Select value={type} onValueChange={(v) => setType(v as FieldType)}>
+                <SelectTrigger aria-label="ชนิดใหม่" className="h-8 w-full text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {(Object.keys(FIELD_TYPE_LABEL) as FieldType[]).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {FIELD_TYPE_LABEL[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               {type === "choice" && (
-                <input
+                <Input
                   value={options}
                   placeholder="ตัวเลือก คั่นด้วย ,"
                   aria-label="ตัวเลือก"
                   onChange={(e) => setOptions(e.target.value)}
-                  className={inputCls}
+                  className="h-8"
                 />
               )}
-              <p className="text-[11px] font-normal text-amber-700">เปลี่ยนชนิด = ค่าเดิมในคอลัมน์นี้จะถูกล้าง</p>
-              {error && <p className="text-[11px] font-normal text-red-700">{error}</p>}
+              <p className="text-[0.6875rem] text-muted-foreground">เปลี่ยนชนิด = ค่าเดิมในคอลัมน์นี้จะถูกล้าง</p>
+              {error && <p className="text-[0.6875rem] text-destructive">{error}</p>}
               <div className="flex justify-end gap-1.5">
-                <button type="button" onClick={() => setPanel(null)} className="px-2 py-1 rounded-md text-xs font-medium text-slate-600 hover:bg-slate-100">
-                  กลับ
-                </button>
-                <button type="submit" className="px-2.5 py-1 rounded-md text-xs font-medium bg-teal-700 text-white hover:bg-teal-800">
+                {backButton}
+                <Button type="submit" size="sm" className="h-7 px-3 text-xs">
                   เปลี่ยน
-                </button>
+                </Button>
               </div>
             </form>
           )}
 
           {panel === "delete" && (
-            <div className="p-1.5 space-y-1.5">
-              <p className="text-xs font-normal text-slate-700">
-                ลบคอลัมน์ "{label}" และค่าทั้งหมดในคอลัมน์นี้?
-              </p>
+            <div className="flex flex-col gap-2 p-1.5">
+              <p className="text-xs">ลบคอลัมน์ "{label}" และค่าทั้งหมดในคอลัมน์นี้?</p>
               <div className="flex justify-end gap-1.5">
-                <button type="button" onClick={() => setPanel(null)} className="px-2 py-1 rounded-md text-xs font-medium text-slate-600 hover:bg-slate-100">
-                  กลับ
-                </button>
-                <button
-                  type="button"
-                  autoFocus
-                  onClick={run(() => onDelete?.())}
-                  className="px-2.5 py-1 rounded-md text-xs font-medium bg-red-600 text-white hover:bg-red-700"
-                >
+                {backButton}
+                <Button type="button" variant="destructive" size="sm" autoFocus className="h-7 px-3 text-xs" onClick={run(() => onDelete?.())}>
                   ลบ
-                </button>
+                </Button>
               </div>
             </div>
           )}
-        </div>
-      )}
+        </PopoverContent>
+      </Popover>
     </th>
   );
 }

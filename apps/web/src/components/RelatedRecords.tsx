@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   badInputLabel,
   badNumberMessage,
@@ -58,14 +61,16 @@ export default function RelatedRecords({
   if (!tables.length) {
     if (!canEdit || !onCreateTable) return null;
     return (
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
+        className="w-full border-dashed text-xs text-muted-foreground hover:border-primary hover:bg-transparent hover:text-primary"
         onClick={onCreateTable}
-        className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg border border-dashed border-slate-300 text-xs text-slate-500 hover:border-teal-600 hover:text-teal-700"
       >
-        <Rows3Icon className="size-[16px] shrink-0" />
+        <Rows3Icon />
         สร้างตารางย่อย (เช่น ปลาที่พบ) ให้ layer นี้
-      </button>
+      </Button>
     );
   }
 
@@ -88,7 +93,6 @@ export default function RelatedRecords({
       return { ...e, values };
     });
 
-
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -101,17 +105,17 @@ export default function RelatedRecords({
     }
   };
 
+  // ช่องกรอกในตารางย่อย (FieldInput ส่งต่อให้ input/select ดั้งเดิม) หน้าตาเหมือน Input ของ shadcn แบบเตี้ย
   const inputCls =
-    "w-full min-w-[6rem] px-1.5 py-1 bg-white border border-teal-600 rounded text-base md:text-xs text-slate-900 outline-none";
-  const iconBtn = "p-0.5 rounded flex items-center";
+    "h-7 w-full min-w-[6rem] rounded-md border border-input bg-card px-1.5 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-xs";
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       {tables.map((table) => {
         const rows = records.filter((r) => r.tableId === table.id);
         const editRow = (id: number | null) => editing?.tableId === table.id && editing.id === id;
         const inputsRow = (id: number | null) => (
-          <tr key={id ?? "new"} className="bg-teal-50/50">
+          <tr key={id ?? "new"} className="bg-primary/5">
             {table.fields.map((f, i) => (
               <td key={f.key} className="px-1 py-1">
                 <FieldInput
@@ -127,49 +131,58 @@ export default function RelatedRecords({
                 />
               </td>
             ))}
-            <td className="px-2 py-1 whitespace-nowrap text-slate-400">
+            <td className="px-2 py-1 whitespace-nowrap text-muted-foreground">
               {id === null ? "วันนี้" : formatDate(records.find((r) => r.id === id)?.createdAt)}
             </td>
             <td className="px-1 py-1">
               <div className="flex">
-                <button type="button" aria-label="บันทึกแถว" onClick={(e) => commit(e.currentTarget)} className={`${iconBtn} text-teal-700 hover:bg-teal-100`}>
-                  <CheckIcon className="size-[18px] shrink-0" />
-                </button>
-                <button type="button" aria-label="ยกเลิก" onClick={() => startEdit(null)} className={`${iconBtn} text-slate-500 hover:bg-slate-100`}>
-                  <XIcon className="size-[18px] shrink-0" />
-                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="บันทึกแถว"
+                  className="text-primary hover:bg-primary/10 hover:text-primary"
+                  onClick={(e) => commit(e.currentTarget)}
+                >
+                  <CheckIcon />
+                </Button>
+                <Button type="button" variant="ghost" size="icon-xs" aria-label="ยกเลิก" className="text-muted-foreground" onClick={() => startEdit(null)}>
+                  <XIcon />
+                </Button>
               </div>
             </td>
           </tr>
         );
         return (
-          <div key={table.id} className="space-y-1.5">
+          <div key={table.id} className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
-              <Rows3Icon className="size-[16px] shrink-0 text-teal-700" />
-              <span className="text-xs font-semibold text-slate-700 flex-1 min-w-0 truncate">
-                {table.name} <span className="font-normal text-slate-400">({rows.length} แถว)</span>
+              <Rows3Icon className="size-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                {table.name} <span className="font-normal text-muted-foreground">({rows.length} แถว)</span>
               </span>
               {canEdit && featureId !== null && (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   disabled={!!editing}
+                  className="h-6 font-medium text-primary hover:bg-primary/10 hover:text-primary"
                   onClick={() =>
                     table.fields.length
                       ? startEdit({ tableId: table.id, id: null, values: {} })
                       : setError({ tableId: table.id, message: NO_COLUMN_MESSAGE })
                   }
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-40"
                 >
-                  <PlusIcon className="size-[16px] shrink-0" />
+                  <PlusIcon />
                   เพิ่มแถว
-                </button>
+                </Button>
               )}
             </div>
             {featureId === null ? (
-              <p className="text-[11px] text-slate-400">บันทึก feature ก่อน แล้วจึงเพิ่มข้อมูลในตารางนี้ได้</p>
+              <p className="text-[0.6875rem] text-muted-foreground">บันทึก feature ก่อน แล้วจึงเพิ่มข้อมูลในตารางนี้ได้</p>
             ) : table.fields.length === 0 ? (
               // ยังไม่มีคอลัมน์ → เพิ่มคอลัมน์ได้ตรงนี้เลย (ไม่ต้องไป Attribute table)
-              <div className="flex items-center justify-between gap-2 px-2 py-2 border border-dashed border-slate-300 rounded-lg text-xs text-slate-500">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-dashed px-2 py-2 text-xs text-muted-foreground">
                 <span>ยังไม่มีคอลัมน์</span>
                 {canEdit && onUpdateTable && (
                   <AddColumn
@@ -183,23 +196,23 @@ export default function RelatedRecords({
                 )}
               </div>
             ) : (
-              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <div className="overflow-x-auto rounded-lg border">
                 <table className="min-w-full text-xs">
-                  <thead className="bg-slate-50">
+                  <thead className="bg-muted">
                     <tr>
                       {table.fields.map((f) => (
-                        <th key={f.key} className="px-2 py-1 text-left font-semibold text-slate-600 whitespace-nowrap">
+                        <th key={f.key} className="px-2 py-1 text-left font-semibold whitespace-nowrap text-muted-foreground">
                           {f.label}
                         </th>
                       ))}
-                      <th className="px-2 py-1 text-left font-semibold text-slate-600 whitespace-nowrap">วันที่</th>
+                      <th className="px-2 py-1 text-left font-semibold whitespace-nowrap text-muted-foreground">วันที่</th>
                       <th className="w-12" />
                     </tr>
                   </thead>
                   <tbody>
                     {rows.length === 0 && !editRow(null) && (
                       <tr>
-                        <td colSpan={table.fields.length + 2} className="px-2 py-2 text-center text-slate-400">
+                        <td colSpan={table.fields.length + 2} className="px-2 py-2 text-center text-muted-foreground">
                           {table.fields.length ? "ยังไม่มีข้อมูล" : "ยังไม่มีคอลัมน์ — เพิ่มได้ในตารางย่อยของ Attribute table"}
                         </td>
                       </tr>
@@ -208,42 +221,46 @@ export default function RelatedRecords({
                       editRow(r.id) ? (
                         inputsRow(r.id)
                       ) : (
-                        <tr key={r.id} className="border-t border-slate-100">
+                        <tr key={r.id} className="border-t">
                           {table.fields.map((f) => {
                             const text = formatValue(f, r.values[f.key]);
                             return (
-                              <td key={f.key} className={`px-2 py-1 whitespace-nowrap ${f.type === "number" ? "text-right tabular-nums" : ""}`}>
-                                {text || <span className="text-slate-300">—</span>}
+                              <td key={f.key} className={cn("px-2 py-1 whitespace-nowrap", f.type === "number" && "text-right tabular-nums")}>
+                                {text || <span className="text-muted-foreground/40">—</span>}
                               </td>
                             );
                           })}
                           <td
                             title={r.createdAt ? new Date(r.createdAt).toLocaleString("th-TH") : undefined}
-                            className="px-2 py-1 whitespace-nowrap text-slate-500"
+                            className="px-2 py-1 whitespace-nowrap text-muted-foreground"
                           >
-                            {formatDate(r.createdAt) || <span className="text-slate-300">—</span>}
+                            {formatDate(r.createdAt) || <span className="text-muted-foreground/40">—</span>}
                           </td>
                           <td className="px-1 py-1">
                             {canEdit && (
                               <div className="flex">
-                                <button
+                                <Button
                                   type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
                                   aria-label="แก้แถว"
                                   disabled={!!editing}
+                                  className="text-muted-foreground hover:text-primary"
                                   onClick={() => startEdit({ tableId: table.id, id: r.id, values: { ...r.values } })}
-                                  className={`${iconBtn} text-slate-500 hover:bg-slate-100 hover:text-teal-700 disabled:opacity-30`}
                                 >
-                                  <PencilIcon className="size-[16px] shrink-0" />
-                                </button>
-                                <button
+                                  <PencilIcon />
+                                </Button>
+                                <Button
                                   type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
                                   aria-label="ลบแถว"
                                   disabled={!!editing}
+                                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                   onClick={() => onDelete(r.id)}
-                                  className={`${iconBtn} text-slate-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-30`}
                                 >
-                                  <Trash2Icon className="size-[16px] shrink-0" />
-                                </button>
+                                  <Trash2Icon />
+                                </Button>
                               </div>
                             )}
                           </td>
@@ -256,10 +273,10 @@ export default function RelatedRecords({
               </div>
             )}
             {error?.tableId === table.id && (
-              <p role="alert" className="flex items-start gap-1 text-[11px] text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1">
-                <CircleAlertIcon className="size-[14px] shrink-0" />
-                {error.message}
-              </p>
+              <Alert variant="destructive" className="px-2 py-1.5 text-[0.6875rem]">
+                <CircleAlertIcon />
+                <AlertDescription className="text-[0.6875rem]">{error.message}</AlertDescription>
+              </Alert>
             )}
           </div>
         );

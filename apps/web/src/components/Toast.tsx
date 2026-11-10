@@ -21,7 +21,7 @@ function show(render: (close: () => void) => React.ReactElement) {
 }
 
 /** แจ้งว่าบันทึก feature แล้ว — ล่างกลางแผนที่ ปิดเองใน 4 วินาที */
-export function notifySaved({ name, type, category, temp }: { name: string; type: GeomType; category?: string | null; temp?: boolean }) {
+export function notifySaved({ name, type, layerName, temp }: { name: string; type: GeomType; layerName?: string; temp?: boolean }) {
   const { label, Icon } = SHAPE[type];
   show((close) => (
     <ToastCard
@@ -40,7 +40,7 @@ export function notifySaved({ name, type, category, temp }: { name: string; type
             <span className="truncate">เก็บชั่วคราวในเบราว์เซอร์นี้</span>
           </>
         ) : (
-          [label, category].filter(Boolean).join(" · ")
+          [label, layerName].filter(Boolean).join(" · ")
         )
       }
       onClose={close}
