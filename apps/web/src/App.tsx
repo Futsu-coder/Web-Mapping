@@ -359,11 +359,10 @@ export default function App() {
     setSelection({ mode: "edit", id: item.id });
   };
 
-  /** ปุ่ม Cancel ในฟอร์ม: edit = ทิ้งการแก้แล้วกลับไปโหมดดู, create = ทิ้ง shape */
+  /** ปุ่ม Cancel ในฟอร์ม: ทิ้งการแก้ / shape ที่วาดค้างไว้ แล้วปิดรายละเอียด */
   const cancel = () => {
-    const keepId = selection?.mode === "edit" ? selection.id : null;
     discardPending();
-    setSelection(keepId !== null ? { mode: "view", id: keepId } : null);
+    setSelection(null);
   };
 
   const toggleVisible = (item: Item) => {
@@ -469,7 +468,7 @@ export default function App() {
 
   // ---------- event ของแผนที่ ----------
   useMapEvents(ctx, {
-    // คลิก feature บนแผนที่ = ดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
+    // คลิก feature บนแผนที่ = แก้ไขทันทีถ้ามีสิทธิ์ ไม่งั้นดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
     onFeatureClick: (id, lngLat) => {
       const item = items.find((i) => i.id === id);
       if (!item || !ctx) return;
@@ -481,13 +480,17 @@ export default function App() {
         return;
       }
       if (mobileDraw || selection?.mode === "edit" || selection?.mode === "create") return;
+      if (canModify(item)) return startEdit(item);
       showPopup(lngLat, item.props.name);
       view(id);
     },
-    // คลิกพื้นที่ว่าง: ปิดเฉพาะโหมดดู
+    // คลิกพื้นที่ว่าง: ดูอยู่ / แก้อยู่ → ทิ้งการแก้ที่ยังไม่บันทึก แล้วปิดรายละเอียดกับการ์ดรายการ
+    // (โหมด create ไม่ทำอะไร กัน draft หายเพราะเผลอคลิก)
     onMapClick: () => {
-      if (selection?.mode === "view") setSelection(null);
       closePopup();
+      if (selection?.mode !== "view" && selection?.mode !== "edit") return;
+      closeSelection();
+      setPanelOpen(false);
     },
     onHover: hoverEnabled ? onHover : () => {},
     onDrawCreate: (f) => {
@@ -577,6 +580,8 @@ export default function App() {
 
   const focus = (item: Item) => {
     const map = mapRef.current;
+    // มีสิทธิ์แก้ (และไม่ได้ซ่อนอยู่) = คลิกแล้วเข้าโหมดแก้ไขเลย
+    const editable = canModify(item) && !isHidden(item);
     if (map && !isHidden(item)) {
       const padding = visiblePadding();
       const center = centerOf(item.geometry);
@@ -586,8 +591,9 @@ export default function App() {
           ? map.cameraForBounds([center, center], { padding, maxZoom: 17 })
           : map.cameraForBounds(bboxOf(item.geometry), { padding, maxZoom: 16 });
       if (camera) map.flyTo(camera);
-      showPopup(center, item.props.name);
+      if (!editable) showPopup(center, item.props.name);
     }
+    if (editable) return startEdit(item);
     view(item.id);
   };
 
@@ -627,7 +633,7 @@ export default function App() {
         if (!patch.geometry && !patch.properties) {
           clearDraw(); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
           setDraftGeom(null);
-          setSelection({ mode: "view", id });
+          setSelection(null);
           return;
         }
         f = await patchFeature(id, patch);
@@ -636,7 +642,7 @@ export default function App() {
       clearDraw();
       setDraftGeom(null);
       setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved, geometry: f.geometry } : i)));
-      setSelection({ mode: "view", id });
+      setSelection(null);
       setToast({ id: Date.now(), name: saved.name, temp: guest });
     }
   };
@@ -851,11 +857,9 @@ export default function App() {
               filter={filter}
               onFilterChange={setFilter}
               onFocus={focus}
-              onEdit={startEdit}
               onToggleVisible={toggleVisible}
               onRemove={(item) => removeItem(item).catch(onError)}
               selectedId={selectedId}
-              editingId={editingId}
               hiddenIds={hiddenSet}
               canModify={canModify}
               showOwner={!guest}

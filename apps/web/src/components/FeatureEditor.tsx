@@ -104,7 +104,10 @@ export default function FeatureEditor({
       {!readOnly && (
         <div className="flex items-start gap-2 rounded-lg bg-primary/10 px-2.5 py-2 text-xs text-teal-900">
           <MoveIcon className="mt-0.5 size-4 shrink-0" />
-          <span>{mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}</span>
+          <span>
+            {mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}
+            {mode === "edit" && `${mobile ? " · แตะ" : " · คลิก"}นอกรูปเพื่อออกโดยไม่บันทึก`}
+          </span>
         </div>
       )}
 
@@ -186,10 +189,10 @@ export default function FeatureEditor({
   const deleteButton = (
     <Button
       type="button"
-      variant="outline"
+      variant="destructive"
       disabled={busy}
       onClick={() => void run(onDelete)}
-      className={cn("border-red-200 text-destructive hover:bg-red-50 hover:text-destructive", mobile && "h-11")}
+      className={cn(mobile && "h-11 px-4")}
     >
       <Trash2Icon data-icon="inline-start" />
       ลบ
@@ -252,9 +255,6 @@ export default function FeatureEditor({
             ) : (
               <>
                 {deleteButton}
-                <Button type="button" variant="secondary" disabled={busy} onClick={onCancel} className={h}>
-                  ยกเลิก
-                </Button>
                 <Button type="button" disabled={busy || !trimmed} onClick={() => void save()} className={cn(h, "flex-1")}>
                   <SaveIcon data-icon="inline-start" />
                   {busy ? "กำลังบันทึก…" : "บันทึก"}
@@ -282,17 +282,19 @@ export default function FeatureEditor({
       </form>
 
       <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-          {readOnly ? "ปิด" : "ยกเลิก"}
-        </Button>
+        {/* แก้ไข: ลบชิดซ้าย บันทึกชิดขวา (ออกด้วยการคลิกนอกรูป) / สร้างใหม่: ยกเลิกต้องมี เพราะคลิกพื้นที่ว่างไม่ทิ้ง draft */}
+        {mode === "edit" ? (
+          deleteButton
+        ) : (
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+            {readOnly ? "ปิด" : "ยกเลิก"}
+          </Button>
+        )}
         {!readOnly && (
-          <div className="flex items-center gap-2">
-            {mode !== "create" && deleteButton}
-            <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
-              <SaveIcon data-icon="inline-start" />
-              {busy ? "กำลังบันทึก…" : "บันทึก"}
-            </Button>
-          </div>
+          <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
+            <SaveIcon data-icon="inline-start" />
+            {busy ? "กำลังบันทึก…" : "บันทึก"}
+          </Button>
         )}
       </div>
     </div>

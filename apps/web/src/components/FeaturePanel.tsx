@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDownIcon, ChevronUpIcon, EyeIcon, EyeOffIcon, LockIcon, MapIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, EyeIcon, EyeOffIcon, LockIcon, MapIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -17,13 +17,11 @@ const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line
 
 function RowButton({
   title,
-  active,
   danger,
   onClick,
   children,
 }: {
   title: string;
-  active?: boolean;
   danger?: boolean;
   onClick: () => void;
   children: ReactNode;
@@ -31,7 +29,7 @@ function RowButton({
   return (
     <Button
       type="button"
-      variant={active ? "default" : "ghost"}
+      variant="ghost"
       size="icon"
       title={title}
       aria-label={title}
@@ -48,7 +46,6 @@ function RowButton({
 
 type RowHandlers = {
   onFocus: (item: Item) => void;
-  onEdit: (item: Item) => void;
   onToggleVisible: (item: Item) => void;
   onRemove: (item: Item) => void;
   onHover: (id: number | null) => void;
@@ -60,7 +57,6 @@ const FeatureRow = memo(function FeatureRow({
   selected,
   hidden,
   hovered,
-  editing,
   modifiable,
   showOwner,
   h,
@@ -69,7 +65,6 @@ const FeatureRow = memo(function FeatureRow({
   selected: boolean;
   hidden: boolean;
   hovered: boolean;
-  editing: boolean;
   modifiable: boolean;
   showOwner: boolean;
   h: RowHandlers;
@@ -106,9 +101,6 @@ const FeatureRow = memo(function FeatureRow({
         </RowButton>
         {modifiable ? (
           <>
-            <RowButton title="แก้ไข" active={editing} onClick={() => h.onEdit(item)}>
-              <PencilIcon />
-            </RowButton>
             <RowButton title="ลบ" danger onClick={() => h.onRemove(item)}>
               <Trash2Icon />
             </RowButton>
@@ -134,11 +126,9 @@ export default function FeaturePanel({
   hoveredId,
   onHover,
   onFocus,
-  onEdit,
   onToggleVisible,
   onRemove,
   selectedId,
-  editingId,
   hiddenIds,
   canModify,
   showOwner,
@@ -151,15 +141,12 @@ export default function FeaturePanel({
   hoveredId: number | null;
   onHover: (id: number | null) => void;
   onFocus: (item: Item) => void;
-  onEdit: (item: Item) => void;
   onToggleVisible: (item: Item) => void;
   onRemove: (item: Item) => void;
   selectedId: number | null;
-  /** feature ที่กำลังอยู่ในโหมดแก้ไข (ปุ่มปากกาไฮไลต์) */
-  editingId: number | null;
   /** feature ที่ถูกซ่อนจากแผนที่ */
   hiddenIds: Set<number>;
-  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มปากกาและถังขยะ */
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มถังขยะ */
   canModify: (item: Item) => boolean;
   /** แสดงชื่อคนสร้าง (login แล้ว) */
   showOwner: boolean;
@@ -169,13 +156,12 @@ export default function FeaturePanel({
 }) {
   const listRef = useRef<HTMLUListElement>(null);
   // handler คงที่ตลอดอายุ component (อ่านตัวล่าสุดผ่าน ref) → FeatureRow ที่ memo ไว้ไม่ render ใหม่โดยไม่จำเป็น
-  const latest = useRef<RowHandlers>({ onFocus, onEdit, onToggleVisible, onRemove, onHover });
+  const latest = useRef<RowHandlers>({ onFocus, onToggleVisible, onRemove, onHover });
   useEffect(() => {
-    latest.current = { onFocus, onEdit, onToggleVisible, onRemove, onHover };
+    latest.current = { onFocus, onToggleVisible, onRemove, onHover };
   });
   const [handlers] = useState<RowHandlers>(() => ({
     onFocus: (i) => latest.current.onFocus(i),
-    onEdit: (i) => latest.current.onEdit(i),
     onToggleVisible: (i) => latest.current.onToggleVisible(i),
     onRemove: (i) => latest.current.onRemove(i),
     onHover: (id) => latest.current.onHover(id),
@@ -257,7 +243,6 @@ export default function FeaturePanel({
               selected={item.id === selectedId}
               hidden={hiddenIds.has(item.id)}
               hovered={item.id === hoveredId}
-              editing={item.id === editingId}
               modifiable={canModify(item)}
               showOwner={showOwner}
               h={handlers}
