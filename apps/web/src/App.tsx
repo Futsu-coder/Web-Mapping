@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Popup, type Map as MlMap, type PaddingOptions } from "maplibre-gl";
 import type MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type { Session } from "@supabase/supabase-js";
@@ -81,6 +81,11 @@ export default function App() {
   // โหมด 3D: แผนที่เอียง 60° หมุนได้ เห็นภูเขาและตึก 3D (ตึกมีตั้งแต่ซูม 14)
   const [is3D, setIs3D] = useState(false);
   const zoomInFor3D = useRef(false);
+  /** กล้องถูกสั่งแบน (pitch 0) พร้อมการเลื่อนไปแล้ว → effect mustBeFlat ไม่ต้อง easeTo ซ้ำ (ไม่งั้นตัดการบินที่ค้างอยู่) */
+  const skipFlatEase = useRef(false);
+  /** กล้องที่รอเลื่อนหลัง render ถัดไป (ดู requestFit) */
+  const pendingFit = useRef<{ geometry: GeoJSON.Geometry; fly: boolean; maxZoom?: number; flat: boolean } | null>(null);
+  const [, bumpFit] = useReducer((n: number) => n + 1, 0);
   // feature ที่ถูกดึงเข้า draw เพื่อลากย้ายในโหมด Move
   const [movingId, setMovingId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -229,6 +234,10 @@ export default function App() {
     const zoom = tilt && zoomInFor3D.current && map.getZoom() < 7 ? 9 : undefined;
     zoomInFor3D.current = false;
     const pitch = tilt ? 60 : 0;
+    if (skipFlatEase.current) {
+      skipFlatEase.current = false;
+      return;
+    }
     if (map.getPitch() !== pitch || zoom !== undefined || (!tilt && map.getBearing() !== 0)) {
       map.easeTo({ pitch, zoom, ...(tilt ? {} : { bearing: 0 }), duration: 500 });
     }
@@ -237,6 +246,22 @@ export default function App() {
   const onToggle3D = () => {
     zoomInFor3D.current = !is3D;
     setIs3D(!is3D);
+  };
+
+  /**
+   * ขอให้กล้องไปอยู่กลางพื้นที่ที่มองเห็นของ feature (ซูมออกถ้าใหญ่เกิน) — ทำ "หลัง" commit ถัดไป
+   * เพราะการ์ดรายการ/รายละเอียด (จอคอม) หรือ sheet (มือถือ) เพิ่งสั่งเปิด ยังไม่อยู่ใน DOM ตอนนี้ วัดระยะเว้นขอบตอนนี้จะผิด
+   * flatten = กำลังจะเข้าโหมดแก้ไข (ต้องแบนเป็น 2D): ถ้าเปิด 3D อยู่ ให้แบนในคำสั่งกล้องเดียวกัน
+   * ไม่ปล่อยให้ effect mustBeFlat easeTo แยก เพราะมันจะตัดการบิน/เลื่อนที่ค้างอยู่
+   */
+  const requestFit = (
+    geometry: GeoJSON.Geometry,
+    opts: { fly?: boolean; maxZoom?: number; flatten?: boolean },
+  ) => {
+    const flat = !!opts.flatten && is3D && !mustBeFlat;
+    if (flat) skipFlatEase.current = true;
+    pendingFit.current = { geometry, fly: !!opts.fly, maxZoom: opts.maxZoom, flat };
+    bumpFit(); // ถ้า state อื่นไม่เปลี่ยน (เช่น เปิดการ์ดอยู่แล้ว) ก็ยังต้อง render เพื่อให้ effect ด้านล่างทำงาน
   };
 
   // ย่อจอเป็นมือถือระหว่างวาดด้วย draw → ปิดโหมดวาดของ draw (มือถือวาดด้วยกากบาทแทน)
@@ -359,15 +384,9 @@ export default function App() {
     setSelection({ mode: "edit", id: item.id });
   };
 
-  /** ปุ่ม Cancel ในฟอร์ม: ทิ้งการแก้ / shape ที่วาดค้างไว้ แล้วปิดรายละเอียด */
-  const cancel = () => {
-    discardPending();
-    setSelection(null);
-  };
-
   const toggleVisible = (item: Item) => {
     if (hiddenIds.has(item.id)) return showItem(item);
-    if (selection?.mode === "edit" && selection.id === item.id) cancel();
+    if (selection?.mode === "edit" && selection.id === item.id) closeSelection();
     closePopup();
     setHiddenIds((s) => new Set(s).add(item.id));
   };
@@ -375,7 +394,7 @@ export default function App() {
   /** ซ่อน/แสดง feature ทั้งหมดของสมาชิกคนหนึ่ง (เฉพาะบนจอเรา) */
   const toggleOwner = (ownerId: string) => {
     const hiding = !hiddenOwners.has(ownerId);
-    if (hiding && selection?.mode === "edit" && selectedItem?.ownerId === ownerId) cancel();
+    if (hiding && selection?.mode === "edit" && selectedItem?.ownerId === ownerId) closeSelection();
     setHiddenOwners((s) => {
       const next = new Set(s);
       if (hiding) next.add(ownerId);
@@ -468,7 +487,7 @@ export default function App() {
 
   // ---------- event ของแผนที่ ----------
   useMapEvents(ctx, {
-    // คลิก feature บนแผนที่ = แก้ไขทันทีถ้ามีสิทธิ์ ไม่งั้นดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
+    // คลิก feature บนแผนที่ = แก้ไขทันทีถ้ามีสิทธิ์ ไม่งั้นดูข้อมูล
     onFeatureClick: (id, lngLat) => {
       const item = items.find((i) => i.id === id);
       if (!item || !ctx) return;
@@ -479,10 +498,16 @@ export default function App() {
         setMovingId(id);
         return;
       }
-      if (mobileDraw || selection?.mode === "edit" || selection?.mode === "create") return;
-      if (canModify(item)) return startEdit(item);
-      showPopup(lngLat, item.props.name);
-      view(id);
+      // ระหว่างแก้ชิ้นอื่นอยู่ คลิกชิ้นนี้ = ทิ้งชิ้นเดิมแล้วสลับมาชิ้นนี้ (เหมือนคลิกจากรายการ) / ระหว่างสร้างใหม่ไม่ทำอะไร กัน draft หาย
+      if (mobileDraw || selection?.mode === "create") return;
+      const editable = canModify(item);
+      if (editable) startEdit(item);
+      else {
+        showPopup(lngLat, item.props.name);
+        view(id);
+      }
+      // เลื่อนให้อยู่กลางพื้นที่ที่มองเห็น (ไม่ถูกการ์ด/sheet บัง) ซูมออกถ้ารูปใหญ่เกิน
+      requestFit(item.geometry, { flatten: editable });
     },
     // คลิกพื้นที่ว่าง: ดูอยู่ / แก้อยู่ → ทิ้งการแก้ที่ยังไม่บันทึก แล้วปิดรายละเอียดกับการ์ดรายการ
     // (โหมด create ไม่ทำอะไร กัน draft หายเพราะเผลอคลิก)
@@ -578,20 +603,29 @@ export default function App() {
     return { ...pad, left: listW ? listW + 40 : 40, right: detailW ? detailW + 40 : 40 };
   };
 
-  const focus = (item: Item) => {
+  // เลื่อนกล้องตามที่ขอไว้ (requestFit) — รันหลัง effect mustBeFlat (ประกาศไว้ก่อนหน้า) และหลังการ์ด/sheet อยู่ใน DOM แล้ว
+  useEffect(() => {
+    const fit = pendingFit.current;
     const map = mapRef.current;
+    if (!fit || !map) return;
+    pendingFit.current = null;
+    const camera = map.cameraForBounds(bboxOf(fit.geometry), {
+      padding: visiblePadding(),
+      maxZoom: fit.maxZoom ?? map.getZoom(), // ไม่ระบุ = ซูมออกได้อย่างเดียว ไม่ซูมเข้าเพิ่ม
+    });
+    if (!camera) return;
+    const opts = fit.flat ? { ...camera, pitch: 0, bearing: 0 } : camera;
+    if (fit.fly) map.flyTo(opts);
+    else map.easeTo(opts);
+  });
+
+  const focus = (item: Item) => {
     // มีสิทธิ์แก้ (และไม่ได้ซ่อนอยู่) = คลิกแล้วเข้าโหมดแก้ไขเลย
     const editable = canModify(item) && !isHidden(item);
-    if (map && !isHidden(item)) {
-      const padding = visiblePadding();
-      const center = centerOf(item.geometry);
-      // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด)
-      const camera =
-        item.type === "Point"
-          ? map.cameraForBounds([center, center], { padding, maxZoom: 17 })
-          : map.cameraForBounds(bboxOf(item.geometry), { padding, maxZoom: 16 });
-      if (camera) map.flyTo(camera);
-      if (!editable) showPopup(center, item.props.name);
+    if (!isHidden(item)) {
+      // หมุดอาจอยู่ใน cluster → ซูมไป 17 (cluster แตกหมด)
+      requestFit(item.geometry, { fly: true, maxZoom: item.type === "Point" ? 17 : 16, flatten: editable });
+      if (!editable) showPopup(centerOf(item.geometry), item.props.name);
     }
     if (editable) return startEdit(item);
     view(item.id);
@@ -675,8 +709,8 @@ export default function App() {
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
         onSave={save}
-        onCancel={cancel}
-        onDelete={async () => cancel()}
+        onCancel={closeSelection}
+        onDelete={async () => closeSelection()}
       />
     ) : selection && selection.mode !== "create" && selectedItem ? (
       <FeatureEditor
@@ -689,7 +723,7 @@ export default function App() {
         formId="fe-form"
         onEdit={() => startEdit(selectedItem)}
         onSave={save}
-        onCancel={selection.mode === "edit" ? cancel : closeSelection}
+        onCancel={closeSelection}
         onDelete={() => removeItem(selectedItem)}
         ownerName={guest ? null : selectedItem.ownerName}
         canModify={canModify(selectedItem)}
@@ -765,7 +799,7 @@ export default function App() {
             <MobileHeader
               mode={mobileDraw ? "drawing" : "form"}
               formId="fe-form"
-              onCancel={mobileDraw ? crosshair.cancel : cancel}
+              onCancel={mobileDraw ? crosshair.cancel : closeSelection}
               onUndo={crosshair.undo}
               onRedo={crosshair.redo}
               onClear={crosshair.clear}
