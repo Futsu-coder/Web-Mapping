@@ -1,0 +1,119 @@
+import { useEffect, useState } from "react";
+import type { Map as MlMap } from "maplibre-gl";
+import { CompassIcon, MinusIcon, PlusIcon, TableIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+const CARD = "bg-card rounded-xl shadow-float border border-black/5";
+const SEG = "w-full font-semibold data-[state=on]:bg-primary data-[state=on]:text-primary-foreground";
+
+/**
+ * กลุ่มควบคุมมุมมอง (ขวาล่าง): สลับ 2D/3D, ซูม +/− (เฉพาะจอคอม), เข็มทิศ (เฉพาะตอน 3D)
+ * + ปุ่มเปิด/ปิด Attribute table (ส่ง onToggleTable มาเท่านั้น)
+ * paused = แอปบังคับให้แผนที่แบนชั่วคราวระหว่างวาด/แก้/ย้าย → ปุ่ม 3D จางลงพร้อมป้ายอธิบาย
+ */
+export default function MapControls({
+  map,
+  is3D,
+  paused,
+  onToggle3D,
+  compact = false,
+  className,
+  tableOpen,
+  onToggleTable,
+}: {
+  map: MlMap | null;
+  is3D: boolean;
+  paused: boolean;
+  onToggle3D: () => void;
+  /** มือถือ: ไม่มีปุ่มซูม (ใช้ pinch) ปุ่มสูง 44px */
+  compact?: boolean;
+  className?: string;
+  /** Attribute table — ไม่ส่ง = ไม่มีปุ่ม */
+  tableOpen?: boolean;
+  onToggleTable?: () => void;
+}) {
+  const [bearing, setBearing] = useState(0);
+  const [tipOpen, setTipOpen] = useState(false);
+  useEffect(() => {
+    if (!map) return;
+    const onRotate = () => setBearing(map.getBearing());
+    map.on("rotate", onRotate);
+    return () => void map.off("rotate", onRotate);
+  }, [map]);
+
+  const showCompass = is3D && !paused;
+  const segH = compact ? "h-11" : "h-9";
+
+  return (
+    <div className={cn("flex flex-col items-center gap-2", className)}>
+      {showCompass && (
+        <Button
+          variant="ghost"
+          aria-label="หันไปทิศเหนือ"
+          title="หันไปทิศเหนือ"
+          className={cn(CARD, "size-12 rounded-full text-primary hover:bg-card")}
+          onClick={() => map?.easeTo({ bearing: 0, duration: 400 })}
+        >
+          <CompassIcon style={{ transform: `rotate(${-bearing}deg)` }} />
+        </Button>
+      )}
+
+      <Tooltip open={paused && tipOpen} onOpenChange={setTipOpen}>
+        <TooltipTrigger asChild>
+          <div className={cn(CARD, "p-1", paused && "opacity-60")}>
+            <ToggleGroup
+              type="single"
+              value={is3D ? "3d" : "2d"}
+              onValueChange={(v) => v && (v === "3d") !== is3D && onToggle3D()}
+              aria-label="มุมมองแผนที่"
+              className={cn("flex-col gap-0.5", compact && "min-w-12")}
+            >
+              <ToggleGroupItem value="2d" aria-label="มุมมองแบน 2D" className={cn(SEG, segH)}>
+                2D
+              </ToggleGroupItem>
+              <ToggleGroupItem value="3d" aria-label="มุมมอง 3D" className={cn(SEG, segH)}>
+                3D
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="left">พัก 3D ขณะวาด/แก้ไข เสร็จแล้วจะเอียงกลับให้เอง</TooltipContent>
+      </Tooltip>
+
+      {onToggleTable && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={tableOpen ? "default" : "ghost"}
+              aria-pressed={tableOpen}
+              aria-label={tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}
+              className={cn(
+                CARD,
+                compact ? "size-12" : "size-11",
+                tableOpen ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-card",
+              )}
+              onClick={onToggleTable}
+            >
+              <TableIcon />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}</TooltipContent>
+        </Tooltip>
+      )}
+
+      {!compact && (
+        <div className={cn(CARD, "flex flex-col p-1")}>
+          <Button variant="ghost" size="icon" className="size-10" aria-label="ซูมเข้า" onClick={() => map?.zoomIn()}>
+            <PlusIcon />
+          </Button>
+          <Button variant="ghost" size="icon" className="size-10" aria-label="ซูมออก" onClick={() => map?.zoomOut()}>
+            <MinusIcon />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

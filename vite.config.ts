@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, loadEnv } from 'vite'
+import path from 'node:path'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -18,6 +19,7 @@ export default defineConfig(({ mode }) => {
     define: Object.fromEntries(
       Object.entries(exposed).map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)]),
     ),
+    resolve: { alias: { '@': path.resolve(import.meta.dirname, 'apps/web/src') } },
     plugins: [react(), tailwindcss()],
     server: {
       // dev: ส่ง /api ต่อไปที่ Elysia (bun run dev:api)

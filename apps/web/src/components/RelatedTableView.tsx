@@ -20,6 +20,7 @@ import AddColumn from "./AddColumn";
 import FieldInput from "./FieldInput";
 import HeaderCell from "./HeaderCell";
 import type { RecordDraft } from "./RelatedRecords";
+import { CalendarIcon, CheckIcon, CircleAlertIcon, FilterIcon, PencilIcon, PlusIcon, Rows3Icon, Trash2Icon, XIcon } from "lucide-react";
 
 type Sort = { id: string; dir: 1 | -1 };
 
@@ -153,7 +154,7 @@ export default function RelatedTableView({
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center gap-2 px-3 py-1 border-b border-slate-100 bg-teal-50/60 text-xs text-slate-700 shrink-0">
-        <span className="material-symbols-outlined text-[16px] text-teal-700">table_rows</span>
+        <Rows3Icon className="size-[16px] shrink-0 text-teal-700" />
         {nameDraft !== null ? (
           <span className="relative">
             <input
@@ -192,7 +193,7 @@ export default function RelatedTableView({
                 onClick={() => setNameDraft(table.name)}
                 className="p-0.5 rounded flex text-slate-400 hover:bg-teal-100 hover:text-teal-700"
               >
-                <span className="material-symbols-outlined text-[14px]">edit</span>
+                <PencilIcon className="size-[14px] shrink-0" />
               </button>
             )}
           </span>
@@ -200,10 +201,10 @@ export default function RelatedTableView({
         {featureId !== null && (
           <>
             <span className="text-slate-300">|</span>
-            <span className="material-symbols-outlined text-[16px] text-teal-700">filter_alt</span>
+            <FilterIcon className="size-[16px] shrink-0 text-teal-700" />
             เฉพาะ <strong>{filterItem?.props.name ?? "—"}</strong>
             <button type="button" onClick={onClearFilter} className="flex items-center gap-0.5 px-1.5 rounded text-teal-700 hover:bg-teal-100">
-              <span className="material-symbols-outlined text-[14px]">close</span>
+              <XIcon className="size-[14px] shrink-0" />
               ดูทุก feature
             </button>
           </>
@@ -211,7 +212,7 @@ export default function RelatedTableView({
         <span className="flex-1" />
         {months.length > 0 && (
           <label className="flex items-center gap-1 text-slate-600">
-            <span className="material-symbols-outlined text-[16px] text-teal-700">calendar_month</span>
+            <CalendarIcon className="size-[16px] shrink-0 text-teal-700" />
             <select
               value={activeMonth ?? ""}
               aria-label="กรองตามเดือน"
@@ -234,17 +235,17 @@ export default function RelatedTableView({
             onClick={() => (table.fields.length ? setDraft({}) : setError(NO_COLUMN_MESSAGE))}
             className="flex items-center gap-0.5 px-1.5 py-0.5 rounded font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-40"
           >
-            <span className="material-symbols-outlined text-[16px]">add</span>
+            <PlusIcon className="size-[16px] shrink-0" />
             เพิ่มแถว
           </button>
         )}
       </div>
       {error && (
         <div role="alert" className="flex items-center gap-1.5 px-3 py-1 border-b border-red-200 bg-red-50 text-xs text-red-800 shrink-0">
-          <span className="material-symbols-outlined text-[16px]">error</span>
+          <CircleAlertIcon className="size-[16px] shrink-0" />
           <span className="flex-1">{error}</span>
           <button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setError(null)} className="p-0.5 rounded flex hover:bg-red-100">
-            <span className="material-symbols-outlined text-[14px]">close</span>
+            <XIcon className="size-[14px] shrink-0" />
           </button>
         </div>
       )}
@@ -389,7 +390,7 @@ export default function RelatedTableView({
                         onClick={() => onDelete(r.id)}
                         className="p-0.5 rounded flex text-slate-400 hover:bg-red-50 hover:text-red-700"
                       >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                        <Trash2Icon className="size-[16px] shrink-0" />
                       </button>
                     )}
                   </td>
@@ -423,10 +424,10 @@ export default function RelatedTableView({
                 <td className="px-1">
                   <div className="flex">
                     <button type="button" aria-label="บันทึกแถว" onClick={(e) => commitDraft(e.currentTarget)} className="p-0.5 rounded flex text-teal-700 hover:bg-teal-100">
-                      <span className="material-symbols-outlined text-[18px]">check</span>
+                      <CheckIcon className="size-[18px] shrink-0" />
                     </button>
                     <button type="button" aria-label="ยกเลิก" onClick={closeDraft} className="p-0.5 rounded flex text-slate-500 hover:bg-slate-100">
-                      <span className="material-symbols-outlined text-[18px]">close</span>
+                      <XIcon className="size-[18px] shrink-0" />
                     </button>
                   </div>
                 </td>

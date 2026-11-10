@@ -12,6 +12,7 @@ import {
 } from "../lib/layers";
 import AddColumn from "./AddColumn";
 import FieldInput from "./FieldInput";
+import { CheckIcon, CircleAlertIcon, PencilIcon, PlusIcon, Rows3Icon, Trash2Icon, XIcon } from "lucide-react";
 
 export type RecordDraft = Omit<RelatedRecord, "id"> & { id?: number };
 
@@ -62,7 +63,7 @@ export default function RelatedRecords({
         onClick={onCreateTable}
         className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg border border-dashed border-slate-300 text-xs text-slate-500 hover:border-teal-600 hover:text-teal-700"
       >
-        <span className="material-symbols-outlined text-[16px]">table_rows</span>
+        <Rows3Icon className="size-[16px] shrink-0" />
         สร้างตารางย่อย (เช่น ปลาที่พบ) ให้ layer นี้
       </button>
     );
@@ -132,10 +133,10 @@ export default function RelatedRecords({
             <td className="px-1 py-1">
               <div className="flex">
                 <button type="button" aria-label="บันทึกแถว" onClick={(e) => commit(e.currentTarget)} className={`${iconBtn} text-teal-700 hover:bg-teal-100`}>
-                  <span className="material-symbols-outlined text-[18px]">check</span>
+                  <CheckIcon className="size-[18px] shrink-0" />
                 </button>
                 <button type="button" aria-label="ยกเลิก" onClick={() => startEdit(null)} className={`${iconBtn} text-slate-500 hover:bg-slate-100`}>
-                  <span className="material-symbols-outlined text-[18px]">close</span>
+                  <XIcon className="size-[18px] shrink-0" />
                 </button>
               </div>
             </td>
@@ -144,7 +145,7 @@ export default function RelatedRecords({
         return (
           <div key={table.id} className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px] text-teal-700">table_rows</span>
+              <Rows3Icon className="size-[16px] shrink-0 text-teal-700" />
               <span className="text-xs font-semibold text-slate-700 flex-1 min-w-0 truncate">
                 {table.name} <span className="font-normal text-slate-400">({rows.length} แถว)</span>
               </span>
@@ -159,7 +160,7 @@ export default function RelatedRecords({
                   }
                   className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-40"
                 >
-                  <span className="material-symbols-outlined text-[16px]">add</span>
+                  <PlusIcon className="size-[16px] shrink-0" />
                   เพิ่มแถว
                 </button>
               )}
@@ -232,7 +233,7 @@ export default function RelatedRecords({
                                   onClick={() => startEdit({ tableId: table.id, id: r.id, values: { ...r.values } })}
                                   className={`${iconBtn} text-slate-500 hover:bg-slate-100 hover:text-teal-700 disabled:opacity-30`}
                                 >
-                                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                                  <PencilIcon className="size-[16px] shrink-0" />
                                 </button>
                                 <button
                                   type="button"
@@ -241,7 +242,7 @@ export default function RelatedRecords({
                                   onClick={() => onDelete(r.id)}
                                   className={`${iconBtn} text-slate-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-30`}
                                 >
-                                  <span className="material-symbols-outlined text-[16px]">delete</span>
+                                  <Trash2Icon className="size-[16px] shrink-0" />
                                 </button>
                               </div>
                             )}
@@ -256,7 +257,7 @@ export default function RelatedRecords({
             )}
             {error?.tableId === table.id && (
               <p role="alert" className="flex items-start gap-1 text-[11px] text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1">
-                <span className="material-symbols-outlined text-[14px]">error</span>
+                <CircleAlertIcon className="size-[14px] shrink-0" />
                 {error.message}
               </p>
             )}

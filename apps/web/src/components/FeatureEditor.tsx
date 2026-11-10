@@ -1,27 +1,44 @@
 import { useRef, useState, type ReactNode } from "react";
+import { InfoIcon, MoveIcon, PencilIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
 import type { FeatureProps } from "../api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { centerOf, message } from "../lib/featureMeta";
-import { badInputLabel, badNumberMessage, formatValue, pickValues, type FieldValue, type FieldValues, type Layer, type LayerField } from "../lib/layers";
+import {
+  badInputLabel,
+  badNumberMessage,
+  formatValue,
+  pickValues,
+  type FieldValue,
+  type FieldValues,
+  type Layer,
+  type LayerField,
+} from "../lib/layers";
 import { describeGeometry, fmtLat, fmtLng } from "../lib/measure";
-import FieldInput from "./FieldInput";
 import type { GeomType } from "../lib/types";
+import FieldInput from "./FieldInput";
+
+const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 /** Point = ตำแหน่งจุด, Line/Polygon = จุดกึ่งกลางของกรอบ (อัปเดตเมื่อลากแก้เสร็จ) */
 function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
   const [lng, lat] = centerOf(geometry);
-  const pos = { lat, lng };
-
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Location</div>
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-semibold text-muted-foreground">ตำแหน่ง</span>
       <div className="grid grid-cols-2 gap-2">
         {[
-          ["Latitude", fmtLat(pos.lat)],
-          ["Longitude", fmtLng(pos.lng)],
+          ["ละติจูด", fmtLat(lat)],
+          ["ลองจิจูด", fmtLng(lng)],
         ].map(([label, value]) => (
-          <div key={label} className={`bg-slate-50 border border-slate-200 rounded text-xs ${mobile ? "p-3 rounded-lg" : "p-2.5"}`}>
-            <span className="text-slate-400 block text-[10px] uppercase font-semibold">{label}</span>
-            <span className="font-mono font-medium text-slate-700">{value}</span>
+          <div key={label} className={cn("rounded-lg border bg-muted/50 text-xs", mobile ? "p-3" : "p-2.5")}>
+            <span className="block text-[11px] text-muted-foreground">{label}</span>
+            <span className="font-mono font-medium">{value}</span>
           </div>
         ))}
       </div>
@@ -30,8 +47,13 @@ function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile
 }
 
 // ตัวเลือกใน dropdown Layer: ไม่อยู่ใน layer / ท้ายรายการ = เปิดฟอร์มสร้าง layer (ไม่ได้เลือกค่านี้จริง)
-const NO_LAYER = "";
+// Select ของ shadcn (Radix) ห้ามใช้ค่า "" จึงใช้คำแทน
+const NO_LAYER = "none";
 const NEW_LAYER = "__new";
+
+// ช่องกรอกของหัวข้อ layer (input/select ธรรมดา) ให้หน้าตาเหมือน Input ของ shadcn
+const FIELD_CLS =
+  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 /** เลือก layer (หรือไม่อยู่ใน layer) + ช่องกรอกตามหัวข้อของ layer ที่เลือก */
 function LayerFields({
@@ -40,7 +62,7 @@ function LayerFields({
   layer,
   values,
   readOnly,
-  inputCls,
+  mobile,
   onLayerChange,
   onValueChange,
   onCreateLayer,
@@ -51,7 +73,7 @@ function LayerFields({
   layer: Layer | undefined;
   values: FieldValues;
   readOnly: boolean;
-  inputCls: string;
+  mobile: boolean;
   onLayerChange: (id: number | null) => void;
   onValueChange: (key: string, v: FieldValue | undefined) => void;
   onCreateLayer?: (type: GeomType) => void;
@@ -62,7 +84,7 @@ function LayerFields({
     if (readOnly) {
       const text = formatValue(f, v);
       return (
-        <div id={id} className={`px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 bg-slate-50 ${text ? "text-slate-700" : "text-slate-400"}`}>
+        <div id={id} className={cn("rounded-md border bg-muted/50 px-3 py-2 text-sm", !text && "text-muted-foreground")}>
           {text || "—"}
         </div>
       );
@@ -73,49 +95,45 @@ function LayerFields({
         field={f}
         value={v}
         onChange={(nv) => onValueChange(f.key, nv)}
-        className={f.type === "choice" || f.type === "boolean" ? `${inputCls} py-2` : inputCls}
+        className={cn(FIELD_CLS, mobile && "h-11 text-base")}
       />
     );
   };
 
   return (
     <>
-      <div className="flex flex-col gap-1">
-        <label htmlFor="fe-layer" className="text-xs font-semibold text-slate-600">
-          Layer
-        </label>
-        <div className="relative">
-          <span
-            className={`absolute left-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full pointer-events-none ${
-              layer ? "" : "border border-dashed border-slate-400"
-            }`}
-            style={layer ? { backgroundColor: layer.color } : undefined}
-          />
-          <select
-            id="fe-layer"
-            value={layer?.id ?? NO_LAYER}
-            disabled={readOnly}
-            onChange={(e) => {
-              if (e.target.value === NEW_LAYER) onCreateLayer?.(type);
-              else onLayerChange(e.target.value === NO_LAYER ? null : Number(e.target.value));
-            }}
-            className={`${inputCls} w-full pl-8 py-2 font-medium`}
-          >
-            <option value={NO_LAYER}>— ไม่มี layer —</option>
-            {layers.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-            {onCreateLayer && <option value={NEW_LAYER}>+ สร้าง layer ใหม่…</option>}
-          </select>
-        </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-layer">Layer</Label>
+        <Select
+          value={layer ? String(layer.id) : NO_LAYER}
+          disabled={readOnly}
+          onValueChange={(v) => {
+            if (v === NEW_LAYER) onCreateLayer?.(type);
+            else onLayerChange(v === NO_LAYER ? null : Number(v));
+          }}
+        >
+          <SelectTrigger id="fe-layer" className={cn("w-full", mobile && "h-11 text-base")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value={NO_LAYER}>
+                <span className="size-2.5 rounded-full border border-dashed border-muted-foreground" />— ไม่มี layer —
+              </SelectItem>
+              {layers.map((l) => (
+                <SelectItem key={l.id} value={String(l.id)}>
+                  <span className="size-2.5 rounded-full" style={{ backgroundColor: l.color }} />
+                  {l.name}
+                </SelectItem>
+              ))}
+              {onCreateLayer && <SelectItem value={NEW_LAYER}>+ สร้าง layer ใหม่…</SelectItem>}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
       {layer?.fields.map((f) => (
-        <div key={f.key} className="flex flex-col gap-1">
-          <label htmlFor={`fe-${f.key}`} className="text-xs font-semibold text-slate-600">
-            {f.label}
-          </label>
+        <div key={f.key} className="flex flex-col gap-1.5">
+          <Label htmlFor={`fe-${f.key}`}>{f.label}</Label>
           {input(f)}
         </div>
       ))}
@@ -124,9 +142,9 @@ function LayerFields({
 }
 
 /**
- * ฟอร์ม Edit Feature Properties (ชื่อ / layer + ค่าของหัวข้อ / คำอธิบาย) — feature ไม่อยู่ใน layer ก็บันทึกได้
- * ใช้ทั้งตอนแก้ feature เดิมและตอนเพิ่ง วาดเสร็จ — parent ต้องใส่ `key` ให้เปลี่ยนตาม feature ที่เลือก
- * variant="mobile" = หน้าตาตามดีไซน์มือถือ (อยู่ใน bottom sheet; ตอน create ปุ่มบันทึกอยู่ที่ navbar ผ่าน formId)
+ * ฟอร์มรายละเอียด feature (ชื่อ / layer + ค่าของหัวข้อ / คำอธิบาย) — feature ไม่อยู่ใน layer ก็บันทึกได้
+ * ใช้ทั้งตอนแก้ feature เดิมและตอนเพิ่งวาดเสร็จ — parent ต้องใส่ `key` ให้เปลี่ยนตาม feature ที่เลือก
+ * variant="mobile" = อยู่ใน bottom sheet (ตอน create ปุ่มบันทึกอยู่ที่หัวจอผ่าน formId)
  */
 export default function FeatureEditor({
   mode,
@@ -166,7 +184,7 @@ export default function FeatureEditor({
   /** มือถือ โหมดดู: ปุ่ม Edit */
   onEdit?: () => void;
   variant?: "desktop" | "mobile";
-  /** id ของ <form> ให้ปุ่มนอก component (Done บน navbar มือถือ) สั่ง submit ได้ */
+  /** id ของ <form> ให้ปุ่มนอก component (บันทึกบนหัวจอมือถือ) สั่ง submit ได้ */
   formId?: string;
 }) {
   const [name, setName] = useState(initial.name);
@@ -214,7 +232,6 @@ export default function FeatureEditor({
   // layer ที่เลือกถูกลบไปแล้ว = ไม่มี layer
   const layer = matching.find((l) => l.id === layerId);
   const trimmed = name.trim();
-  const canSave = !!trimmed;
   const save = () => {
     const wrong = badInputLabel(formRef.current);
     if (wrong !== null) return setError(badNumberMessage(wrong));
@@ -235,31 +252,34 @@ export default function FeatureEditor({
       else next[key] = v;
       return next;
     });
-
-  const inputCls = `bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:border-teal-700 focus:ring-1 focus:ring-teal-700/20 disabled:bg-slate-50 disabled:text-slate-600 ${
-    mobile ? "px-3 py-2 text-base min-h-11" : "px-2.5 py-1.5 text-sm"
-  }`;
-
   const info = describeGeometry(geometry);
+  // มือถือ: input สูง 44px+ และตัวอักษร 16px กัน iOS ซูมเอง
+  const ctl = mobile ? "h-11 text-base md:text-base" : "";
 
   const fields = (
     <>
-      <div className="flex flex-col gap-1">
-        <label htmlFor="fe-name" className="text-xs font-semibold text-slate-600 flex items-center justify-between">
-          <span>Feature Name</span>
-          <span className="text-red-700 font-normal">*required</span>
-        </label>
-        <input
+      {!readOnly && (
+        <div className="flex items-start gap-2 rounded-lg bg-primary/10 px-2.5 py-2 text-xs text-teal-900">
+          <MoveIcon className="mt-0.5 size-4 shrink-0" />
+          <span>{mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}</span>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-name" className="justify-between">
+          <span>ชื่อ</span>
+          <span className="font-normal text-destructive">จำเป็น</span>
+        </Label>
+        <Input
           id="fe-name"
-          type="text"
           value={name}
           maxLength={100}
           required
           autoFocus={mode === "create" && !mobile}
           disabled={readOnly}
-          placeholder={mobile ? "Add a name" : undefined}
+          placeholder={mobile ? "ใส่ชื่อ" : undefined}
           onChange={(e) => setName(e.target.value)}
-          className={inputCls}
+          className={ctl}
         />
       </div>
 
@@ -269,32 +289,30 @@ export default function FeatureEditor({
         layer={layer}
         values={values}
         readOnly={readOnly}
-        inputCls={inputCls}
+        mobile={mobile}
         onLayerChange={setLayerId}
         onValueChange={setValue}
         onCreateLayer={createLayer}
       />
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="fe-desc" className="text-xs font-semibold text-slate-600">
-          Description &amp; {mobile ? "Notes" : "Operational Notes"}
-        </label>
-        <textarea
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-desc">คำอธิบาย</Label>
+        <Textarea
           id="fe-desc"
           rows={3}
           value={description}
           disabled={readOnly}
           maxLength={2000}
-          placeholder={mobile ? "Add a description" : undefined}
+          placeholder={mobile ? "ใส่คำอธิบาย" : undefined}
           onChange={(e) => setDescription(e.target.value)}
-          className={`${inputCls} resize-none`}
+          className={cn("resize-none", mobile && "text-base md:text-base")}
         />
       </div>
 
       {ownerName && (
-        <p className="flex items-center gap-1 text-xs text-slate-500">
-          <span className="material-symbols-outlined text-[16px]">person</span>
-          สร้างโดย <strong className="text-slate-700">{ownerName}</strong>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <UserIcon className="size-4" />
+          สร้างโดย <strong className="text-foreground">{ownerName}</strong>
         </p>
       )}
 
@@ -303,8 +321,8 @@ export default function FeatureEditor({
       <LocationView geometry={geometry} mobile={mobile} />
 
       {error && (
-        <p role="alert" className="text-xs text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1.5">
-          ⚠️ {error}
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-800">
+          {error}
         </p>
       )}
       {/* ให้กด Enter ในช่องชื่อเพื่อบันทึกได้ */}
@@ -314,96 +332,88 @@ export default function FeatureEditor({
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!readOnly && canSave && !busy) void save();
+    if (!readOnly && trimmed && !busy) void save();
   };
 
+  const deleteButton = (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={busy}
+      onClick={() => void run(onDelete)}
+      className={cn("border-red-200 text-destructive hover:bg-red-50 hover:text-destructive", mobile && "h-11")}
+    >
+      <Trash2Icon data-icon="inline-start" />
+      ลบ
+    </Button>
+  );
+
   if (mobile) {
-    const btn =
-      "h-11 rounded-xl text-[15px] font-semibold flex items-center justify-center gap-1.5 transition-opacity active:opacity-80 disabled:opacity-50";
-    const deleteBtn = (
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void run(onDelete)}
-        className={`${btn} px-4 bg-red-100 text-red-800`}
-      >
-        <span className="material-symbols-outlined text-[19px]">delete</span>
-        Delete
-      </button>
-    );
+    const h = "h-11 text-[15px]";
     return (
-      <div className="flex flex-col min-h-0 h-full bg-white">
+      <div className="flex h-full min-h-0 flex-col bg-card">
         {mode === "create" ? (
-          <div className="shrink-0 mx-4 mb-2 pb-2 border-b border-slate-100 flex items-center justify-between">
+          <div className="mx-4 mb-2 flex shrink-0 items-center justify-between border-b pb-2">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-teal-700" />
-              <h2 className="text-lg font-bold text-slate-900">{type === "LineString" ? "Line" : type}</h2>
+              <span className="size-2.5 rounded-full bg-primary" />
+              <h2 className="text-lg font-bold">{TYPE_LABEL[type]}</h2>
             </div>
-            <span className="text-xs font-medium text-slate-500">{[info.metric, info.count].filter(Boolean).join(" · ")}</span>
+            <span className="text-xs font-medium text-muted-foreground">{[info.metric, info.count].filter(Boolean).join(" · ")}</span>
           </div>
         ) : (
-          <div className="shrink-0 px-4 pb-3 flex items-start justify-between gap-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                <span className="px-2 py-0.5 rounded-md bg-teal-100 text-teal-800 text-[11px] font-semibold">{type}</span>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{TYPE_LABEL[type]}</Badge>
                 {layer && (
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: layer.color }} />
+                  <Badge variant="outline">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: layer.color }} />
                     {layer.name}
-                  </span>
+                  </Badge>
                 )}
               </div>
-              <h2 className="text-lg font-semibold text-slate-900 truncate">{initial.name}</h2>
+              <h2 className="truncate text-lg font-semibold">{initial.name}</h2>
             </div>
             {info.metric && (
-              <div className="flex flex-col items-end shrink-0">
-                <span className="text-[15px] font-semibold text-teal-700">{info.metric}</span>
-                <span className="text-[11px] font-mono text-slate-500">{info.count}</span>
+              <div className="flex shrink-0 flex-col items-end">
+                <span className="text-[15px] font-semibold text-primary">{info.metric}</span>
+                <span className="font-mono text-[11px] text-muted-foreground">{info.count}</span>
               </div>
             )}
           </div>
         )}
 
-        <form id={formId} ref={formRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-1 space-y-3.5 pb-4" onSubmit={onSubmit}>
+        <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-1 pb-4" onSubmit={onSubmit}>
           {fields}
         </form>
 
         {mode !== "create" && (
-          <div className="shrink-0 px-4 py-3 border-t border-slate-200 flex items-center gap-2.5 pb-safe">
+          <div className="pb-safe flex shrink-0 items-center gap-2.5 border-t px-4 py-3">
             {mode === "view" ? (
               <>
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  className={`${btn} ${canModify ? "px-4" : "flex-1"} text-slate-600 bg-slate-100`}
-                >
-                  Close
-                </button>
+                <Button type="button" variant="secondary" onClick={onCancel} className={cn(h, canModify ? "px-4" : "flex-1")}>
+                  ปิด
+                </Button>
                 {canModify && (
                   <>
-                    {deleteBtn}
-                    <button type="button" onClick={onEdit} className={`${btn} flex-1 bg-teal-700 text-white shadow-md`}>
-                      <span className="material-symbols-outlined text-[19px]">edit</span>
-                      Edit
-                    </button>
+                    {deleteButton}
+                    <Button type="button" onClick={onEdit} className={cn(h, "flex-1")}>
+                      <PencilIcon data-icon="inline-start" />
+                      แก้ไข
+                    </Button>
                   </>
                 )}
               </>
             ) : (
               <>
-                {deleteBtn}
-                <button type="button" disabled={busy} onClick={onCancel} className={`${btn} px-3 text-slate-600 bg-slate-100`}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || !canSave}
-                  onClick={() => void save()}
-                  className={`${btn} flex-1 bg-teal-700 text-white shadow-md`}
-                >
-                  <span className="material-symbols-outlined text-[19px]">save</span>
-                  {busy ? "Saving…" : "Save"}
-                </button>
+                {deleteButton}
+                <Button type="button" variant="secondary" disabled={busy} onClick={onCancel} className={h}>
+                  ยกเลิก
+                </Button>
+                <Button type="button" disabled={busy || !trimmed} onClick={() => void save()} className={cn(h, "flex-1")}>
+                  <SaveIcon data-icon="inline-start" />
+                  {busy ? "กำลังบันทึก…" : "บันทึก"}
+                </Button>
               </>
             )}
           </div>
@@ -413,50 +423,32 @@ export default function FeatureEditor({
   }
 
   return (
-    <div className="flex flex-col min-h-0 h-full bg-white">
-      <div className="px-3 py-2.5 border-b border-slate-200 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-teal-700 text-[18px]">info</span>
-          <span className="text-sm font-semibold text-slate-900">
-            {mode === "create" ? "New Feature" : mode === "view" ? "Details" : "Edit Details"}
-          </span>
-        </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+        <InfoIcon className="size-4.5 text-primary" />
+        <h2 className="text-sm font-semibold">
+          {mode === "create" ? "เพิ่มรายการใหม่" : mode === "view" ? "รายละเอียด" : "แก้ไขรายละเอียด"} · {TYPE_LABEL[type]}
+        </h2>
+        {info.metric && <span className="ml-auto text-xs font-medium text-muted-foreground">{info.metric}</span>}
       </div>
 
-      <form id={formId} ref={formRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-3" onSubmit={onSubmit}>
+      <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
         {fields}
       </form>
 
-      <div className="px-3 py-2.5 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-        >
-          {readOnly ? "Close" : "Cancel"}
-        </button>
-        <div className={`flex items-center gap-2 ${readOnly ? "hidden" : ""}`}>
-          <button
-            type="button"
-            title="Delete Selected Feature"
-            disabled={busy}
-            onClick={() => void run(onDelete)}
-            className="flex items-center gap-1 px-2.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-medium disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[16px]">delete</span>
-            Delete
-          </button>
-          <button
-            type="button"
-            disabled={busy || !canSave}
-            onClick={() => void save()}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-700 text-white hover:bg-teal-800 rounded-lg text-xs font-medium shadow-sm disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[16px]">save</span>
-            {busy ? "Saving…" : mode === "create" ? "Save" : "Save Changes"}
-          </button>
-        </div>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+          {readOnly ? "ปิด" : "ยกเลิก"}
+        </Button>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            {mode !== "create" && deleteButton}
+            <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
+              <SaveIcon data-icon="inline-start" />
+              {busy ? "กำลังบันทึก…" : "บันทึก"}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

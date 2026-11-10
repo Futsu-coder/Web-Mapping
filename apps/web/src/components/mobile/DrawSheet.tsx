@@ -1,10 +1,12 @@
 import type { Map as MlMap } from "maplibre-gl";
+import { LocateFixedIcon, PlusIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { MobileDraw } from "../../hooks/useCrosshairDraw";
 import { formatArea, formatLength, lineLength, polygonArea } from "../../lib/measure";
 
 const LABEL = { Marker: "Point", Line: "Line", Polygon: "Polygon" } as const;
 
-/** แผ่นล่างตอนวาด: ชนิด + ตัวเลขวัดแบบสด + ปุ่ม Add point */
+/** แผ่นล่างตอนวาด: ชนิด + ตัวเลขวัดแบบสด + ปุ่มเพิ่มจุด */
 export default function DrawSheet({
   draw,
   mapRef,
@@ -17,7 +19,7 @@ export default function DrawSheet({
   onError: (err: unknown) => void;
 }) {
   const n = draw.points.length;
-  const count = `${n} point${n === 1 ? "" : "s"}`;
+  const count = `${n} จุด`;
   const measure =
     draw.shape === "Polygon" && n >= 3
       ? `${formatArea(polygonArea(draw.points))} · ${count}`
@@ -36,41 +38,42 @@ export default function DrawSheet({
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="ghost"
         aria-label="ตำแหน่งปัจจุบัน"
         title="ตำแหน่งปัจจุบัน"
         onClick={locate}
-        className="absolute bottom-[calc(8.5rem_+_env(safe-area-inset-bottom,0px))] right-3 z-30 w-11 h-11 rounded-xl bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-700 active:scale-95 transition-transform"
+        className="absolute right-3 bottom-[calc(8.5rem_+_env(safe-area-inset-bottom,0px))] z-30 size-12 rounded-xl border border-black/5 bg-card shadow-float hover:bg-card"
       >
-        <span className="material-symbols-outlined text-[22px]">my_location</span>
-      </button>
+        <LocateFixedIcon />
+      </Button>
 
-      <div className="absolute bottom-0 inset-x-0 z-30 bg-white rounded-t-2xl border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] pb-safe">
-        <div className="px-4 pt-3.5 pb-3">
-          <div className="flex items-center justify-between mb-3">
+      <div className="pb-safe absolute inset-x-0 bottom-0 z-30 rounded-t-2xl border-t border-black/5 bg-card shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+        <div className="flex flex-col gap-3 px-4 pt-3.5 pb-3">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-teal-700" />
-              <span className="text-base font-bold text-slate-900 leading-tight">{LABEL[draw.shape]}</span>
+              <span className="size-2.5 rounded-full bg-primary" />
+              <span className="text-base leading-tight font-bold">{LABEL[draw.shape]}</span>
             </div>
-            <span className="text-xs font-medium text-slate-500">{measure}</span>
+            <span className="text-xs font-medium text-muted-foreground">{measure}</span>
           </div>
           {draw.warning && (
-            <p role="alert" className="mb-2 text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
-              ⚠️ {draw.warning}
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-800">
+              {draw.warning}
             </p>
           )}
-          <button
+          <Button
             type="button"
+            className="h-[3.125rem] w-full rounded-xl text-[15px]"
             onClick={() => {
               const c = mapRef.current?.getCenter();
               if (c) onAdd([c.lng, c.lat]);
             }}
-            className="w-full h-[3.125rem] bg-teal-700 hover:bg-teal-800 active:scale-[0.99] text-white font-medium text-[15px] rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
           >
-            <span className="material-symbols-outlined text-[20px]">add</span>
-            {draw.shape === "Marker" && n ? "Move point here" : "Add point"}
-          </button>
+            <PlusIcon data-icon="inline-start" />
+            {draw.shape === "Marker" && n ? "ย้ายจุดมาตรงนี้" : "เพิ่มจุดตรงกากบาท"}
+          </Button>
         </div>
       </div>
     </>

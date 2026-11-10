@@ -3,6 +3,7 @@ import type { GeomType } from "../api";
 import { GEOM_LABEL, LAYER_COLORS, type Layer, type RelatedTable } from "../lib/layers";
 import { parseDrafts, TABLE_TYPE, tableDrafts, toDrafts, type DraftField } from "../lib/fieldDrafts";
 import FieldListEditor from "./FieldListEditor";
+import { type LucideIcon, MapPinIcon, PentagonIcon, RouteIcon, SaveIcon, Trash2Icon, XIcon } from "lucide-react";
 
 export type LayerDraft = Omit<Layer, "id"> & { id?: number };
 
@@ -17,7 +18,7 @@ export type TableChanges = {
 };
 
 const GEOM_TYPES: GeomType[] = ["Point", "LineString", "Polygon"];
-const GEOM_ICON: Record<GeomType, string> = { Point: "location_on", LineString: "timeline", Polygon: "polyline" };
+const GEOM_ICON: Record<GeomType, LucideIcon> = { Point: MapPinIcon, LineString: RouteIcon, Polygon: PentagonIcon };
 
 /**
  * ฟอร์มสร้าง/แก้ layer: ชื่อ, ชนิดรูปทรง (เลือกได้แค่ตอนสร้าง), สี และหัวข้อ property
@@ -118,7 +119,7 @@ export default function LayerDialog({
             {layer ? "แก้ไข Layer" : "สร้าง Layer"}
           </h2>
           <button type="button" aria-label="ปิด" onClick={onClose} className="p-1 rounded text-slate-500 hover:bg-slate-100 flex">
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <XIcon className="size-[20px] shrink-0" />
           </button>
         </div>
 
@@ -143,20 +144,23 @@ export default function LayerDialog({
               ชนิดรูปทรง {typeLocked && <span className="font-normal text-slate-400">(เปลี่ยนไม่ได้)</span>}
             </span>
             <div className="grid grid-cols-3 gap-2">
-              {GEOM_TYPES.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  disabled={typeLocked && t !== geomType}
-                  onClick={() => setGeomType(t)}
-                  className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-sm transition-colors disabled:opacity-40 ${
-                    geomType === t ? "border-teal-700 bg-teal-50 text-teal-800 font-semibold" : "border-slate-300 text-slate-600"
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[18px]">{GEOM_ICON[t]}</span>
-                  {GEOM_LABEL[t]}
-                </button>
-              ))}
+              {GEOM_TYPES.map((t) => {
+                const Icon = GEOM_ICON[t];
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={typeLocked && t !== geomType}
+                    onClick={() => setGeomType(t)}
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-sm transition-colors disabled:opacity-40 ${
+                      geomType === t ? "border-teal-700 bg-teal-50 text-teal-800 font-semibold" : "border-slate-300 text-slate-600"
+                    }`}
+                  >
+                    <Icon className="size-[18px] shrink-0" />
+                    {GEOM_LABEL[t]}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -239,7 +243,7 @@ export default function LayerDialog({
                 onClick={() => setConfirmDelete(true)}
                 className="flex items-center gap-1 px-2.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-medium"
               >
-                <span className="material-symbols-outlined text-[16px]">delete</span>
+                <Trash2Icon className="size-[16px] shrink-0" />
                 ลบ Layer
               </button>
             )
@@ -254,7 +258,7 @@ export default function LayerDialog({
               type="submit"
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-700 text-white hover:bg-teal-800 rounded-lg text-xs font-medium shadow-sm"
             >
-              <span className="material-symbols-outlined text-[16px]">save</span>
+              <SaveIcon className="size-[16px] shrink-0" />
               บันทึก
             </button>
           </div>

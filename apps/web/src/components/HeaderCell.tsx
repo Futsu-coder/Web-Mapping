@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FIELD_TYPE_LABEL, type FieldType, type LayerField } from "../lib/layers";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronDownIcon, PencilIcon, Rows3Icon, ShapesIcon, SigmaIcon, Trash2Icon } from "lucide-react";
 
 /** ฟอร์มย่อยในเมนูที่เปิดอยู่ */
 type Panel = null | "rename" | "type" | "delete";
@@ -136,11 +137,15 @@ export default function HeaderCell({
           open ? "bg-slate-200/70 text-slate-900" : "text-slate-600"
         }`}
       >
-        {computed && <span className="material-symbols-outlined text-[14px] text-teal-700">functions</span>}
+        {computed && <SigmaIcon className="size-[14px] shrink-0 text-teal-700" />}
         {label}
-        <span className="material-symbols-outlined text-[15px] text-slate-400">
-          {sortDir === 1 ? "arrow_upward" : sortDir === -1 ? "arrow_downward" : "expand_more"}
-        </span>
+        {sortDir === 1 ? (
+          <ArrowUpIcon className="size-[15px] shrink-0 text-slate-400" />
+        ) : sortDir === -1 ? (
+          <ArrowDownIcon className="size-[15px] shrink-0 text-slate-400" />
+        ) : (
+          <ChevronDownIcon className="size-[15px] shrink-0 text-slate-400" />
+        )}
       </button>
 
       {open && (
@@ -153,16 +158,16 @@ export default function HeaderCell({
           {panel === null && (
             <>
               <button type="button" role="menuitem" className={item} onClick={run(() => onSort(1))}>
-                <span className="material-symbols-outlined text-[16px] text-slate-500">arrow_upward</span>
+                <ArrowUpIcon className="size-[16px] shrink-0 text-slate-500" />
                 เรียงน้อย → มาก
               </button>
               <button type="button" role="menuitem" className={item} onClick={run(() => onSort(-1))}>
-                <span className="material-symbols-outlined text-[16px] text-slate-500">arrow_downward</span>
+                <ArrowDownIcon className="size-[16px] shrink-0 text-slate-500" />
                 เรียงมาก → น้อย
               </button>
               {sortDir !== null && (
                 <button type="button" role="menuitem" className={item} onClick={run(() => onSort(null))}>
-                  <span className="material-symbols-outlined text-[16px] text-slate-500">swap_vert</span>
+                  <ArrowUpDownIcon className="size-[16px] shrink-0 text-slate-500" />
                   เลิกเรียง
                 </button>
               )}
@@ -177,7 +182,7 @@ export default function HeaderCell({
                     setPanel("rename");
                   }}
                 >
-                  <span className="material-symbols-outlined text-[16px] text-slate-500">edit</span>
+                  <PencilIcon className="size-[16px] shrink-0 text-slate-500" />
                   เปลี่ยนชื่อ
                 </button>
               )}
@@ -192,14 +197,14 @@ export default function HeaderCell({
                     setPanel("type");
                   }}
                 >
-                  <span className="material-symbols-outlined text-[16px] text-slate-500">category</span>
+                  <ShapesIcon className="size-[16px] shrink-0 text-slate-500" />
                   เปลี่ยนชนิด
                   {field && <span className="ml-auto text-[11px] text-slate-400">{FIELD_TYPE_LABEL[field.type]}</span>}
                 </button>
               )}
               {onConvertToTable && (
                 <button type="button" role="menuitem" className={item} onClick={run(onConvertToTable)}>
-                  <span className="material-symbols-outlined text-[16px] text-teal-700">table_rows</span>
+                  <Rows3Icon className="size-[16px] shrink-0 text-teal-700" />
                   <span>
                     แปลงเป็นตารางย่อย
                     <span className="block text-[11px] text-slate-400">หลายค่าต่อ feature — ค่าเดิมย้ายไปเป็นแถวแรก</span>
@@ -208,7 +213,7 @@ export default function HeaderCell({
               )}
               {onDelete && (
                 <button type="button" role="menuitem" className={`${item} text-red-700 hover:bg-red-50`} onClick={() => setPanel("delete")}>
-                  <span className="material-symbols-outlined text-[16px]">delete</span>
+                  <Trash2Icon className="size-[16px] shrink-0" />
                   ลบคอลัมน์
                 </button>
               )}

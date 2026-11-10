@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Layer, RelatedTable } from "../lib/layers";
 import { parseDrafts, toDrafts, type DraftField } from "../lib/fieldDrafts";
 import FieldListEditor from "./FieldListEditor";
+import { SaveIcon, Trash2Icon, XIcon } from "lucide-react";
 
 export type RelatedTableDraft = Omit<RelatedTable, "id"> & { id?: number };
 
@@ -92,7 +93,7 @@ export default function RelatedTableDialog({
             </p>
           </div>
           <button type="button" aria-label="ปิด" onClick={onClose} className="p-1 rounded text-slate-500 hover:bg-slate-100 flex">
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <XIcon className="size-[20px] shrink-0" />
           </button>
         </div>
 
@@ -180,7 +181,7 @@ export default function RelatedTableDialog({
                 onClick={() => setConfirmDelete(true)}
                 className="flex items-center gap-1 px-2.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-medium"
               >
-                <span className="material-symbols-outlined text-[16px]">delete</span>
+                <Trash2Icon className="size-[16px] shrink-0" />
                 ลบตาราง
               </button>
             )
@@ -195,7 +196,7 @@ export default function RelatedTableDialog({
               type="submit"
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-700 text-white hover:bg-teal-800 rounded-lg text-xs font-medium shadow-sm"
             >
-              <span className="material-symbols-outlined text-[16px]">save</span>
+              <SaveIcon className="size-[16px] shrink-0" />
               บันทึก
             </button>
           </div>

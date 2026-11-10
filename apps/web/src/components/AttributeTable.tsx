@@ -19,6 +19,7 @@ import type { RecordDraft } from "./RelatedRecords";
 import AddColumn from "./AddColumn";
 import HeaderCell from "./HeaderCell";
 import RelatedTableView from "./RelatedTableView";
+import { ChevronRightIcon, CircleAlertIcon, Rows3Icon, TableIcon, XIcon } from "lucide-react";
 
 type Column = {
   id: string;
@@ -320,11 +321,11 @@ export default function AttributeTable({
       data-attribute-table
       style={style}
       className={`absolute z-30 flex flex-col bg-white ${
-        mobile ? "inset-0" : "left-0 bottom-0 h-[min(40%,20rem)] border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
+        mobile ? "inset-0" : "inset-x-0 bottom-0 h-[min(40%,20rem)] border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
       }`}
     >
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-200 shrink-0">
-        <span className="material-symbols-outlined text-[18px] text-teal-700">table_view</span>
+        <TableIcon className="size-[18px] shrink-0 text-teal-700" />
         <span className="text-sm font-semibold text-slate-900 shrink-0">Attribute table</span>
         {!mobile && <span className="text-[11px] text-slate-400 shrink-0">ดับเบิลคลิกช่องเพื่อแก้</span>}
         <div className="flex-1 min-w-0 flex gap-1 overflow-x-auto no-scrollbar">
@@ -375,7 +376,7 @@ export default function AttributeTable({
                   !viewTable ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
                 }`}
               >
-                <span className="material-symbols-outlined text-[15px]">table_view</span>
+                <TableIcon className="size-[15px] shrink-0" />
                 ตารางหลัก
               </button>
               {layerTables.map((t) => (
@@ -389,7 +390,7 @@ export default function AttributeTable({
                       : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[15px]">table_rows</span>
+                  <Rows3Icon className="size-[15px] shrink-0" />
                   {t.name}
                   <span className="opacity-70">({records.filter((r) => r.tableId === t.id).length})</span>
                 </button>
@@ -404,16 +405,16 @@ export default function AttributeTable({
           onClick={onClose}
           className="p-1 rounded text-slate-500 hover:bg-slate-100 flex shrink-0"
         >
-          <span className="material-symbols-outlined text-[20px]">close</span>
+          <XIcon className="size-[20px] shrink-0" />
         </button>
       </div>
 
       {error && !viewTable && (
         <div role="alert" className="flex items-center gap-1.5 px-3 py-1 border-b border-red-200 bg-red-50 text-xs text-red-800 shrink-0">
-          <span className="material-symbols-outlined text-[16px]">error</span>
+          <CircleAlertIcon className="size-[16px] shrink-0" />
           <span className="flex-1">{error}</span>
           <button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setError(null)} className="p-0.5 rounded flex hover:bg-red-100">
-            <span className="material-symbols-outlined text-[14px]">close</span>
+            <XIcon className="size-[14px] shrink-0" />
           </button>
         </div>
       )}
@@ -534,7 +535,7 @@ export default function AttributeTable({
                               className="inline-flex items-center gap-0.5 px-1.5 rounded text-teal-800 font-medium underline decoration-dotted underline-offset-2 hover:bg-teal-50"
                             >
                               {text}
-                              <span className="material-symbols-outlined text-[14px] no-underline">chevron_right</span>
+                              <ChevronRightIcon className="size-[14px] shrink-0" />
                             </button>
                           ) : (
                             text || <span className="text-slate-300">—</span>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FIELD_TYPE_LABEL, newFieldKey, type FieldType, type LayerField } from "../lib/layers";
+import { PlusIcon } from "lucide-react";
 
 // ชนิดพิเศษในกล่องเพิ่มคอลัมน์: สร้างตารางย่อยแทนหัวข้อ
 const TABLE = "__table";
@@ -68,7 +69,7 @@ export default function AddColumn({
           open ? "bg-teal-700 text-white" : "text-teal-700 hover:bg-teal-50"
         }`}
       >
-        <span className="material-symbols-outlined text-[18px]">add</span>
+        <PlusIcon className="size-[18px] shrink-0" />
         {text}
       </button>
       {open && (

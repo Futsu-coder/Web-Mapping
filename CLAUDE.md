@@ -6,7 +6,7 @@ Web Mapping & Geospatial API — งานสหกิจ (ทำ 2 คน) ส�
 - โจทย์จริงที่ต้องทำให้ครบ: แผนที่บนเว็บ, CRUD 3 ชนิด, บันทึก/เรียกดูได้, REST API, GeoJSON, เว็บต่อ API ได้จริง, ส่ง URL + deployment + presentation
 
 ## Stack
-- **Web:** React 19 + Vite + Tailwind 4 + MapLibre GL 6 (vector tiles ของ OpenFreeMap) + @mapbox/mapbox-gl-draw
+- **Web:** React 19 + Vite + Tailwind 4 + shadcn/ui (`components/ui/`, ไอคอน lucide-react — ไม่มีฟอนต์ Material Symbols แล้ว) + MapLibre GL 6 (vector tiles ของ OpenFreeMap) + @mapbox/mapbox-gl-draw
 - **API:** Elysia (Bun) + Drizzle ORM (postgres.js)
 - **DB/Auth/Realtime:** Supabase (PostgreSQL + PostGIS, SRID 4326)
 - **Deploy:** Vercel project เดียว — `api/index.ts` เป็นตัวเชื่อม: `vercel.json` rewrite `/api/*` → `api/index.ts` → Elysia `app` ใน `apps/server/src/index.ts`
@@ -66,6 +66,8 @@ apps/web/src/
   - ใน properties เก็บแบบแบน: `layer_id` + ค่าของแต่ละหัวข้อ (key = `f_xxxx`) — แปลงไป/กลับด้วย `propsOf` / `toStoredProps` (`lib/featureMeta.ts`)
   - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ, ลบ layer = feature ใน layer ถูกลบด้วย
   - UI: `LayerDialog` (สร้าง/แก้), `AttributeTable` (ตารางด้านล่างแผนที่ — ดับเบิลคลิกช่องแก้ค่า, ปุ่ม + เพิ่มคอลัมน์, ดินสอที่หัวคอลัมน์เปลี่ยนชื่อ), กลุ่มตาม layer ใน `FeaturePanel`
+    ปุ่มเปิดตารางอยู่ใน `MapControls` — จอคอม: ตารางอยู่นอก `.map-area` แล้ว App หดพื้นที่แผนที่ขึ้น (`tableDocked`) การ์ด/ปุ่มที่ลอยบนแผนที่เลยขยับตามเอง
+    ถ้าเปิดฟอร์มด้วย `DetailCard tall` ยืดลงเต็ม และ `MapControls` ย้ายไปซ้ายของการ์ด / มือถือ: ตารางเต็มจอ
   - **ตารางย่อย (related table)**: layer มีได้หลายตาราง (เช่น "ปลาที่พบ") 1 feature มีได้หลายแถว — `RelatedTable` / `RelatedRecord` ใน `lib/layers.ts`
     นิยามตาราง (หัวข้อ) เก็บเป็นข้อมูล ไม่ได้สร้างตารางจริง → ผู้ใช้สร้างเองได้โดยไม่ต้องแก้ DB (`related_tables` + `related_records`, ค่าเป็น jsonb)
     แถวแก้ใน `RelatedRecords` (ในฟอร์มรายละเอียด บันทึกทันที), attribute table มีคอลัมน์สรุปที่ระบบนับเอง (`summarize`: จำนวนแถว หรือค่าไม่ซ้ำของ `countKey`)

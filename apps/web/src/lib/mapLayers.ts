@@ -17,13 +17,13 @@ export const CLUSTER_LAYER = "cluster";
 
 export const sourceOf = (type: GeomType) => (type === "Point" ? POINTS : SHAPES);
 
-const BLUE = "#3388ff";
-const ORANGE = "#f59e0b";
 const TEAL = "#0f766e";
+// สีของ layer ที่ feature อยู่ (ใส่ไว้ใน properties.color) — ไม่มี layer = สีเทา
+const NO_LAYER_COLOR = "#71717a";
+const layerColor: ExpressionSpecification = ["coalesce", ["get", "color"], NO_LAYER_COLOR];
 const hover: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
-// สีของ layer ที่ feature อยู่ (ใส่ไว้ใน properties.color) — ไม่มี layer = สีฟ้าเดิม
-const baseColor: ExpressionSpecification = ["coalesce", ["get", "color"], BLUE];
 const selected: ExpressionSpecification = ["boolean", ["feature-state", "selected"], false];
+const active: ExpressionSpecification = ["any", hover, selected];
 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 /**
@@ -56,7 +56,15 @@ export function addFeatureLayers(map: MlMap) {
     type: "fill",
     source: SHAPES,
     filter: ["==", ["geometry-type"], "Polygon"],
-    paint: { "fill-color": ["case", hover, ORANGE, baseColor], "fill-opacity": 0.2 },
+    paint: { "fill-color": layerColor, "fill-opacity": ["case", active, 0.32, 0.2] },
+  });
+  // halo: เส้นกว้างโปร่งใสใต้เส้นหลัก โผล่เมื่อ hover / เลือก
+  map.addLayer({
+    id: "shape-halo",
+    type: "line",
+    source: SHAPES,
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": layerColor, "line-width": 12, "line-opacity": ["case", active, 0.25, 0] },
   });
   map.addLayer({
     id: "shape-line",
@@ -64,8 +72,8 @@ export function addFeatureLayers(map: MlMap) {
     source: SHAPES,
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
-      "line-color": ["case", hover, ORANGE, baseColor],
-      "line-width": ["case", hover, 6, selected, 5, 3],
+      "line-color": layerColor,
+      "line-width": ["case", hover, 5, selected, 5, 3],
     },
   });
   map.addLayer({
@@ -74,7 +82,7 @@ export function addFeatureLayers(map: MlMap) {
     source: POINTS,
     filter: ["has", "point_count"],
     paint: {
-      "circle-color": ["step", ["get", "point_count"], "#6ecc39", 10, "#f0c20c", 100, "#f18017"],
+      "circle-color": ["step", ["get", "point_count"], "#14b8a6", 10, "#0f766e", 100, "#134e4a"],
       "circle-radius": ["step", ["get", "point_count"], 15, 10, 18, 100, 22],
       "circle-stroke-width": 5,
       "circle-stroke-color": "#ffffff",
@@ -87,6 +95,14 @@ export function addFeatureLayers(map: MlMap) {
     source: POINTS,
     filter: ["has", "point_count"],
     layout: { "text-field": ["get", "point_count_abbreviated"], "text-font": LABEL_FONT, "text-size": 12 },
+    paint: { "text-color": "#ffffff" },
+  });
+  map.addLayer({
+    id: "point-halo",
+    type: "circle",
+    source: POINTS,
+    filter: ["!", ["has", "point_count"]],
+    paint: { "circle-color": layerColor, "circle-radius": 16, "circle-opacity": ["case", active, 0.28, 0] },
   });
   map.addLayer({
     id: "point",
@@ -94,8 +110,8 @@ export function addFeatureLayers(map: MlMap) {
     source: POINTS,
     filter: ["!", ["has", "point_count"]],
     paint: {
-      "circle-color": ["case", hover, ORANGE, baseColor],
-      "circle-radius": ["case", hover, 10, selected, 9, 8],
+      "circle-color": layerColor,
+      "circle-radius": ["case", hover, 10, selected, 10, 8],
       "circle-stroke-width": 2,
       "circle-stroke-color": "#ffffff",
     },
@@ -137,7 +153,7 @@ const setData = (map: MlMap, source: string, features: GeoJSON.Feature[]) =>
 
 /**
  * วาด feature ที่บันทึกแล้วตาม items (ไม่รวมตัวที่ซ่อน / กำลังแก้อยู่ใน draw)
- * colorOf = สีของ layer ที่ feature อยู่ (ไม่มี = ใช้สีปกติ)
+ * colorOf = สีของ layer ที่ feature อยู่ (ไม่มี = สีเทา)
  */
 export function setFeatureData(map: MlMap, items: Item[], colorOf: (i: Item) => string | undefined = () => undefined) {
   const toFeature = (i: Item): GeoJSON.Feature => {

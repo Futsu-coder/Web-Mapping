@@ -1,151 +1,124 @@
-import { useEffect, useRef, useState } from "react";
-import type { Map as MlMap } from "maplibre-gl";
+import { useEffect } from "react";
+import { MapPinIcon, MoveIcon, PentagonIcon, RouteIcon, XIcon, type LucideIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { DrawShape } from "../lib/types";
 
-const TOOL_ICON: Record<DrawShape, string> = { Marker: "location_on", Line: "timeline", Polygon: "polyline" };
+const TOOLS: { shape: DrawShape; label: string; key: string; Icon: LucideIcon; hint: string }[] = [
+  { shape: "Marker", label: "จุด", key: "P", Icon: MapPinIcon, hint: "คลิกบนแผนที่เพื่อวางจุด" },
+  { shape: "Line", label: "เส้น", key: "L", Icon: RouteIcon, hint: "คลิกเพื่อวางจุด · ดับเบิลคลิกหรือกด Enter เพื่อจบ" },
+  { shape: "Polygon", label: "พื้นที่", key: "G", Icon: PentagonIcon, hint: "คลิกเพื่อวางจุด · คลิกจุดแรกหรือกด Enter เพื่อจบ" },
+];
 
-function ToolButton({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: string;
-  label: string;
-  active?: boolean;
-  onClick: () => void;
-}) {
+function Kbd({ children, on }: { children: string; on?: boolean }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      onClick={onClick}
-      className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-        active
-          ? "bg-teal-600 text-white shadow-sm"
-          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-      }`}
+    <kbd
+      className={cn(
+        "rounded border px-1.5 text-[11px] leading-4 font-semibold",
+        on ? "border-white/40 bg-white/15 text-white" : "bg-muted/60 text-muted-foreground",
+      )}
     >
-      <span className="material-symbols-outlined text-[19px]">{icon}</span>
-    </button>
+      {children}
+    </kbd>
   );
 }
 
+/** เครื่องมือวาด (จอคอม): pill กลางล่าง + แถบคำแนะนำตอนวาด + คีย์ลัด P/L/G/M/Esc — มือถือใช้ DrawFab แทน */
 export default function Toolbar({
-  mapRef,
   activeTool,
   moveActive,
-  is3D,
-  onToggle3D,
-  collapsible = false,
   onDrawSelect,
   onToggleMove,
-  tableOpen,
-  onToggleTable,
+  shortcutsEnabled = true,
 }: {
-  mapRef: React.MutableRefObject<MlMap | null>;
   activeTool: DrawShape | null;
   moveActive: boolean;
-  /** โหมด 3D (แผนที่เอียง + ตึก 3D) */
-  is3D: boolean;
-  onToggle3D: () => void;
-  /** มือถือ: แสดงเป็นปุ่มเดียว (ไอคอนเครื่องมือที่ใช้อยู่ + ลูกศร) กดแล้วกางรายการเครื่องมือ */
-  collapsible?: boolean;
-  /** เลือกเครื่องมือวาด (เลือกตัวเดิมซ้ำ = ยกเลิก) — จอคอมวาดด้วย mapbox-gl-draw, มือถือวาดด้วยกากบาทกลางจอ */
+  /** เลือกเครื่องมือวาด (เลือกตัวเดิมซ้ำ = ยกเลิก) */
   onDrawSelect: (shape: DrawShape) => void;
   /** เปิด/ปิดเครื่องมือ Move (ย้ายทั้งก้อน) */
   onToggleMove: () => void;
-  /** Attribute table (ระบบ layer ในโหมดทดลอง) — ไม่ส่ง = ไม่มีปุ่ม */
-  tableOpen?: boolean;
-  onToggleTable?: () => void;
+  /** false = ปิดคีย์ลัด P/L/G/M (ระหว่างสร้าง/แก้ feature กันเผลอกดแล้วฟอร์มที่กรอกไว้หาย) — Esc ยังใช้ได้ */
+  shortcutsEnabled?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const showTools = !collapsible || expanded;
-
+  // คีย์ลัด — ข้ามเมื่อกำลังพิมพ์ในช่องกรอก หรือมี dialog เปิดอยู่
   useEffect(() => {
-    if (!(collapsible && expanded)) return;
-    // capture: แผนที่อาจหยุด event ไม่ให้ลอยขึ้นมาถึง document
-    const handleOutside = (e: PointerEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setExpanded(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      // dropdown/เมนูของ shadcn (Select, DropdownMenu, Popover) พิมพ์ตัวอักษรเพื่อค้นรายการ — ห้ามไปเริ่มวาด
+      if (el?.closest('[role="combobox"],[role="listbox"],[role="menu"],[role="option"]')) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]')) return;
+      const k = e.key.toLowerCase();
+      if (k === "escape") {
+        if (activeTool) onDrawSelect(activeTool);
+        else if (moveActive) onToggleMove();
+        return;
       }
+      if (!shortcutsEnabled) return;
+      if (k === "m") return void onToggleMove();
+      const tool = TOOLS.find((t) => t.key.toLowerCase() === k);
+      if (tool) onDrawSelect(tool.shape);
     };
-    document.addEventListener("pointerdown", handleOutside, true);
-    return () => document.removeEventListener("pointerdown", handleOutside, true);
-  }, [collapsible, expanded]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeTool, moveActive, onDrawSelect, onToggleMove, shortcutsEnabled]);
 
-  const toggleDraw = (shape: DrawShape) => {
-    onDrawSelect(shape);
-    setExpanded(false);
-  };
-
-  const triggerActive = activeTool !== null || moveActive;
-  const triggerIcon = activeTool ? TOOL_ICON[activeTool] : moveActive ? "open_with" : "edit_location_alt";
+  const hint = activeTool
+    ? TOOLS.find((t) => t.shape === activeTool)?.hint
+    : moveActive
+      ? "คลิก feature ที่ต้องการ แล้วลากเพื่อย้ายทั้งรูป"
+      : null;
 
   return (
-    <div
-      ref={containerRef}
-      className="absolute top-3 left-3 md:top-4 md:left-4 z-20 flex flex-col gap-1 p-1 bg-white border border-slate-200 rounded-lg shadow-md"
-    >
-      {!showTools && (
-        <button
-          type="button"
-          title="เครื่องมือวาด"
-          aria-label="เปิดเครื่องมือวาด"
-          aria-expanded={false}
-          onClick={() => setExpanded(true)}
-          className="flex flex-col items-center gap-0.5 w-9 active:scale-95 transition-transform"
-        >
-          <span
-            className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-              triggerActive ? "bg-teal-700 text-white shadow-sm" : "text-slate-700"
-            }`}
+    <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center gap-2">
+      {hint && (
+        <div role="status" className="flex items-center gap-3 rounded-xl bg-zinc-900 py-2 pr-2 pl-4 text-sm text-white shadow-float">
+          <span>{hint}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 bg-zinc-700 text-white hover:bg-zinc-600"
+            onClick={() => (activeTool ? onDrawSelect(activeTool) : onToggleMove())}
           >
-            <span className="material-symbols-outlined text-[20px]">{triggerIcon}</span>
-          </span>
-          <span className="material-symbols-outlined text-[16px] text-slate-500 leading-none">expand_more</span>
-        </button>
+            <XIcon data-icon="inline-start" />
+            ยกเลิก <Kbd on>Esc</Kbd>
+          </Button>
+        </div>
       )}
-
-      {showTools && (
-        <>
-          <ToolButton icon="location_on" label="Draw Point" active={activeTool === "Marker"} onClick={() => toggleDraw("Marker")} />
-          <ToolButton icon="timeline" label="Draw Polyline" active={activeTool === "Line"} onClick={() => toggleDraw("Line")} />
-          <ToolButton icon="polyline" label="Draw Polygon" active={activeTool === "Polygon"} onClick={() => toggleDraw("Polygon")} />
-          <ToolButton icon="open_with" label="Move Feature" active={moveActive} onClick={onToggleMove} />
-
-          <div className="w-full h-px bg-slate-200 my-1" />
-
-          <ToolButton icon="add" label="Zoom In" onClick={() => mapRef.current?.zoomIn()} />
-          <ToolButton icon="remove" label="Zoom Out" onClick={() => mapRef.current?.zoomOut()} />
-          <ToolButton icon="view_in_ar" label={is3D ? "กลับเป็น 2D" : "มุมมอง 3D"} active={is3D} onClick={onToggle3D} />
-          {onToggleTable && (
-            <ToolButton
-              icon="table_view"
-              label={tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}
-              active={tableOpen}
-              onClick={() => {
-                onToggleTable();
-                setExpanded(false);
-              }}
-            />
-          )}
-
-          {collapsible && (
-            <button
-              type="button"
-              aria-label="ย่อเครื่องมือ"
-              onClick={() => setExpanded(false)}
-              className="w-8 h-6 flex items-center justify-center text-slate-500"
-            >
-              <span className="material-symbols-outlined text-[18px]">expand_less</span>
-            </button>
-          )}
-        </>
-      )}
+      <div role="toolbar" aria-label="เครื่องมือวาด" className="flex items-center gap-0.5 rounded-2xl border border-black/5 bg-card p-1 shadow-float">
+        {TOOLS.map(({ shape, label, key, Icon }) => (
+          <Tooltip key={shape}>
+            <TooltipTrigger asChild>
+              <Button
+                variant={activeTool === shape ? "default" : "ghost"}
+                aria-pressed={activeTool === shape}
+                className="h-10 gap-2 px-3.5"
+                onClick={() => onDrawSelect(shape)}
+              >
+                <Icon data-icon="inline-start" />
+                {label}
+                <Kbd on={activeTool === shape}>{key}</Kbd>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              วาด{label} ({key})
+            </TooltipContent>
+          </Tooltip>
+        ))}
+        <div className="mx-1 h-6 w-px bg-border" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant={moveActive ? "default" : "ghost"} aria-pressed={moveActive} className="h-10 gap-2 px-3.5" onClick={onToggleMove}>
+              <MoveIcon data-icon="inline-start" />
+              ย้าย
+              <Kbd on={moveActive}>M</Kbd>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">ย้ายทั้งรูป (M)</TooltipContent>
+        </Tooltip>
+      </div>
     </div>
   );
 }

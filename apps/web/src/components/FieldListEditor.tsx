@@ -1,5 +1,6 @@
 import { TABLE_TYPE, type DraftField } from "../lib/fieldDrafts";
 import { FIELD_TYPE_LABEL, newFieldKey, type FieldType } from "../lib/layers";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Rows3Icon, SettingsIcon, Trash2Icon } from "lucide-react";
 
 /**
  * รายการหัวข้อ (เพิ่ม/ลบ/เลื่อน/ตั้งชื่อ/เลือกชนิด) — ใช้ทั้งฟอร์ม layer และฟอร์มตารางย่อย
@@ -84,7 +85,7 @@ export default function FieldListEditor({
                 onClick={() => move(i, -1)}
                 className="p-1 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex"
               >
-                <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
+                <ArrowUpIcon className="size-[18px] shrink-0" />
               </button>
               <button
                 type="button"
@@ -93,7 +94,7 @@ export default function FieldListEditor({
                 onClick={() => move(i, 1)}
                 className="p-1 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 flex"
               >
-                <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
+                <ArrowDownIcon className="size-[18px] shrink-0" />
               </button>
               <button
                 type="button"
@@ -101,7 +102,7 @@ export default function FieldListEditor({
                 onClick={() => onChange((list) => list.filter((_, j) => j !== i))}
                 className="p-1 rounded text-slate-500 hover:bg-red-50 hover:text-red-700 flex"
               >
-                <span className="material-symbols-outlined text-[18px]">delete</span>
+                <Trash2Icon className="size-[18px] shrink-0" />
               </button>
             </div>
           </div>
@@ -122,13 +123,13 @@ export default function FieldListEditor({
                   onClick={() => onEditTable(f.tableId!)}
                   className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-teal-700 hover:bg-teal-50"
                 >
-                  <span className="material-symbols-outlined text-[16px]">settings</span>
+                  <SettingsIcon className="size-[16px] shrink-0" />
                   ตั้งค่าคอลัมน์ของตารางย่อย ({tableColumns?.(f.tableId) ?? 0} คอลัมน์)
                 </button>
               )
             ) : (
               <p className="flex items-start gap-1 text-[11px] text-teal-800">
-                <span className="material-symbols-outlined text-[15px]">table_rows</span>
+                <Rows3Icon className="size-[15px] shrink-0" />
                 {originalKeys.has(f.key)
                   ? "แปลงเป็นตารางย่อย — ค่าเดิมของหัวข้อนี้ย้ายไปเป็นแถวแรกของแต่ละ feature"
                   : "ตารางย่อย (หลายแถวต่อ feature) — บันทึกแล้วเพิ่มคอลัมน์ได้ที่ ⚙ หรือในตารางย่อยของ Attribute table"}
@@ -147,7 +148,7 @@ export default function FieldListEditor({
         }}
         className="flex items-center justify-center gap-1 py-1.5 rounded-lg border border-dashed border-teal-600 text-teal-700 text-sm font-medium hover:bg-teal-50"
       >
-        <span className="material-symbols-outlined text-[18px]">add</span>
+        <PlusIcon className="size-[18px] shrink-0" />
         เพิ่มหัวข้อ
       </button>
       {editing && (
