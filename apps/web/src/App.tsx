@@ -6,16 +6,21 @@ import {
   createFeature,
   deleteFeature,
   getMe,
+  layerApi,
   patchFeature,
   type ApiFeature,
   type FeaturePatch,
   type FeatureProps,
   type Me,
 } from "./api";
+import AttributeTable from "./components/AttributeTable";
 import AuthDialog from "./components/AuthDialog";
 import InvitationToasts from "./components/InvitationToasts";
 import NotificationBell from "./components/NotificationBell";
 import FeatureEditor from "./components/FeatureEditor";
+import LayerDialog, { type LayerDraft, type TableChanges } from "./components/LayerDialog";
+import RelatedRecords, { type RecordDraft } from "./components/RelatedRecords";
+import RelatedTableDialog, { type RelatedTableDraft } from "./components/RelatedTableDialog";
 import MapView, { type MapCtx } from "./components/MapView";
 import AccountMenu from "./components/AccountMenu";
 import GuestIndicator from "./components/GuestIndicator";
@@ -37,12 +42,30 @@ import MobileHeader from "./components/mobile/MobileHeader";
 import MobileSheet, { SHEET_HALF_RATIO } from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { toItem, useFeatureData } from "./hooks/useFeatureData";
+import { useLayerData } from "./hooks/useLayerData";
 import { useMapEvents } from "./hooks/useMapEvents";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
-import { bboxOf, centerOf, message, propsOf, sameGeometry } from "./lib/featureMeta";
+import { bboxOf, centerOf, message, propsOf, sameGeometry, toStoredProps } from "./lib/featureMeta";
 import { setFeatureData, setItemState, setTerrainEnabled } from "./lib/mapLayers";
 import { selfIntersects } from "./lib/measure";
-import { clearGuest, GUEST_TTL_MS, guestExpiresAt, nextGuestId, removeGuest, upsertGuest } from "./lib/guestStore";
+import {
+  clearGuest,
+  GUEST_TTL_MS,
+  guestExpiresAt,
+  loadGuestLayers,
+  loadGuestRecords,
+  loadGuestTables,
+  nextGuestId,
+  removeGuest,
+  removeGuestLayer,
+  removeGuestRecord,
+  removeGuestTable,
+  upsertGuest,
+  upsertGuestLayer,
+  upsertGuestRecord,
+  upsertGuestTable,
+} from "./lib/guestStore";
+import type { Layer, LayerField, RelatedRecord, RelatedTable } from "./lib/layers";
 import { isIdleExpired, watchIdle } from "./lib/idleLogout";
 import { supabase } from "./lib/supabase";
 import { useInvitations } from "./lib/useInvitations";
@@ -53,8 +76,34 @@ const localFeature = (id: number, type: GeomType, geometry: GeoJSON.Geometry, pr
   type: "Feature",
   id,
   geometry,
-  properties: { ...props, geom_type: type, owner_id: null, owner_name: null },
+  properties: { ...toStoredProps(props), geom_type: type, owner_id: null, owner_name: null },
 });
+
+/** เพิ่ม/แทนที่ตาม id */
+const upsertById = <T extends { id: number }>(list: T[], x: T) =>
+  list.some((y) => y.id === x.id) ? list.map((y) => (y.id === x.id ? x : y)) : [...list, x];
+
+/**
+ * JSON Merge Patch เฉพาะสิ่งที่เปลี่ยน (ส่ง API ตอน login): ค่าที่ลบ = null
+ * ย้าย/เอาออกจาก layer → ส่ง layer_id (server ล้างค่าของ layer เดิมเอง) + ค่าทั้งหมดของ layer ใหม่
+ */
+function diffPatch(before: Item, props: FeatureProps, geometry?: GeoJSON.Geometry): FeaturePatch {
+  const patch: FeaturePatch = {};
+  if (geometry && !sameGeometry(geometry, before.geometry)) patch.geometry = geometry;
+  const changed: NonNullable<FeaturePatch["properties"]> = {};
+  if (props.name !== before.props.name) changed.name = props.name;
+  if (props.description !== before.props.description) changed.description = props.description ?? null;
+  const layerChanged = (props.layerId ?? null) !== (before.props.layerId ?? null);
+  if (layerChanged) changed.layer_id = props.layerId ?? null;
+  const a = layerChanged ? {} : (before.props.values ?? {});
+  const b = props.values ?? {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (b[key] === undefined) changed[key] = null;
+    else if (b[key] !== a[key]) changed[key] = b[key];
+  }
+  if (Object.keys(changed).length) patch.properties = changed;
+  return patch;
+}
 
 // type ของ mapbox-gl-draw แยก changeMode ตามชื่อโหมด — ใช้ตัวนี้เมื่อชื่อโหมดเป็นตัวแปร
 const setDrawMode = (draw: MapboxDraw, mode: string, options?: object) =>
@@ -111,6 +160,16 @@ export default function App() {
   const [guestExpiry, setGuestExpiry] = useState(guestExpiresAt);
   const [guestEpoch, setGuestEpoch] = useState(0);
   const [now, setNow] = useState(Date.now);
+  // ระบบ layer (login = API ผ่าน useLayerData, โหมดทดลอง = localStorage): layer ทั้งหมด / layer ที่ซ่อน / ตาราง / ฟอร์ม layer ที่เปิดอยู่
+  const [layers, setLayers] = useState<Layer[]>(loadGuestLayers);
+  // ตารางย่อยของ layer + แถวข้อมูล / ฟอร์มตารางย่อยที่เปิดอยู่ (table null = สร้างใหม่)
+  const [tables, setTables] = useState<RelatedTable[]>(loadGuestTables);
+  const [records, setRecords] = useState<RelatedRecord[]>(loadGuestRecords);
+  const [tableDialog, setTableDialog] = useState<{ layerId: number; table: RelatedTable | null } | null>(null);
+  const [hiddenLayers, setHiddenLayers] = useState<Set<number>>(new Set());
+  const [tableOpen, setTableOpen] = useState(false);
+  const [tableLayerId, setTableLayerId] = useState<number | null>(null);
+  const [layerDialog, setLayerDialog] = useState<{ layer: Layer | null; lockType?: GeomType } | null>(null);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
   const onMapReady = useCallback((c: MapCtx | null) => {
@@ -165,11 +224,25 @@ export default function App() {
     setHiddenIds(new Set());
     setHiddenOwners(new Set());
     setHoveredId(null);
+    setLayers(activeMe ? [] : loadGuestLayers());
+    setTables(activeMe ? [] : loadGuestTables());
+    setRecords(activeMe ? [] : loadGuestRecords());
+    setTableDialog(null);
+    setHiddenLayers(new Set());
+    setLayerDialog(null);
+    setTableOpen(false);
   }
   useFeatureData(viewKey, guest, setItems, onError);
+  useLayerData(viewKey, guest, setLayers, setTables, setRecords, onError);
+
+  // จัดการโครงสร้าง (layer / ตารางย่อย / คอลัมน์) ได้: โหมดทดลอง (เป็นเจ้าของทุกอย่าง) หรือเจ้าของ group
+  const canManageLayers = guest || groupOwner;
+  const layerOf = (item: Item) =>
+    item.props.layerId === undefined ? undefined : layers.find((l) => l.id === item.props.layerId);
+  const inHiddenLayer = (item: Item) => item.props.layerId !== undefined && hiddenLayers.has(item.props.layerId);
 
   const isHidden = (item: Item) =>
-    hiddenIds.has(item.id) || (item.ownerId !== null && hiddenOwners.has(item.ownerId));
+    hiddenIds.has(item.id) || (item.ownerId !== null && hiddenOwners.has(item.ownerId)) || inHiddenLayer(item);
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
   const hiddenSet = new Set(items.filter(isHidden).map((i) => i.id));
@@ -190,11 +263,13 @@ export default function App() {
         (i) =>
           !hiddenIds.has(i.id) &&
           !(i.ownerId !== null && hiddenOwners.has(i.ownerId)) &&
+          !(i.props.layerId !== undefined && hiddenLayers.has(i.props.layerId)) &&
           i.id !== editingId &&
           i.id !== movingId,
       ),
+      (i) => layers.find((l) => l.id === i.props.layerId)?.color,
     );
-  }, [ctx, items, hiddenIds, hiddenOwners, editingId, movingId]);
+  }, [ctx, items, hiddenIds, hiddenOwners, hiddenLayers, layers, editingId, movingId]);
 
   // hover จากรายการหรือบนแผนที่ → ไฮไลต์บนแผนที่ / ที่เลือกอยู่ → เส้นหนาขึ้น
   useEffect(() => {
@@ -212,6 +287,8 @@ export default function App() {
   // → ระหว่างนั้นกลับเป็น 2D ชั่วคราว ทำเสร็จแล้วเอียงกลับให้เอง
   // โหมดดูรายละเอียด (view) ก็แบนด้วย เพื่อให้ทุกครั้งที่เลือก feature ได้มุมมองเดียวกัน
   const mustBeFlat = !!activeTool || !!mobileDraw || moveMode || !!selection;
+  // กำลังวาด/สร้าง/แก้/ย้าย → ซ่อนปุ่ม 3D ไปเลย (โหมดดูรายละเอียดอย่างเดียวยังเห็นปุ่ม)
+  const editingData = !!activeTool || !!mobileDraw || moveMode || selection?.mode === "create" || selection?.mode === "edit";
   /** ตอนนี้ควรเอียงอยู่ไหม (is3D และไม่ได้อยู่ในโหมดที่ต้องแบน) — ให้ตัวกันพลาด moveend ด้านล่างอ่านค่าล่าสุด */
   const tiltRef = useRef(false);
   // ตัวกันพลาด: การแบนด้วย easeTo อาจถูกตัดกลางทาง (ผู้ใช้ลาก/ซูม, flyTo ของค้นหา, ปุ่มตำแหน่งปัจจุบัน, กด cluster)
@@ -402,6 +479,8 @@ export default function App() {
     // แก้ไขต้องเห็นรูปทรงบนแผนที่
     if (hiddenIds.has(item.id)) showItem(item);
     if (item.ownerId !== null && hiddenOwners.has(item.ownerId)) toggleOwner(item.ownerId);
+    const itemLayer = layerOf(item);
+    if (itemLayer && hiddenLayers.has(itemLayer.id)) toggleLayer(itemLayer);
     setPanelOpen(true);
     loadIntoDraw(editDrawId(item.id), item.geometry);
     selectInDraw(editDrawId(item.id), item.type);
@@ -426,6 +505,219 @@ export default function App() {
       else next.delete(ownerId);
       return next;
     });
+  };
+
+  // ---------- Layer / ตารางย่อย / แถว ----------
+  // โหมดทดลองเขียน localStorage (guestStore), login เรียก API (layerApi) — ทุกฟังก์ชัน async และ throw เมื่อไม่สำเร็จ
+  // จุดที่ UI เรียกครอบด้วย attempt (แสดง error ที่แถบด้านบน, ฟอร์มที่เปิดอยู่ไม่ปิด)
+  const attempt = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      return await fn();
+    } catch (err) {
+      onError(err);
+      return undefined;
+    }
+  };
+
+  const openNewLayer = (lockType?: GeomType) => setLayerDialog({ layer: null, lockType });
+
+  /** ล้างค่าของหัวข้อที่ไม่มีแล้วออกจาก feature ใน layer บนจอ (database / localStorage ล้างของตัวเองแล้ว) */
+  const keepItemValues = (layerId: number, keep: Set<string>) =>
+    setItems((list) =>
+      list.map((i) => {
+        const values = i.props.values;
+        if (i.props.layerId !== layerId || !values || Object.keys(values).every((k) => keep.has(k))) return i;
+        const next = Object.fromEntries(Object.entries(values).filter(([k]) => keep.has(k)));
+        return { ...i, props: { ...i.props, values: Object.keys(next).length ? next : undefined } };
+      }),
+    );
+
+  /** บันทึก layer — หัวข้อที่ถูกลบ/เปลี่ยนชนิด ค่าใน feature ของ layer นี้ถูกลบตาม */
+  const saveLayer = async (draft: LayerDraft): Promise<Layer> => {
+    let layer: Layer;
+    if (guest) {
+      layer = { ...draft, id: draft.id ?? nextGuestId() };
+      persistGuest(() => upsertGuestLayer(layer));
+    } else {
+      const body = { name: draft.name, color: draft.color, fields: draft.fields };
+      layer = draft.id === undefined ? await layerApi.create({ ...body, geomType: draft.geomType }) : await layerApi.patch(draft.id, body);
+    }
+    setLayers((list) => upsertById(list, layer));
+    keepItemValues(layer.id, new Set(layer.fields.map((f) => f.key)));
+    setLayerDialog(null);
+    return layer;
+  };
+
+  /** ลบ layer — feature ใน layer ไม่ถูกลบ กลายเป็น "ไม่มี layer" (ค่าของหัวข้อ layer นี้ถูกล้าง); ตารางย่อย + แถวถูกลบ */
+  const deleteLayer = async (layer: Layer) => {
+    if (guest) persistGuest(() => removeGuestLayer(layer.id));
+    else await layerApi.remove(layer.id);
+    // ฟอร์มแก้ที่เปิดค้างยังถือ layer เดิมอยู่ → ยกเลิกการแก้ (กลับเป็นโหมดดู)
+    if (selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) closeSelection();
+    const removedTables = new Set(tables.filter((t) => t.layerId === layer.id).map((t) => t.id));
+    setLayers((list) => list.filter((l) => l.id !== layer.id));
+    setTables((list) => list.filter((t) => !removedTables.has(t.id)));
+    setRecords((list) => list.filter((r) => !removedTables.has(r.tableId)));
+    setItems((list) =>
+      list.map((i) => (i.props.layerId === layer.id ? { ...i, props: { ...i.props, layerId: undefined, values: undefined } } : i)),
+    );
+    setHiddenLayers((s) => {
+      const next = new Set(s);
+      next.delete(layer.id);
+      return next;
+    });
+    setLayerDialog(null);
+  };
+
+  /** ซ่อน/แสดงทั้ง layer (เฉพาะบนจอ) */
+  const toggleLayer = (layer: Layer) => {
+    const hiding = !hiddenLayers.has(layer.id);
+    if (hiding && selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) closeSelection();
+    if (hiding) closePopup();
+    setHiddenLayers((s) => {
+      const next = new Set(s);
+      if (hiding) next.add(layer.id);
+      else next.delete(layer.id);
+      return next;
+    });
+  };
+
+  /** แก้ค่าจากตาราง — บันทึกทันที (login ส่งเฉพาะที่เปลี่ยน) */
+  const updateProps = async (item: Item, props: FeatureProps) => {
+    if (guest) {
+      persistGuest(() => upsertGuest(localFeature(item.id, item.type, item.geometry, props)));
+      setItems((list) => list.map((i) => (i.id === item.id ? { ...i, props } : i)));
+      return;
+    }
+    const patch = diffPatch(item, props);
+    if (!patch.properties) return;
+    const f = await patchFeature(item.id, patch);
+    setItems((list) => list.map((i) => (i.id === item.id ? { ...i, props: propsOf(f) } : i)));
+  };
+
+  /** เปลี่ยนชื่อหัวข้อของ layer (key เดิม → ค่าที่กรอกไว้ไม่หาย) */
+  const renameField = (layer: Layer, key: string, label: string) =>
+    saveLayer({ ...layer, fields: layer.fields.map((f) => (f.key === key ? { ...f, label } : f)) });
+
+  /** บันทึกตารางย่อย — หัวข้อที่ถูกลบ/เปลี่ยนชนิด ค่าในแถวของตารางนี้ถูกลบตาม */
+  const saveTable = async (draft: RelatedTableDraft): Promise<RelatedTable> => {
+    let table: RelatedTable;
+    if (guest) {
+      table = { ...draft, id: draft.id ?? nextGuestId() };
+      persistGuest(() => upsertGuestTable(table));
+    } else {
+      const body = { name: draft.name, fields: draft.fields, countKey: draft.countKey ?? null };
+      table =
+        draft.id === undefined
+          ? await layerApi.createTable({ ...body, layerId: draft.layerId })
+          : await layerApi.patchTable(draft.id, body);
+    }
+    setTables((list) => upsertById(list, table));
+    const keep = new Set(table.fields.map((f) => f.key));
+    setRecords((list) =>
+      list.map((r) =>
+        r.tableId !== table.id || Object.keys(r.values).every((k) => keep.has(k))
+          ? r
+          : { ...r, values: Object.fromEntries(Object.entries(r.values).filter(([k]) => keep.has(k))) },
+      ),
+    );
+    setTableDialog(null);
+    return table;
+  };
+
+  const deleteTable = async (table: RelatedTable) => {
+    if (guest) persistGuest(() => removeGuestTable(table.id));
+    else await layerApi.removeTable(table.id);
+    setTables((list) => list.filter((t) => t.id !== table.id));
+    setRecords((list) => list.filter((r) => r.tableId !== table.id));
+    setTableDialog(null);
+  };
+
+  /** แถวใหม่ได้วันที่สร้างตอนนี้ (login: database ใส่ให้) / แก้แถวเดิมคงวันที่เดิมไว้ */
+  const saveRecord = async (draft: RecordDraft) => {
+    let record: RelatedRecord;
+    if (guest) {
+      const createdAt =
+        draft.id === undefined ? new Date().toISOString() : (draft.createdAt ?? records.find((r) => r.id === draft.id)?.createdAt);
+      record = { ...draft, id: draft.id ?? nextGuestId(), ...(createdAt && { createdAt }) };
+      persistGuest(() => upsertGuestRecord(record));
+    } else {
+      record =
+        draft.id === undefined
+          ? await layerApi.createRecord({ tableId: draft.tableId, featureId: draft.featureId, values: draft.values })
+          : await layerApi.patchRecord(draft.id, draft.values);
+    }
+    setRecords((list) => upsertById(list, record));
+  };
+
+  const deleteRecord = async (id: number) => {
+    if (guest) persistGuest(() => removeGuestRecord(id));
+    else await layerApi.removeRecord(id);
+    setRecords((list) => list.filter((r) => r.id !== id));
+  };
+
+  /** login: โหลด layer / ตารางย่อย / แถว ใหม่ทั้งชุด (หลังงานที่ server แก้หลายตารางพร้อมกัน) */
+  const reloadLayerData = async () => {
+    const [d, r] = await Promise.all([layerApi.list(), layerApi.listRecords()]);
+    setLayers(d.layers);
+    setTables(d.tables);
+    setRecords(r);
+  };
+
+  /**
+   * ย้ายหัวข้อของ layer ไปเป็นตารางย่อย (ใช้ items ก่อนถูกล้างค่า): ค่าเดิมของแต่ละ feature กลายเป็นแถวแรก
+   * login = server ทำครบใน transaction เดียว (สร้างตาราง + คัดลอกค่า + เอาหัวข้อออกจาก layer)
+   */
+  const copyFieldToTable = async (layer: Layer, field: LayerField, name: string): Promise<RelatedTable> => {
+    if (!guest) {
+      const table = await layerApi.fieldToTable(layer.id, field.key, name);
+      keepItemValues(layer.id, new Set(layer.fields.filter((f) => f.key !== field.key).map((f) => f.key)));
+      await reloadLayerData();
+      return table;
+    }
+    const table = await saveTable({ layerId: layer.id, name, fields: [field] });
+    for (const item of items) {
+      const v = item.props.layerId === layer.id ? item.props.values?.[field.key] : undefined;
+      if (v !== undefined) await saveRecord({ tableId: table.id, featureId: item.id, values: { [field.key]: v } });
+    }
+    return table;
+  };
+
+  /** เมนูหัวคอลัมน์ "แปลงเป็นตารางย่อย" — ชื่อตารางซ้ำกับที่มีอยู่ → ต่อท้ายด้วยเลข */
+  const convertFieldToTable = async (layer: Layer, field: LayerField): Promise<RelatedTable> => {
+    const taken = new Set(tables.filter((t) => t.layerId === layer.id).map((t) => t.name.toLowerCase()));
+    let name = field.label;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${field.label} ${n}`;
+    const table = await copyFieldToTable(layer, field, name);
+    if (guest) await saveLayer({ ...layer, fields: layer.fields.filter((f) => f.key !== field.key) });
+    return table;
+  };
+
+  /**
+   * บันทึกจากฟอร์ม layer: แปลงหัวข้อเป็นตารางย่อยก่อน (ยังมีค่าเดิมให้คัดลอก) → บันทึก layer (layer ใหม่ได้ id)
+   * → ลบ / เปลี่ยนชื่อ / สร้างตารางย่อยตามรายการหัวข้อ
+   */
+  const saveLayerFromDialog = async (draft: LayerDraft, changes: TableChanges) => {
+    const before = draft.id !== undefined ? layers.find((l) => l.id === draft.id) : undefined;
+    for (const c of changes.convert) {
+      const field = before?.fields.find((f) => f.key === c.key);
+      if (before && field) await copyFieldToTable(before, field, c.name);
+    }
+    const layer = await saveLayer(draft);
+    for (const id of changes.remove) {
+      const t = tables.find((x) => x.id === id);
+      if (t) await deleteTable(t);
+    }
+    for (const r of changes.rename) {
+      const t = tables.find((x) => x.id === r.id);
+      if (t) await saveTable({ ...t, name: r.name });
+    }
+    for (const name of changes.create) await saveTable({ layerId: layer.id, name, fields: [] });
+  };
+
+  const openTable = (layer?: Layer) => {
+    if (layer) setTableLayerId(layer.id);
+    setTableOpen(true);
   };
 
   // ---------- บัญชีผู้ใช้ / group ----------
@@ -681,7 +973,7 @@ export default function App() {
       // บันทึกแล้ว → ปิดรายละเอียดกับแถบรายการ เหลือแต่แผนที่ + toast
       setSelection(null);
       setPanelOpen(false);
-      notifySaved({ name: f.properties.name, type: selection.type, category: f.properties.category, temp: guest });
+      notifySaved({ name: f.properties.name, type: selection.type, layerName: layers.find((l) => l.id === props.layerId)?.name, temp: guest });
     } else if (selection?.mode === "edit" && selectedItem) {
       const { id, type } = selectedItem;
       let f: ApiFeature;
@@ -690,13 +982,7 @@ export default function App() {
         persistGuest(() => upsertGuest(f));
       } else {
         // ส่งเฉพาะสิ่งที่เปลี่ยนจริง (PATCH)
-        const patch: FeaturePatch = {};
-        if (!sameGeometry(geometry, selectedItem.geometry)) patch.geometry = geometry;
-        const changed: NonNullable<FeaturePatch["properties"]> = {};
-        if (props.name !== selectedItem.props.name) changed.name = props.name;
-        if (props.category !== selectedItem.props.category) changed.category = props.category ?? null;
-        if (props.description !== selectedItem.props.description) changed.description = props.description ?? null;
-        if (Object.keys(changed).length) patch.properties = changed;
+        const patch = diffPatch(selectedItem, props, geometry);
 
         if (!patch.geometry && !patch.properties) {
           clearDraw(); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
@@ -713,13 +999,14 @@ export default function App() {
       setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved, geometry: f.geometry } : i)));
       setSelection(null);
       setPanelOpen(false);
-      notifySaved({ name: saved.name, type, category: saved.category, temp: guest });
+      notifySaved({ name: saved.name, type, layerName: layers.find((l) => l.id === saved.layerId)?.name, temp: guest });
     }
   };
 
   const removeItem = async (item: Item) => {
     if (guest) persistGuest(() => removeGuest(item.id));
     else await deleteFeature(item.id);
+    setRecords((list) => list.filter((r) => r.featureId !== item.id)); // แถวในตารางย่อยของ feature ถูกลบตาม
     if (editingId === item.id) clearDraw();
     closePopup();
     setItems((list) => list.filter((i) => i.id !== item.id));
@@ -734,6 +1021,21 @@ export default function App() {
     }
   };
 
+  const selectedLayer = selectedItem ? layerOf(selectedItem) : undefined;
+  const related = selectedItem && selectedLayer && (
+    <RelatedRecords
+      key={selectedItem.id}
+      tables={tables.filter((t) => t.layerId === selectedLayer.id)}
+      records={records.filter((r) => r.featureId === selectedItem.id)}
+      featureId={selectedItem.id}
+      canEdit={canModify(selectedItem)}
+      onSave={(r) => void attempt(() => saveRecord(r))}
+      onDelete={(id) => void attempt(() => deleteRecord(id))}
+      onCreateTable={canManageLayers ? () => setTableDialog({ layerId: selectedLayer.id, table: null }) : undefined}
+      onUpdateTable={canManageLayers ? (t) => void attempt(() => saveTable(t)) : undefined}
+    />
+  );
+
   const editor =
     selection?.mode === "create" && draftGeom ? (
       <FeatureEditor
@@ -742,6 +1044,8 @@ export default function App() {
         type={selection.type}
         geometry={draftGeom}
         initial={{ name: "" }}
+        layers={layers}
+        onCreateLayer={canManageLayers ? openNewLayer : undefined}
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
         onSave={save}
@@ -750,11 +1054,15 @@ export default function App() {
       />
     ) : selection && selection.mode !== "create" && selectedItem ? (
       <FeatureEditor
-        key={`${selectedItem.id}-${selection.mode}`}
+        // โหมดดู: ค่าเปลี่ยนจากที่อื่น (แก้ในตาราง) → สร้างฟอร์มใหม่ให้แสดงค่าล่าสุด
+        key={`${selectedItem.id}-${selection.mode}${selection.mode === "view" ? JSON.stringify(selectedItem.props) : ""}`}
         mode={selection.mode}
         type={selectedItem.type}
         geometry={(selection.mode === "edit" && draftGeom) || selectedItem.geometry}
         initial={selectedItem.props}
+        layers={layers}
+        onCreateLayer={canManageLayers ? openNewLayer : undefined}
+        related={related}
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
         onEdit={() => startEdit(selectedItem)}
@@ -773,6 +1081,8 @@ export default function App() {
     guestExpiry === null
       ? null
       : Math.min(GUEST_TTL_MS / 60000, Math.max(1, Math.ceil((guestExpiry - now) / 60000)));
+  const showTable = tableOpen && !mobileDraw && !(isMobile && creating);
+  const tableDocked = showTable && !isMobile;
   const panelVars = { "--panel-w": "clamp(20rem, 28vw, 26rem)" } as CSSProperties;
 
   const renderAccount = (className: string) => (
@@ -800,8 +1110,9 @@ export default function App() {
 
   return (
     <div className="relative h-full" style={panelVars}>
+      {/* จอคอม: attribute table อยู่ล่างสุด → หดพื้นที่แผนที่ขึ้น ให้การ์ด/ปุ่มที่ลอยอยู่บนแผนที่ขยับขึ้นตามเอง */}
       <div
-        className="map-area absolute inset-0 overflow-hidden"
+        className={`map-area absolute overflow-hidden ${tableDocked ? "inset-x-0 top-0 bottom-[min(40%,20rem)]" : "inset-0"}`}
         style={
           {
             "--map-bottom-inset": `calc(${mobileDraw ? "8rem" : "5.5rem"} + env(safe-area-inset-bottom, 0px))`,
@@ -856,6 +1167,7 @@ export default function App() {
           is3D={is3D}
           paused={is3D && mustBeFlat}
           onToggle3D={onToggle3D}
+          hide3D={editingData}
           compact={isMobile}
           className={
             isMobile
@@ -866,8 +1178,12 @@ export default function App() {
                       ? "bottom-[calc(60%+5rem)]"
                       : "bottom-[calc(5.5rem+6.75rem+env(safe-area-inset-bottom,0px))]"
                 }`
-              : "absolute right-4 bottom-6 z-20"
+              : editor
+                ? "absolute top-[4.5rem] right-[24.5rem] z-20" // มีการ์ดฟอร์ม (ยืดลงเกือบสุดจอ) → ปุ่มย้ายไปซ้ายของการ์ด ชิดบน (ล่างจะชน pill เครื่องมือบนจอแคบ)
+                : "absolute bottom-6 right-4 z-20"
           }
+          tableOpen={tableOpen}
+          onToggleTable={() => (tableOpen ? setTableOpen(false) : openTable())}
         />
         {isMobile ? (
           !mobileDraw &&
@@ -913,6 +1229,9 @@ export default function App() {
                   onFocus={focus}
                   onToggleVisible={toggleVisible}
                   onRemove={(item) => removeItem(item).catch(onError)}
+                  layers={layers}
+                  onEditLayer={canManageLayers ? (layer) => setLayerDialog({ layer }) : undefined}
+                  onAddLayer={canManageLayers ? () => openNewLayer() : undefined}
                 />
               }
             />
@@ -934,6 +1253,12 @@ export default function App() {
               showOwner={!guest}
               hoveredId={activeHoverId}
               onHover={onHover}
+              layers={layers}
+              hiddenLayers={hiddenLayers}
+              onToggleLayer={toggleLayer}
+              onEditLayer={canManageLayers ? (layer: Layer) => setLayerDialog({ layer }) : undefined}
+              onAddLayer={canManageLayers ? () => openNewLayer() : undefined}
+              onOpenTable={openTable}
             />
 
             <div className="absolute top-4 right-4 z-30 flex items-start gap-2">
@@ -949,7 +1274,66 @@ export default function App() {
         <Toaster />
       </div>
 
+      {showTable && (
+        <AttributeTable
+          layers={layers}
+          items={items}
+          layerId={tableLayerId}
+          onLayerChange={setTableLayerId}
+          onClose={() => setTableOpen(false)}
+          onFocus={(item) => {
+            if (isMobile) setTableOpen(false); // มือถือ: ตารางบังแผนที่ทั้งจอ → ปิดก่อนแล้วค่อยซูมไปหา
+            focus(item);
+          }}
+          onHover={onHover}
+          hoveredId={activeHoverId}
+          selectedId={selectedId}
+          hiddenIds={hiddenSet}
+          editingId={editingId}
+          canManage={canManageLayers}
+          canModify={canModify}
+          onEdit={(item, props) => void attempt(() => updateProps(item, props))}
+          onAddField={(layer, field) => void attempt(() => saveLayer({ ...layer, fields: [...layer.fields, field] }))}
+          onRenameField={(layer, key, label) => void attempt(() => renameField(layer, key, label))}
+          tables={tables}
+          records={records}
+          onSaveRecord={(r) => void attempt(() => saveRecord(r))}
+          onDeleteRecord={(id) => void attempt(() => deleteRecord(id))}
+          onAddTable={(layer, name) => attempt(() => saveTable({ layerId: layer.id, name, fields: [] }))}
+          onUpdateTable={(t) => void attempt(() => saveTable(t))}
+          onUpdateLayer={(l) => void attempt(() => saveLayer(l))}
+          onConvertField={(layer, field) => attempt(() => convertFieldToTable(layer, field))}
+          variant={isMobile ? "mobile" : "desktop"}
+        />
+      )}
+
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
+      {layerDialog && (
+        <LayerDialog
+          layer={layerDialog.layer}
+          lockType={layerDialog.lockType}
+          takenNames={layers.filter((l) => l.id !== layerDialog.layer?.id).map((l) => l.name)}
+          featureCount={layerDialog.layer ? items.filter((i) => i.props.layerId === layerDialog.layer!.id).length : 0}
+          onSave={(draft, changes) => void attempt(() => saveLayerFromDialog(draft, changes))}
+          onDelete={layerDialog.layer ? () => void attempt(() => deleteLayer(layerDialog.layer!)) : undefined}
+          onClose={() => setLayerDialog(null)}
+          tables={layerDialog.layer ? tables.filter((t) => t.layerId === layerDialog.layer!.id) : []}
+          onEditTable={(table) => setTableDialog({ layerId: table.layerId, table })}
+        />
+      )}
+      {tableDialog && layers.some((l) => l.id === tableDialog.layerId) && (
+        <RelatedTableDialog
+          layer={layers.find((l) => l.id === tableDialog.layerId)!}
+          table={tableDialog.table}
+          takenNames={tables
+            .filter((t) => t.layerId === tableDialog.layerId && t.id !== tableDialog.table?.id)
+            .map((t) => t.name)}
+          recordCount={tableDialog.table ? records.filter((r) => r.tableId === tableDialog.table!.id).length : 0}
+          onSave={(t) => void attempt(() => saveTable(t))}
+          onDelete={tableDialog.table ? () => void attempt(() => deleteTable(tableDialog.table!)) : undefined}
+          onClose={() => setTableDialog(null)}
+        />
+      )}
       {activeMe && (
         <InvitationToasts
           invitations={inv.invitations}

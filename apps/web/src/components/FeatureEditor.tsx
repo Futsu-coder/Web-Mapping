@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { InfoIcon, MoveIcon, PencilIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
 import type { FeatureProps } from "../api";
 import { Badge } from "@/components/ui/badge";
@@ -8,10 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { CATEGORIES, CATEGORY_STYLE, type Category } from "../lib/categories";
 import { message } from "../lib/featureMeta";
+import {
+  badInputLabel,
+  badNumberMessage,
+  formatValue,
+  pickValues,
+  type FieldValue,
+  type FieldValues,
+  type Layer,
+  type LayerField,
+} from "../lib/layers";
 import { fmtLat, fmtLng, formatArea, formatLength, lineLength, polygonArea, polygonPerimeter } from "../lib/measure";
 import type { GeomType } from "../lib/types";
+import FieldInput from "./FieldInput";
 
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
@@ -51,8 +61,103 @@ function GeometryInfo({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile
   );
 }
 
+// ตัวเลือกใน dropdown Layer: ไม่อยู่ใน layer / ท้ายรายการ = เปิดฟอร์มสร้าง layer (ไม่ได้เลือกค่านี้จริง)
+// Select ของ shadcn (Radix) ห้ามใช้ค่า "" จึงใช้คำแทน
+const NO_LAYER = "none";
+const NEW_LAYER = "__new";
+
+// ช่องกรอกของหัวข้อ layer (input/select ธรรมดา) ให้หน้าตาเหมือน Input ของ shadcn
+const FIELD_CLS =
+  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+/** เลือก layer (หรือไม่อยู่ใน layer) + ช่องกรอกตามหัวข้อของ layer ที่เลือก */
+function LayerFields({
+  type,
+  layers,
+  layer,
+  values,
+  readOnly,
+  mobile,
+  onLayerChange,
+  onValueChange,
+  onCreateLayer,
+}: {
+  type: GeomType;
+  /** layer ที่รูปทรงตรงกับ feature นี้ */
+  layers: Layer[];
+  layer: Layer | undefined;
+  values: FieldValues;
+  readOnly: boolean;
+  mobile: boolean;
+  onLayerChange: (id: number | null) => void;
+  onValueChange: (key: string, v: FieldValue | undefined) => void;
+  onCreateLayer?: (type: GeomType) => void;
+}) {
+  const input = (f: LayerField) => {
+    const v = values[f.key];
+    const id = `fe-${f.key}`;
+    if (readOnly) {
+      const text = formatValue(f, v);
+      return (
+        <div id={id} className={cn("rounded-md border bg-muted/50 px-3 py-2 text-sm", !text && "text-muted-foreground")}>
+          {text || "—"}
+        </div>
+      );
+    }
+    return (
+      <FieldInput
+        id={id}
+        field={f}
+        value={v}
+        onChange={(nv) => onValueChange(f.key, nv)}
+        className={cn(FIELD_CLS, mobile && "h-11 text-base")}
+      />
+    );
+  };
+
+  return (
+    <>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="fe-layer">Layer</Label>
+        <Select
+          value={layer ? String(layer.id) : NO_LAYER}
+          disabled={readOnly}
+          onValueChange={(v) => {
+            if (v === NEW_LAYER) onCreateLayer?.(type);
+            else onLayerChange(v === NO_LAYER ? null : Number(v));
+          }}
+        >
+          <SelectTrigger id="fe-layer" className={cn("w-full", mobile && "h-11 text-base")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value={NO_LAYER}>
+                <span className="size-2.5 rounded-full border border-dashed border-muted-foreground" />— ไม่มี layer —
+              </SelectItem>
+              {layers.map((l) => (
+                <SelectItem key={l.id} value={String(l.id)}>
+                  <span className="size-2.5 rounded-full" style={{ backgroundColor: l.color }} />
+                  {l.name}
+                </SelectItem>
+              ))}
+              {onCreateLayer && <SelectItem value={NEW_LAYER}>+ สร้าง layer ใหม่…</SelectItem>}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+      {layer?.fields.map((f) => (
+        <div key={f.key} className="flex flex-col gap-1.5">
+          <Label htmlFor={`fe-${f.key}`}>{f.label}</Label>
+          {input(f)}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /**
- * ฟอร์มรายละเอียด feature (ชื่อ / หมวดหมู่ / คำอธิบาย)
+ * ฟอร์มรายละเอียด feature (ชื่อ / layer + ค่าของหัวข้อ / คำอธิบาย) — feature ไม่อยู่ใน layer ก็บันทึกได้
  * ใช้ทั้งตอนแก้ feature เดิมและตอนเพิ่งวาดเสร็จ — parent ต้องใส่ `key` ให้เปลี่ยนตาม feature ที่เลือก
  * variant="mobile" = อยู่ใน bottom sheet (ตอน create ปุ่มบันทึกอยู่ที่หัวจอผ่าน formId)
  */
@@ -69,7 +174,16 @@ export default function FeatureEditor({
   formId,
   ownerName,
   canModify = true,
+  layers,
+  onCreateLayer,
+  related,
 }: {
+  /** ตารางย่อยของ feature (ระบบ layer) — แสดงใต้คำอธิบาย */
+  related?: ReactNode;
+  /** layer ทั้งหมด (dropdown แสดงเฉพาะที่รูปทรงตรงกัน) */
+  layers: Layer[];
+  /** ตัวเลือก "+ สร้าง layer ใหม่…" (เฉพาะคนที่จัดการ layer ได้) */
+  onCreateLayer?: (type: GeomType) => void;
   /** ชื่อคนสร้าง (แสดงเมื่อ login แล้ว) */
   ownerName?: string | null;
   /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่ม Edit/Delete บนมือถือ */
@@ -89,8 +203,18 @@ export default function FeatureEditor({
   formId?: string;
 }) {
   const [name, setName] = useState(initial.name);
-  const [category, setCategory] = useState<Category>(initial.category ?? "Other");
   const [description, setDescription] = useState(initial.description ?? "");
+  // วาดใหม่: ใช้ layer แรกที่รูปทรงตรงกัน (ไม่มีก็ "ไม่มี layer") / feature เดิม: layer ที่อยู่ (หรือไม่มี)
+  const [layerId, setLayerId] = useState<number | null>(() =>
+    mode === "create"
+      ? (initial.layerId ?? layers.find((l) => l.geomType === type)?.id ?? null)
+      : (initial.layerId ?? null),
+  );
+  // ฟอร์ม — ตอนบันทึกตรวจช่องตัวเลขที่พิมพ์ไม่เป็นตัวเลข (ไม่ทิ้งค่าเงียบๆ)
+  const formRef = useRef<HTMLFormElement>(null);
+  // กดสร้าง layer จากฟอร์ม → จำ layer ที่มีอยู่ตอนนั้นไว้ พอมี layer ใหม่โผล่มาให้เลือกอันนั้นให้เลย
+  const [knownLayers, setKnownLayers] = useState<Set<number> | null>(null);
+  const [values, setValues] = useState<FieldValues>(initial.values ?? {});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,8 +232,41 @@ export default function FeatureEditor({
 
   const mobile = variant === "mobile";
   const readOnly = mode === "view";
+  const matching = layers.filter((l) => l.geomType === type);
+  const created = knownLayers && matching.find((l) => !knownLayers.has(l.id));
+  if (created) {
+    setKnownLayers(null);
+    setLayerId(created.id);
+  }
+  const createLayer =
+    onCreateLayer &&
+    ((t: GeomType) => {
+      setKnownLayers(new Set(layers.map((l) => l.id)));
+      onCreateLayer(t);
+    });
+  // layer ที่เลือกถูกลบไปแล้ว = ไม่มี layer
+  const layer = matching.find((l) => l.id === layerId);
   const trimmed = name.trim();
-  const save = () => run(() => onSave({ name: trimmed, category, description: description.trim() || undefined }));
+  const save = () => {
+    const wrong = badInputLabel(formRef.current);
+    if (wrong !== null) return setError(badNumberMessage(wrong));
+    return run(() =>
+      onSave({
+        name: trimmed,
+        description: description.trim() || undefined,
+        layerId: layer?.id,
+        values: layer ? pickValues(values, layer.fields) : undefined,
+      }),
+    );
+  };
+
+  const setValue = (key: string, v: FieldValue | undefined) =>
+    setValues((old) => {
+      const next = { ...old };
+      if (v === undefined || v === "") delete next[key];
+      else next[key] = v;
+      return next;
+    });
   // มือถือ: input สูง 44px+ และตัวอักษร 16px กัน iOS ซูมเอง
   const ctl = mobile ? "h-11 text-base md:text-base" : "";
 
@@ -147,24 +304,17 @@ export default function FeatureEditor({
         />
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="fe-category">หมวดหมู่</Label>
-        <Select value={category} disabled={readOnly} onValueChange={(v) => setCategory(v as Category)}>
-          <SelectTrigger id="fe-category" className={cn("w-full", mobile && "h-11 text-base")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  <span className={cn("size-2.5 rounded-full", CATEGORY_STYLE[c].dot)} />
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
+      <LayerFields
+        type={type}
+        layers={matching}
+        layer={layer}
+        values={values}
+        readOnly={readOnly}
+        mobile={mobile}
+        onLayerChange={setLayerId}
+        onValueChange={setValue}
+        onCreateLayer={createLayer}
+      />
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="fe-desc">คำอธิบาย</Label>
@@ -186,6 +336,8 @@ export default function FeatureEditor({
           สร้างโดย <strong className="text-foreground">{ownerName}</strong>
         </p>
       )}
+
+      {related}
 
       <GeometryInfo geometry={geometry} mobile={mobile} />
 
@@ -233,8 +385,11 @@ export default function FeatureEditor({
             <div className="min-w-0">
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">{TYPE_LABEL[type]}</Badge>
-                {initial.category && (
-                  <Badge className={cn("border-0", CATEGORY_STYLE[initial.category].badge)}>{initial.category}</Badge>
+                {layer && (
+                  <Badge variant="outline">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: layer.color }} />
+                    {layer.name}
+                  </Badge>
                 )}
               </div>
               <h2 className="truncate text-lg font-semibold">{initial.name}</h2>
@@ -242,7 +397,7 @@ export default function FeatureEditor({
           </div>
         )}
 
-        <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-1 pb-4" onSubmit={onSubmit}>
+        <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-1 pb-4" onSubmit={onSubmit}>
           {fields}
         </form>
 
@@ -290,7 +445,7 @@ export default function FeatureEditor({
         </h2>
       </div>
 
-      <form id={formId} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
+      <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
         {fields}
       </form>
 

@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { CircleXIcon, EyeIcon, EyeOffIcon, LockIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { CircleXIcon, EyeIcon, EyeOffIcon, LockIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import { CATEGORY_STYLE } from "../../lib/categories";
+import type { Layer } from "../../lib/layers";
 import { geometrySummary } from "../../lib/measure";
 import { FILTERS, type GeomType, type Item } from "../../lib/types";
 
@@ -24,7 +24,14 @@ export default function MobileFeatureList({
   onFocus,
   onToggleVisible,
   onRemove,
+  layers,
+  onEditLayer,
+  onAddLayer,
 }: {
+  /** layer ทั้งหมด: แสดงชื่อ/สี layer ของแต่ละ feature + แถบ layer (แตะเพื่อตั้งค่า เฉพาะคนที่จัดการได้) */
+  layers?: Layer[];
+  onEditLayer?: (layer: Layer) => void;
+  onAddLayer?: () => void;
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
@@ -41,10 +48,12 @@ export default function MobileFeatureList({
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const count = (f: GeomType | "All") => (f === "All" ? items.length : items.filter((i) => i.type === f).length);
+  const layerOf = (i: Item) => layers?.find((l) => l.id === i.props.layerId);
+  const groupName = (i: Item) => layerOf(i)?.name ?? "";
   const shown = items.filter(
     (i) =>
       (filter === "All" || i.type === filter) &&
-      (!q || i.props.name.toLowerCase().includes(q) || (i.props.category ?? "").toLowerCase().includes(q)),
+      (!q || i.props.name.toLowerCase().includes(q) || groupName(i).toLowerCase().includes(q)),
   );
 
   return (
@@ -55,7 +64,7 @@ export default function MobileFeatureList({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="กรองตามชื่อหรือหมวดหมู่"
+            placeholder="กรองตามชื่อหรือ layer"
             aria-label="กรอง feature"
             className="h-11 bg-muted pr-10 pl-9 text-base md:text-base"
           />
@@ -66,6 +75,37 @@ export default function MobileFeatureList({
           )}
         </div>
       </div>
+
+      {layers && (
+        <div className="no-scrollbar mb-3 flex shrink-0 gap-2 overflow-x-auto px-4">
+          {layers.map((l) => (
+            <Button
+              key={l.id}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onEditLayer?.(l)}
+              className="h-8 shrink-0 gap-1.5 rounded-lg text-xs"
+            >
+              <span className="size-2.5 rounded-full" style={{ backgroundColor: l.color }} />
+              {l.name}
+              {onEditLayer && <SettingsIcon className="size-3.5 text-muted-foreground" />}
+            </Button>
+          ))}
+          {onAddLayer && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onAddLayer}
+              className="h-8 shrink-0 gap-0.5 rounded-lg border-dashed border-primary text-xs text-primary"
+            >
+              <PlusIcon className="size-4" />
+              Layer
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="no-scrollbar mb-3 shrink-0 overflow-x-auto px-4">
         <ToggleGroup
@@ -98,7 +138,7 @@ export default function MobileFeatureList({
         {shown.map((item) => {
           const selected = item.id === selectedId;
           const hidden = hiddenIds.has(item.id);
-          const category = item.props.category ?? "Other";
+          const layer = layerOf(item);
           return (
             <li
               key={item.id}
@@ -109,15 +149,21 @@ export default function MobileFeatureList({
                 hidden && "opacity-55",
               )}
             >
-              <span className={cn("ml-1 size-3 shrink-0 rounded-full", CATEGORY_STYLE[category].dot)} title={category} />
+              <span
+                className="ml-1 size-3 shrink-0 rounded-full bg-zinc-500"
+                style={layer ? { backgroundColor: layer.color } : undefined}
+                title={layer?.name ?? "ไม่มี layer"}
+              />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[0.9375rem] font-semibold">{item.props.name}</div>
                 <div className="mt-0.5 flex items-center gap-1.5">
                   <Badge variant="secondary" className="text-[0.625rem]">
                     {TYPE_LABEL[item.type]}
                   </Badge>
-                  {item.props.category && (
-                    <Badge className={cn("border-0 text-[0.625rem]", CATEGORY_STYLE[item.props.category].badge)}>{item.props.category}</Badge>
+                  {layer && (
+                    <Badge variant="outline" className="text-[0.625rem]">
+                      {layer.name}
+                    </Badge>
                   )}
                 </div>
                 <div className="mt-1 truncate text-[0.6875rem] text-muted-foreground">

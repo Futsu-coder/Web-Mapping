@@ -92,3 +92,10 @@ export function geometrySummary(g: GeoJSON.Geometry): string {
   const { metric, count } = describeGeometry(g);
   return [metric, count].filter(Boolean).join(" • ");
 }
+
+/** ขนาดเป็นตัวเลข (ใช้เรียงในตาราง): Polygon = ตร.ม., Line = เมตร, Point = 0 */
+export function geometrySize(g: GeoJSON.Geometry): number {
+  if (g.type === "Polygon") return polygonArea(openRing(g.coordinates[0] ?? []));
+  if (g.type === "LineString") return lineLength(g.coordinates);
+  return 0;
+}
