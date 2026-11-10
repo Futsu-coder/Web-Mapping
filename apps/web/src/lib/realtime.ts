@@ -20,6 +20,22 @@ export function subscribeFeatures(onChange: (change: FeatureChange) => void): ()
   };
 }
 
+/**
+ * ฟังการเปลี่ยนแปลงทุกแบบของตาราง (layers / related_tables / related_records) — RLS ส่งเฉพาะของ group ตัวเอง
+ * ไม่ส่งข้อมูลแถวต่อ: ผู้ใช้โหลดรายการใหม่เองใน onChange (ข้อมูลระดับ group ไม่เยอะ) — คืนฟังก์ชันเลิกฟัง
+ */
+export function subscribeTable(table: string, onChange: () => void): () => void {
+  const client = supabase;
+  if (!client) return () => {};
+  const channel = client
+    .channel(`table-${table}`)
+    .on("postgres_changes", { event: "*", schema: "public", table }, () => onChange())
+    .subscribe();
+  return () => {
+    client.removeChannel(channel);
+  };
+}
+
 /** แถวใหม่ในตารางที่เป็นของเรา (คำเชิญถึงเรา / การแจ้งเตือนถึงเรา) — คืนฟังก์ชันเลิกฟัง */
 function subscribeMine(table: string, column: string, userId: string, onNew: () => void): () => void {
   const client = supabase;

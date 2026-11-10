@@ -1,11 +1,14 @@
 import { Elysia, t } from 'elysia'
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db'
-import { features, profiles } from '../db/schema'
+import { features, layers, profiles } from '../db/schema'
 import { auth, type CurrentUser } from '../auth'
+import { checkValues } from '../../../shared/layers'
 import { FeatureIn, FeaturePatch, GeomType, IdParams, type FeatureInput } from '../validation'
 
 class InvalidGeometry extends Error {}
+/** ข้อมูลไม่ผ่านกติกาของ layer (ไม่พบ layer / รูปทรงไม่ตรง / ค่าผิดชนิด) → 422 */
+export class InvalidInput extends Error {}
 
 // คอลัมน์ขาออก: แปลง geom เป็น GeoJSON ใน database เลย + ชื่อเจ้าของจาก profiles
 const columns = {
@@ -16,6 +19,7 @@ const columns = {
   properties: features.properties,
   ownerId: features.ownerId,
   ownerName: profiles.username,
+  layerId: features.layerId,
   createdAt: features.createdAt,
   updatedAt: features.updatedAt
 }
@@ -28,6 +32,7 @@ type Row = {
   properties: Record<string, unknown>
   ownerId: string | null
   ownerName: string | null
+  layerId: number | null
   createdAt: Date
   updatedAt: Date
 }
@@ -43,6 +48,7 @@ function toGeoJSON(row: Row) {
       geom_type: row.geomType,
       owner_id: row.ownerId,
       owner_name: row.ownerName,
+      layer_id: row.layerId,
       created_at: row.createdAt.toISOString(),
       updated_at: row.updatedAt.toISOString()
     }
@@ -76,21 +82,46 @@ async function validateGeometry(geometry: FeatureInput['geometry']) {
   return { geomType: geometry.type, geom: geomFromGeoJSON(geojson) }
 }
 
-// ฟิลด์ที่ระบบสร้างเอง ไม่ให้ client เขียนทับ
-const SYSTEM_KEYS = ['name', 'geom_type', 'owner_id', 'owner_name', 'created_at', 'updated_at']
+// ฟิลด์ที่ระบบสร้างเอง ไม่ให้ client เขียนทับ (layer_id เก็บเป็นคอลัมน์แยก)
+const SYSTEM_KEYS = ['name', 'geom_type', 'owner_id', 'owner_name', 'layer_id', 'created_at', 'updated_at']
 
-/** แปลง GeoJSON เป็นค่าที่เก็บลง DB พร้อมตรวจรูปทรงด้วย PostGIS */
-async function parseInput(body: FeatureInput) {
-  const geo = await validateGeometry(body.geometry)
-  const properties: Record<string, unknown> = { ...body.properties }
-  const name = body.properties.name.trim() || body.geometry.type
-  for (const key of SYSTEM_KEYS) delete properties[key]
+type Db = Pick<typeof db, 'select'>
 
-  return { name, ...geo, properties }
+/** layer ใน group ของผู้ใช้ที่รับรูปทรงชนิดนี้ได้ — ไม่พบ / ชนิดไม่ตรง → InvalidInput */
+async function layerFor(tx: Db, user: CurrentUser, layerId: number, geomType: string) {
+  const [layer] = await tx
+    .select({ id: layers.id, geomType: layers.geomType, fields: layers.fields, name: layers.name })
+    .from(layers)
+    .where(and(eq(layers.id, layerId), eq(layers.groupId, user.groupId)))
+  if (!layer) throw new InvalidInput('ไม่พบ layer นี้ใน group')
+  if (layer.geomType !== geomType) throw new InvalidInput(`layer "${layer.name}" รับเฉพาะ ${layer.geomType}`)
+  return layer
 }
 
-/** แก้/ลบได้เมื่อเป็นเจ้าของ feature หรือเป็นเจ้าของ group */
-async function checkModify(user: CurrentUser, id: number) {
+/**
+ * properties ที่เก็บจริง: description + ค่าของหัวข้อใน layer (ตรวจชนิดด้วย checkValues, key อื่นถูกตัดทิ้ง)
+ * ไม่อยู่ใน layer = เก็บแค่ description
+ */
+function buildProperties(input: Record<string, unknown>, layer: { fields: Parameters<typeof checkValues>[0] } | null) {
+  const out: Record<string, unknown> = {}
+  if (typeof input.description === 'string' && input.description) out.description = input.description
+  if (!layer) return out
+  const checked = checkValues(layer.fields, input)
+  if (checked.error !== undefined) throw new InvalidInput(checked.error)
+  return { ...out, ...checked.values }
+}
+
+/** แปลง GeoJSON เป็นค่าที่เก็บลง DB พร้อมตรวจรูปทรงด้วย PostGIS และตรวจค่าตาม layer */
+async function parseInput(user: CurrentUser, body: FeatureInput) {
+  const geo = await validateGeometry(body.geometry)
+  const name = body.properties.name.trim() || body.geometry.type
+  const layerId = body.properties.layer_id ?? null
+  const layer = layerId === null ? null : await layerFor(db, user, layerId, body.geometry.type)
+  return { name, ...geo, layerId, properties: buildProperties(body.properties, layer) }
+}
+
+/** แก้/ลบได้เมื่อเป็นเจ้าของ feature หรือเป็นเจ้าของ group (ใช้กับแถวในตารางย่อยของ feature ด้วย) */
+export async function checkModify(user: CurrentUser, id: number) {
   const [row] = await db
     .select({ ownerId: features.ownerId })
     .from(features)
@@ -105,9 +136,10 @@ const forbidden = { detail: 'แก้ไขได้เฉพาะ feature ข
 
 export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features'] })
   .use(auth)
-  .error({ InvalidGeometry })
+  .error({ InvalidGeometry, InvalidInput })
   .onError(({ code, error, status }) => {
     if (code === 'InvalidGeometry') return status(422, { detail: `Invalid geometry: ${error.message}` })
+    if (code === 'InvalidInput') return status(422, { detail: error.message })
   })
 
   .get(
@@ -135,7 +167,7 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
     async ({ user, body, status }) => {
       const [{ id }] = await db
         .insert(features)
-        .values({ ...(await parseInput(body)), ownerId: user.id, groupId: user.groupId })
+        .values({ ...(await parseInput(user, body)), ownerId: user.id, groupId: user.groupId })
         .returning({ id: features.id })
       const [row] = await selectInGroup(user, eq(features.id, id))
       return status(201, toGeoJSON(row))
@@ -151,7 +183,7 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
       if (denied === 403) return status(403, forbidden)
       await db
         .update(features)
-        .set({ ...(await parseInput(body)), updatedAt: sql`now()` })
+        .set({ ...(await parseInput(user, body)), updatedAt: sql`now()` })
         .where(eq(features.id, params.id))
       const [row] = await selectInGroup(user, eq(features.id, params.id))
       return row ? toGeoJSON(row) : status(404, notFound)
@@ -173,7 +205,7 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
 
       const updated = await db.transaction(async (tx) => {
         const [current] = await tx
-          .select({ properties: features.properties })
+          .select({ properties: features.properties, layerId: features.layerId, geomType: features.geomType })
           .from(features)
           .where(and(eq(features.id, params.id), eq(features.groupId, user.groupId)))
           .for('update')
@@ -182,17 +214,27 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
         const set: Partial<typeof features.$inferInsert> = {}
         if (geo) Object.assign(set, geo)
 
-        if (body.properties) {
-          const merged: Record<string, unknown> = { ...current.properties }
-          for (const [key, value] of Object.entries(body.properties)) {
-            if (SYSTEM_KEYS.includes(key)) continue
-            if (value === null) delete merged[key]
-            else merged[key] = value
-          }
-          set.properties = merged
-          const trimmed = body.properties.name?.trim()
-          if (trimmed) set.name = trimmed
+        // layer ปลายทาง: ส่ง layer_id มา = เปลี่ยน/เอาออกจาก layer (null), ไม่ส่ง = layer เดิม
+        const patch = body.properties ?? {}
+        const layerId = patch.layer_id !== undefined ? patch.layer_id : current.layerId
+        const layerChanged = layerId !== current.layerId
+        // ย้าย layer = ค่าของหัวข้อ layer เดิมไม่มีความหมายแล้ว → เริ่มจาก description อย่างเดียว
+        const merged: Record<string, unknown> = layerChanged
+          ? current.properties.description !== undefined
+            ? { description: current.properties.description }
+            : {}
+          : { ...current.properties }
+        for (const [key, value] of Object.entries(patch)) {
+          if (SYSTEM_KEYS.includes(key)) continue
+          if (value === null) delete merged[key]
+          else merged[key] = value
         }
+        const geomType = geo?.geomType ?? current.geomType
+        const layer = layerId === null ? null : await layerFor(tx, user, layerId, geomType)
+        set.properties = buildProperties(merged, layer)
+        set.layerId = layerId
+        const trimmed = patch.name?.trim()
+        if (trimmed) set.name = trimmed
 
         await tx
           .update(features)

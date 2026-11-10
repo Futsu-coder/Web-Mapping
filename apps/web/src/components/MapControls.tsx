@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Map as MlMap } from "maplibre-gl";
-import { CompassIcon, MinusIcon, PlusIcon } from "lucide-react";
+import { CompassIcon, MinusIcon, PlusIcon, TableIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,6 +11,7 @@ const SEG = "w-full font-semibold data-[state=on]:bg-primary data-[state=on]:tex
 
 /**
  * กลุ่มควบคุมมุมมอง (ขวาล่าง): สลับ 2D/3D, ซูม +/− (เฉพาะจอคอม), เข็มทิศ (เฉพาะตอน 3D)
+ * + ปุ่มเปิด/ปิด Attribute table (ส่ง onToggleTable มาเท่านั้น)
  * paused = แอปบังคับให้แผนที่แบนชั่วคราวระหว่างวาด/แก้/ย้าย → ปุ่ม 3D จางลงพร้อมป้ายอธิบาย
  */
 export default function MapControls({
@@ -20,6 +21,8 @@ export default function MapControls({
   onToggle3D,
   compact = false,
   className,
+  tableOpen,
+  onToggleTable,
 }: {
   map: MlMap | null;
   is3D: boolean;
@@ -28,6 +31,9 @@ export default function MapControls({
   /** มือถือ: ไม่มีปุ่มซูม (ใช้ pinch) ปุ่มสูง 44px */
   compact?: boolean;
   className?: string;
+  /** Attribute table — ไม่ส่ง = ไม่มีปุ่ม */
+  tableOpen?: boolean;
+  onToggleTable?: () => void;
 }) {
   const [bearing, setBearing] = useState(0);
   const [tipOpen, setTipOpen] = useState(false);
@@ -76,6 +82,27 @@ export default function MapControls({
         </TooltipTrigger>
         <TooltipContent side="left">พัก 3D ขณะวาด/แก้ไข เสร็จแล้วจะเอียงกลับให้เอง</TooltipContent>
       </Tooltip>
+
+      {onToggleTable && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={tableOpen ? "default" : "ghost"}
+              aria-pressed={tableOpen}
+              aria-label={tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}
+              className={cn(
+                CARD,
+                compact ? "size-12" : "size-11",
+                tableOpen ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-card",
+              )}
+              onClick={onToggleTable}
+            >
+              <TableIcon />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}</TooltipContent>
+        </Tooltip>
+      )}
 
       {!compact && (
         <div className={cn(CARD, "flex flex-col p-1")}>
