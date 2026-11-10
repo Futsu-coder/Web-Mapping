@@ -36,7 +36,7 @@ export default function FieldInput({
           // พิมพ์ไม่เป็นตัวเลข (validity.badInput) ไม่เปลี่ยนค่า — ผู้ใช้เห็นกรอบแดง และตอนบันทึกตรวจด้วย badInputLabel
           if (!e.target.validity.badInput) onChange(e.target.value === "" ? undefined : Number(e.target.value));
         }}
-        className={`${className} invalid:!border-red-500 invalid:!ring-red-500/30`}
+        className={`${className} invalid:!border-destructive invalid:!ring-destructive/30`}
       />
     );
   }

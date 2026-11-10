@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import type { GeomType } from "../api";
 import { GEOM_LABEL, LAYER_COLORS, type Layer, type RelatedTable } from "../lib/layers";
 import { parseDrafts, TABLE_TYPE, tableDrafts, toDrafts, type DraftField } from "../lib/fieldDrafts";
 import FieldListEditor from "./FieldListEditor";
-import { type LucideIcon, MapPinIcon, PentagonIcon, RouteIcon, SaveIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CircleAlertIcon, type LucideIcon, MapPinIcon, PentagonIcon, RouteIcon, SaveIcon, Trash2Icon } from "lucide-react";
 
 export type LayerDraft = Omit<Layer, "id"> & { id?: number };
 
@@ -60,15 +67,8 @@ export default function LayerDialog({
   const [initialTableNames] = useState(() => new Map(tables.map((t) => [t.id, t.name])));
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const downOnBackdrop = useRef(false);
   const originalKeys = new Set(layer?.fields.map((f) => f.key));
   const typeLocked = !!layer || !!lockType;
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,176 +94,156 @@ export default function LayerDialog({
     );
   };
 
-  const inputCls =
-    "px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-base md:text-sm text-slate-900 focus:outline-none focus:border-teal-700 focus:ring-1 focus:ring-teal-700/20";
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-3 sm:p-4"
-      onMouseDown={(e) => {
-        downOnBackdrop.current = e.target === e.currentTarget;
-      }}
-      onClick={(e) => {
-        if (downOnBackdrop.current && e.target === e.currentTarget) onClose();
-      }}
-    >
-      <form
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="layer-title"
-        onSubmit={submit}
-        className="w-full max-w-[480px] max-h-full flex flex-col bg-white rounded-2xl shadow-2xl border border-slate-100"
-      >
-        <div className="px-5 pt-4 pb-3 border-b border-slate-200 flex items-center justify-between shrink-0">
-          <h2 id="layer-title" className="text-base font-bold text-slate-900">
-            {layer ? "แก้ไข Layer" : "สร้าง Layer"}
-          </h2>
-          <button type="button" aria-label="ปิด" onClick={onClose} className="p-1 rounded text-slate-500 hover:bg-slate-100 flex">
-            <XIcon className="size-[20px] shrink-0" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="flex max-h-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl bg-card p-0 sm:max-w-[480px]">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className="shrink-0 border-b px-5 pt-4 pb-3 pr-12">
+            <DialogTitle className="text-base font-bold">{layer ? "แก้ไข Layer" : "สร้าง Layer"}</DialogTitle>
+            <DialogDescription className="sr-only">ตั้งชื่อ ชนิดรูปทรง สี และหัวข้อของ layer</DialogDescription>
+          </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="layer-name" className="text-xs font-semibold text-slate-600">
-              ชื่อ Layer
-            </label>
-            <input
-              id="layer-name"
-              value={name}
-              maxLength={60}
-              autoFocus
-              placeholder="เช่น โรงเรียน, แม่น้ำ"
-              onChange={(e) => setName(e.target.value)}
-              className={inputCls}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold text-slate-600">
-              ชนิดรูปทรง {typeLocked && <span className="font-normal text-slate-400">(เปลี่ยนไม่ได้)</span>}
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              {GEOM_TYPES.map((t) => {
-                const Icon = GEOM_ICON[t];
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    disabled={typeLocked && t !== geomType}
-                    onClick={() => setGeomType(t)}
-                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-sm transition-colors disabled:opacity-40 ${
-                      geomType === t ? "border-teal-700 bg-teal-50 text-teal-800 font-semibold" : "border-slate-300 text-slate-600"
-                    }`}
-                  >
-                    <Icon className="size-[18px] shrink-0" />
-                    {GEOM_LABEL[t]}
-                  </button>
-                );
-              })}
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="layer-name">ชื่อ Layer</Label>
+              <Input
+                id="layer-name"
+                value={name}
+                maxLength={60}
+                autoFocus
+                placeholder="เช่น โรงเรียน, แม่น้ำ"
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError(null);
+                }}
+              />
             </div>
-          </div>
 
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold text-slate-600">สีบนแผนที่</span>
-            <div className="flex gap-2 flex-wrap">
-              {LAYER_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={`สี ${c}`}
-                  aria-pressed={color === c}
-                  onClick={() => setColor(c)}
-                  style={{ backgroundColor: c }}
-                  className={`w-7 h-7 rounded-full transition-transform ${color === c ? "ring-2 ring-offset-2 ring-slate-800 scale-110" : ""}`}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">หัวข้อ Property (คอลัมน์ในตาราง)</span>
-              <span className="text-[11px] text-slate-400">ทุก feature มี "ชื่อ" และ "คำอธิบาย" อยู่แล้ว</span>
-            </div>
-            <FieldListEditor
-              fields={fields}
-              onChange={setFields}
-              originalKeys={originalKeys}
-              editing={!!layer}
-              emptyHint='ยังไม่มีหัวข้อ — เพิ่มเช่น "สังกัด" (ตัวเลือก), "จำนวนนักเรียน" (ตัวเลข) หรือ "ปลาที่พบ" (ตารางย่อย)'
-              inputCls={inputCls}
-              allowTables
-              tableColumns={(id) => tables.find((t) => t.id === id)?.fields.length ?? 0}
-              onEditTable={
-                onEditTable &&
-                ((id) => {
-                  const t = tables.find((x) => x.id === id);
-                  if (t) onEditTable(t);
-                })
-              }
-            />
-            <p className="text-[11px] text-slate-400">ตารางย่อย = 1 feature มีได้หลายแถว (เช่น ปลาหลายชนิดในแม่น้ำ 1 สาย)</p>
-          </div>
-
-          {error && (
-            <p role="alert" className="text-xs text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1.5">
-              ⚠️ {error}
-            </p>
-          )}
-        </div>
-
-        <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
-          {onDelete ? (
-            confirmDelete ? (
-              <div className="flex items-center gap-1.5">
-                {featureCount > 0 && (
-                  <span className="text-[11px] text-slate-500 max-w-[11rem] leading-tight">
-                    feature {featureCount} ชิ้นจะกลายเป็น "ไม่มี layer" (ค่าในคอลัมน์ของ layer และตารางย่อยหาย)
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={onDelete}
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-600 text-white hover:bg-red-700 shrink-0"
-                >
-                  ยืนยันลบ
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDelete(false)}
-                  className="px-2 py-1.5 rounded-lg text-xs text-slate-600 hover:bg-slate-100"
-                >
-                  ไม่ลบ
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                className="flex items-center gap-1 px-2.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-xs font-medium"
+            <div className="flex flex-col gap-1.5">
+              <Label id="layer-geom">
+                ชนิดรูปทรง {typeLocked && <span className="font-normal text-muted-foreground">(เปลี่ยนไม่ได้)</span>}
+              </Label>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={geomType}
+                onValueChange={(v) => v && setGeomType(v as GeomType)}
+                aria-labelledby="layer-geom"
+                spacing={2}
+                className="grid w-full grid-cols-3"
               >
-                <Trash2Icon className="size-[16px] shrink-0" />
-                ลบ Layer
-              </button>
-            )
-          ) : (
-            <span />
-          )}
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">
-              ยกเลิก
-            </button>
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-700 text-white hover:bg-teal-800 rounded-lg text-xs font-medium shadow-sm"
-            >
-              <SaveIcon className="size-[16px] shrink-0" />
-              บันทึก
-            </button>
+                {GEOM_TYPES.map((t) => {
+                  const Icon = GEOM_ICON[t];
+                  return (
+                    <ToggleGroupItem
+                      key={t}
+                      value={t}
+                      disabled={typeLocked && t !== geomType}
+                      className="h-9 gap-1.5 data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:font-semibold data-[state=on]:text-primary"
+                    >
+                      <Icon />
+                      {GEOM_LABEL[t]}
+                    </ToggleGroupItem>
+                  );
+                })}
+              </ToggleGroup>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>สีบนแผนที่</Label>
+              <div className="flex flex-wrap gap-2">
+                {LAYER_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={`สี ${c}`}
+                    aria-pressed={color === c}
+                    onClick={() => setColor(c)}
+                    style={{ backgroundColor: c }}
+                    className={cn(
+                      "size-7 rounded-full outline-none transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                      color === c && "scale-110 ring-2 ring-foreground ring-offset-2 ring-offset-background",
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>หัวข้อ Property (คอลัมน์ในตาราง)</Label>
+                <span className="text-[0.6875rem] text-muted-foreground">ทุก feature มี "ชื่อ" และ "คำอธิบาย" อยู่แล้ว</span>
+              </div>
+              <FieldListEditor
+                fields={fields}
+                onChange={setFields}
+                originalKeys={originalKeys}
+                editing={!!layer}
+                emptyHint='ยังไม่มีหัวข้อ — เพิ่มเช่น "สังกัด" (ตัวเลือก), "จำนวนนักเรียน" (ตัวเลข) หรือ "ปลาที่พบ" (ตารางย่อย)'
+                allowTables
+                tableColumns={(id) => tables.find((t) => t.id === id)?.fields.length ?? 0}
+                onEditTable={
+                  onEditTable &&
+                  ((id) => {
+                    const t = tables.find((x) => x.id === id);
+                    if (t) onEditTable(t);
+                  })
+                }
+              />
+              <p className="text-[0.6875rem] text-muted-foreground">ตารางย่อย = 1 feature มีได้หลายแถว (เช่น ปลาหลายชนิดในแม่น้ำ 1 สาย)</p>
+            </div>
+
+            {error && (
+              <Alert variant="destructive">
+                <CircleAlertIcon />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
           </div>
-        </div>
-      </form>
-    </div>
+
+          <DialogFooter className="shrink-0 flex-row items-center justify-between gap-2 border-t px-5 py-3 sm:justify-between">
+            {onDelete ? (
+              confirmDelete ? (
+                <div className="flex items-center gap-1.5">
+                  {featureCount > 0 && (
+                    <span className="max-w-[11rem] text-[0.6875rem] leading-tight text-muted-foreground">
+                      feature {featureCount} ชิ้นจะกลายเป็น "ไม่มี layer" (ค่าในคอลัมน์ของ layer และตารางย่อยหาย)
+                    </span>
+                  )}
+                  <Button type="button" variant="destructive" size="sm" className="shrink-0" onClick={onDelete}>
+                    ยืนยันลบ
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+                    ไม่ลบ
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2Icon />
+                  ลบ Layer
+                </Button>
+              )
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+                ยกเลิก
+              </Button>
+              <Button type="submit" size="sm">
+                <SaveIcon />
+                บันทึก
+              </Button>
+            </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

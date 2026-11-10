@@ -84,7 +84,7 @@ export default function AccountMenu({
   };
 
   return (
-    <div className={cn("flex items-center gap-1 rounded-full border border-black/5 bg-card p-1 shadow-float", className)}>
+    <div className={cn("flex h-10 items-center gap-0.5 rounded-full border border-black/5 bg-card p-1 shadow-float", className)}>
       {bell}
       <Popover
         open={open}
@@ -94,14 +94,14 @@ export default function AccountMenu({
         }}
       >
         <PopoverTrigger asChild>
-          <Button variant="ghost" aria-label="บัญชีและกลุ่ม" className="h-10 gap-2 rounded-full pr-3 pl-1">
+          <Button variant="ghost" aria-label="บัญชีและกลุ่ม" className="h-8 gap-2 rounded-full pr-3 pl-0">
             <span className="grid size-8 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {me.user.username.slice(0, 1).toUpperCase()}
             </span>
             <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">{me.user.username}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] gap-0 rounded-xl p-0 text-sm">
+        <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
           <GroupMenu
             me={me}
             isOwner={isOwner}
@@ -208,7 +208,7 @@ function GroupMenu({
 
   return (
     <>
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
         <div className="min-w-0">
           <div className="truncate font-semibold">{me.user.username}</div>
           <button
@@ -227,7 +227,7 @@ function GroupMenu({
         </Button>
       </div>
 
-      <div className="border-b px-4 py-3">
+      <div className="border-b border-black/5 px-4 py-3">
         {renaming ? (
           <form onSubmit={saveName} className="flex gap-1.5">
             <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} maxLength={50} autoFocus aria-label="ชื่อ group" />
@@ -280,7 +280,7 @@ function GroupMenu({
         })}
       </ul>
 
-      <form onSubmit={sendInvite} className="flex flex-col gap-1.5 border-t px-4 py-3">
+      <form onSubmit={sendInvite} className="flex flex-col gap-1.5 border-t border-black/5 px-4 py-3">
         <Label htmlFor="invite-target">เชิญสมาชิก</Label>
         <div className="flex gap-1.5">
           <Input
@@ -301,7 +301,7 @@ function GroupMenu({
       </form>
 
       {me.members.length > 1 && (
-        <div className="border-t px-4 py-2.5">
+        <div className="border-t border-black/5 px-4 py-2.5">
           <Button variant="link" className="h-auto p-0 text-xs text-destructive" onClick={onAskLeave} disabled={busy}>
             ออกจาก group
           </Button>

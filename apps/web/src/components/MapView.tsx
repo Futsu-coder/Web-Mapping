@@ -5,6 +5,7 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import { addFeatureLayers } from "../lib/mapLayers";
+import { FixedScaleControl } from "../lib/scaleControl";
 import { INITIAL_ZOOM, OSM_RASTER_STYLE, VECTOR_STYLE, WORLD_BOUNDS } from "../lib/mapStyle";
 
 // MapLibre 6 แยกไฟล์ worker (ใช้แปลง vector tile) และหาที่อยู่เองจากไฟล์หลัก — แต่ Vite ย้ายไฟล์หลักไปไว้ที่อื่นตอน pre-bundle
@@ -15,6 +16,28 @@ setWorkerUrl(workerUrl);
 setWorkerCount(Math.min(4, Math.max(2, Math.floor((navigator.hardwareConcurrency || 4) / 2))));
 // สร้าง worker ไว้ก่อนตั้งแต่โหลดไฟล์ (เริ่มโหลด worker ขนานไปกับการ render ของ React) และเก็บไว้ตลอด
 prewarm();
+
+// direct_select เดิม: พอกดจุดยอดแล้วจุดยอดจะถูกเลือกค้าง → กดตัวรูปแล้วลากย้ายไม่ได้ (ต้องคลิกตัวรูปเพื่อล้างก่อน)
+// ที่นี่: กดตัวรูป = ล้างจุดยอดที่เลือกค้าง แล้วลากย้ายทั้งรูปได้ทันที
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const BaseDirectSelect = (MapboxDraw.modes as any).direct_select;
+const directSelectAlwaysMove = {
+  ...BaseDirectSelect,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onFeature(this: any, state: any, e: any) {
+    state.selectedCoordPaths = [];
+    this.clearSelectedCoordinates();
+    state.feature.changed();
+    this.startDragging(state, e);
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onMouseMove(this: any, state: any, e: any) {
+    const r = BaseDirectSelect.onMouseMove.call(this, state, e);
+    const p = e.featureTarget?.properties;
+    if (p?.active === "true" && p?.meta === "feature") this.updateUIClasses({ mouse: "move" });
+    return r;
+  },
+};
 
 export type MapCtx = { map: MlMap; draw: MapboxDraw };
 
@@ -87,6 +110,19 @@ export default function MapView({ className, onReady }: { className?: string; on
     });
     // ย่อเป็นปุ่ม (i) ซ้ายล่าง — กันข้อความเครดิตบังแผนที่บนมือถือ และไม่เบียดปุ่ม 2D/3D ขวาล่าง
     map.addControl(new AttributionControl({ compact: true }), "bottom-left");
+    // สเกลความยาวคงที่ (เลขเปลี่ยนตามซูม) ทั้งมือถือและคอม
+    map.addControl(new FixedScaleControl(), "bottom-left");
+    // MapLibre กาง credit เองตอน style โหลดครั้งแรก → ยุบกลับเป็นปุ่มวงกลมทันที (ครั้งเดียว) ให้ผู้ใช้กดเปิดเอง
+    const collapseAttrib = () => {
+      const el = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
+      if (!el?.classList.contains("maplibregl-compact")) return;
+      el.classList.remove("maplibregl-compact-show");
+      el.removeAttribute("open");
+      map.off("styledata", collapseAttrib);
+      map.off("sourcedata", collapseAttrib);
+    };
+    map.on("styledata", collapseAttrib);
+    map.on("sourcedata", collapseAttrib);
     map.touchZoomRotate.disableRotation();
     map.keyboard.disableRotation();
 
@@ -108,6 +144,7 @@ export default function MapView({ className, onReady }: { className?: string; on
         displayControlsDefault: false,
         keybindings: false, // ไม่ให้ปุ่ม Delete/Backspace ลบรูปที่กำลังแก้
         boxSelect: false,
+        modes: { ...MapboxDraw.modes, direct_select: directSelectAlwaysMove },
         styles: DRAW_STYLES as object[],
       });
       map.addControl(draw as unknown as IControl);

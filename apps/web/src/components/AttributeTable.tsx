@@ -1,4 +1,9 @@
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import type { FeatureProps } from "../api";
 import {
   badNumberMessage,
@@ -42,6 +47,10 @@ type Column = {
 };
 
 type Sort = { id: string; dir: 1 | -1 };
+
+/** ช่องแก้ค่าแบบ select ดั้งเดิม (ใช้ใน cell ที่ blur แล้วบันทึก — Select ของ shadcn เปิด popover แล้ว blur ทันที) หน้าตาเหมือน Input */
+const CELL_SELECT =
+  "h-7 w-full min-w-[8rem] rounded-md border border-input bg-card px-1.5 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm";
 
 /** แปลงข้อความที่กรอกในตารางเป็นค่าตามชนิดหัวข้อ — ว่าง = undefined (ลบค่า) */
 function parseValue(field: LayerField, raw: string): FieldValue | undefined | null {
@@ -288,13 +297,11 @@ export default function AttributeTable({
         if (e.key === "Enter") commit(e.currentTarget);
         if (e.key === "Escape") setCell(null);
       },
-      className:
-        "w-full min-w-[8rem] px-1.5 py-0.5 bg-white border border-teal-600 rounded text-base md:text-sm text-slate-900 outline-none ring-2 ring-teal-600/20",
     };
     if (field?.type === "choice" || field?.type === "boolean") {
       const options = field.type === "choice" ? (field.options ?? []) : ["true", "false"];
       return (
-        <select {...common} onChange={(e) => setCell({ ...cell!, draft: e.target.value })}>
+        <select {...common} className={CELL_SELECT} onChange={(e) => setCell({ ...cell!, draft: e.target.value })}>
           <option value="">—</option>
           {field.type === "choice" && cell!.draft && !options.includes(cell!.draft) && <option value={cell!.draft}>{cell!.draft}</option>}
           {options.map((o) => (
@@ -306,12 +313,12 @@ export default function AttributeTable({
       );
     }
     return (
-      <input
+      <Input
         {...common}
         type={field?.type === "number" ? "number" : "text"}
         step="any"
         onChange={(e) => setCell({ ...cell!, draft: e.target.value })}
-        className={`${common.className} invalid:!border-red-500 invalid:!ring-red-500/30`}
+        className="h-7 min-w-[8rem] bg-card px-1.5 invalid:border-destructive invalid:ring-destructive/30"
       />
     );
   };
@@ -320,107 +327,108 @@ export default function AttributeTable({
     <div
       data-attribute-table
       style={style}
-      className={`absolute z-30 flex flex-col bg-white ${
-        mobile ? "inset-0" : "inset-x-0 bottom-0 h-[min(40%,20rem)] border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
-      }`}
+      className={cn(
+        "absolute z-30 flex flex-col bg-card text-card-foreground",
+        mobile
+          ? "inset-0"
+          : "inset-x-0 bottom-0 h-[min(40%,20rem)] rounded-t-2xl border-t border-black/5 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]",
+      )}
     >
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-200 shrink-0">
-        <TableIcon className="size-[18px] shrink-0 text-teal-700" />
-        <span className="text-sm font-semibold text-slate-900 shrink-0">Attribute table</span>
-        {!mobile && <span className="text-[11px] text-slate-400 shrink-0">ดับเบิลคลิกช่องเพื่อแก้</span>}
-        <div className="flex-1 min-w-0 flex gap-1 overflow-x-auto no-scrollbar">
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+        <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <TableIcon className="size-4" />
+        </span>
+        <span className="shrink-0 text-sm font-bold">Attribute table</span>
+        {!mobile && <span className="shrink-0 text-xs text-muted-foreground">ดับเบิลคลิกช่องเพื่อแก้</span>}
+        <div className="no-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto px-1 py-0.5">
           {layers.map((l) => (
-            <button
+            <Button
               key={l.id}
               type="button"
+              size="xs"
+              variant={l.id === layer?.id ? "default" : "outline"}
+              aria-pressed={l.id === layer?.id}
+              className="h-7 rounded-full px-3"
               onClick={() => {
                 onLayerChange(l.id);
                 setSort(null);
                 setView(null);
               }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border shrink-0 transition-colors ${
-                l.id === layer?.id
-                  ? "bg-slate-800 text-white border-slate-800"
-                  : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
-              }`}
             >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} />
+              <span className="size-2 rounded-full" style={{ backgroundColor: l.color }} />
               {l.name}
               <span className="opacity-70">({items.filter((i) => i.props.layerId === l.id).length})</span>
-            </button>
+            </Button>
           ))}
           {noLayerItems.length > 0 && (
-            <button
+            <Button
               type="button"
+              size="xs"
+              variant={isNoLayer ? "default" : "outline"}
+              aria-pressed={isNoLayer}
+              className="h-7 rounded-full px-3"
               onClick={() => {
                 onLayerChange(NO_LAYER_ID);
                 setSort(null);
                 setView(null);
               }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border shrink-0 transition-colors ${
-                isNoLayer ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
-              }`}
             >
-              <span className="w-2 h-2 rounded-full border border-dashed border-current" />
+              <span className="size-2 rounded-full border border-dashed border-current" />
               ไม่มี layer
               <span className="opacity-70">({noLayerItems.length})</span>
-            </button>
+            </Button>
           )}
           {layerTables.length > 0 && (
             <>
-              <span className="w-px bg-slate-200 mx-1 shrink-0" />
-              <button
+              <Separator orientation="vertical" className="mx-1 h-5 self-center" />
+              <Button
                 type="button"
+                size="xs"
+                variant={!viewTable ? "default" : "outline"}
+                aria-pressed={!viewTable}
+                className="h-7 px-3"
                 onClick={() => setView(null)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs border shrink-0 ${
-                  !viewTable ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
-                }`}
               >
-                <TableIcon className="size-[15px] shrink-0" />
+                <TableIcon />
                 ตารางหลัก
-              </button>
+              </Button>
               {layerTables.map((t) => (
-                <button
+                <Button
                   key={t.id}
                   type="button"
+                  size="xs"
+                  variant={viewTable?.id === t.id ? "default" : "outline"}
+                  aria-pressed={viewTable?.id === t.id}
+                  className="h-7 px-3"
                   onClick={() => setView({ tableId: t.id, featureId: null })}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs border shrink-0 ${
-                    viewTable?.id === t.id
-                      ? "bg-teal-700 text-white border-teal-700"
-                      : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"
-                  }`}
                 >
-                  <Rows3Icon className="size-[15px] shrink-0" />
+                  <Rows3Icon />
                   {t.name}
                   <span className="opacity-70">({records.filter((r) => r.tableId === t.id).length})</span>
-                </button>
+                </Button>
               ))}
             </>
           )}
         </div>
-        <button
-          type="button"
-          aria-label="ปิดตาราง"
-          title="ปิดตาราง"
-          onClick={onClose}
-          className="p-1 rounded text-slate-500 hover:bg-slate-100 flex shrink-0"
-        >
-          <XIcon className="size-[20px] shrink-0" />
-        </button>
+        <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label="ปิดตาราง" title="ปิดตาราง" onClick={onClose}>
+          <XIcon />
+        </Button>
       </div>
 
       {error && !viewTable && (
-        <div role="alert" className="flex items-center gap-1.5 px-3 py-1 border-b border-red-200 bg-red-50 text-xs text-red-800 shrink-0">
-          <CircleAlertIcon className="size-[16px] shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button type="button" aria-label="ปิดการแจ้งเตือน" onClick={() => setError(null)} className="p-0.5 rounded flex hover:bg-red-100">
-            <XIcon className="size-[14px] shrink-0" />
-          </button>
-        </div>
+        <Alert variant="destructive" className="shrink-0 rounded-none border-x-0 border-t-0 px-3 py-1.5">
+          <CircleAlertIcon />
+          <AlertDescription className="flex items-center gap-2">
+            <span className="flex-1">{error}</span>
+            <Button type="button" variant="ghost" size="icon-xs" aria-label="ปิดการแจ้งเตือน" onClick={() => setError(null)}>
+              <XIcon />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
       {!layer ? (
-        <p className="m-auto text-sm text-slate-500 px-4 text-center">ยังไม่มี layer — สร้างจากปุ่ม "+ Layer" ในพาเนลรายการ</p>
+        <p className="m-auto px-4 text-center text-sm text-muted-foreground">ยังไม่มี layer — สร้างจากปุ่ม "+ Layer" ในพาเนลรายการ</p>
       ) : viewTable ? (
         <RelatedTableView
           key={viewTable.id}
@@ -445,9 +453,9 @@ export default function AttributeTable({
       ) : (
         <div className="flex-1 min-h-0 overflow-auto">
           <table className="min-w-full text-sm border-separate border-spacing-0">
-            <thead className="sticky top-0 z-10 bg-slate-50">
+            <thead className="sticky top-0 z-10 bg-muted">
               <tr>
-                <th className="w-10 px-2 py-1.5 text-[11px] font-semibold text-slate-400 text-right border-b border-slate-200">#</th>
+                <th className="w-10 border-b px-2 py-1.5 text-right text-[0.6875rem] font-semibold text-muted-foreground">#</th>
                 {columns.map((c) => (
                   <HeaderCell
                     key={c.id}
@@ -461,7 +469,7 @@ export default function AttributeTable({
                     {...(c.field && canManage && fieldActions(c.field))}
                   />
                 ))}
-                <th className="w-full px-2 py-1 border-b border-slate-200 text-left">
+                <th className="w-full border-b px-2 py-1 text-left">
                   {canManage && !isNoLayer && (
                     <AddColumn
                       taken={[...columns.filter((c) => !c.computed).map((c) => c.label), ...layerTables.map((t) => t.name)]}
@@ -479,7 +487,7 @@ export default function AttributeTable({
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length + 2} className="px-3 py-6 text-center text-sm text-slate-500">
+                  <td colSpan={columns.length + 2} className="px-3 py-6 text-center text-sm text-muted-foreground">
                     ยังไม่มี feature ใน layer นี้ — วาด {GEOM_LABEL[layer.geomType]} แล้วเลือก layer "{layer.name}"
                   </td>
                 </tr>
@@ -492,16 +500,18 @@ export default function AttributeTable({
                     onClick={() => onFocus(item)}
                     onMouseEnter={() => onHover(item.id)}
                     onMouseLeave={() => onHover(null)}
-                    className={`cursor-pointer ${active ? "bg-amber-50" : "hover:bg-slate-50"} ${
-                      hiddenIds.has(item.id) ? "text-slate-400" : "text-slate-800"
-                    }`}
+                    className={cn(
+                      "cursor-pointer",
+                      active ? "bg-primary/10" : "hover:bg-muted/60",
+                      hiddenIds.has(item.id) ? "text-muted-foreground/60" : "text-foreground",
+                    )}
                   >
-                    <td className="px-2 py-1.5 text-[11px] text-slate-400 text-right border-b border-slate-100">{n + 1}</td>
+                    <td className="border-b px-2 py-1.5 text-right text-[0.6875rem] text-muted-foreground">{n + 1}</td>
                     {columns.map((c) => {
                       const text = c.render(item);
                       if (cell?.id === item.id && cell.col === c.id) {
                         return (
-                          <td key={c.id} className="px-2 py-1 border-b border-slate-100">
+                          <td key={c.id} className="border-b px-2 py-1">
                             {editor(c)}
                           </td>
                         );
@@ -520,30 +530,34 @@ export default function AttributeTable({
                                 }
                               : undefined
                           }
-                          className={`px-3 py-1.5 border-b border-slate-100 max-w-[16rem] truncate ${
-                            c.numeric ? "text-right tabular-nums" : ""
-                          } ${c.id === "name" ? "font-medium" : ""}`}
+                          className={cn(
+                            "max-w-[16rem] truncate border-b px-3 py-1.5",
+                            c.numeric && "text-right tabular-nums",
+                            c.id === "name" && "font-medium",
+                          )}
                         >
                           {c.relatedTableId !== undefined ? (
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="xs"
                               title="เปิดตารางย่อยของ feature นี้"
                               onClick={(e) => {
                                 e.stopPropagation(); // ไม่ซูมแผนที่ (onClick ของแถว)
                                 setView({ tableId: c.relatedTableId!, featureId: item.id });
                               }}
-                              className="inline-flex items-center gap-0.5 px-1.5 rounded text-teal-800 font-medium underline decoration-dotted underline-offset-2 hover:bg-teal-50"
+                              className="h-5 gap-0.5 px-1.5 font-medium text-primary underline decoration-dotted underline-offset-2 hover:bg-primary/10 hover:text-primary"
                             >
                               {text}
-                              <ChevronRightIcon className="size-[14px] shrink-0" />
-                            </button>
+                              <ChevronRightIcon />
+                            </Button>
                           ) : (
-                            text || <span className="text-slate-300">—</span>
+                            text || <span className="text-muted-foreground/40">—</span>
                           )}
                         </td>
                       );
                     })}
-                    <td className="border-b border-slate-100" />
+                    <td className="border-b" />
                   </tr>
                 );
               })}

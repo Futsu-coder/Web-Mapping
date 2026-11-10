@@ -43,7 +43,7 @@ export default function SearchBox({
   onPicked?: () => void;
   /** ระยะเว้นขอบจากสิ่งที่บังแผนที่อยู่ (พาเนลขวา / แผ่นล่างของมือถือ) ให้หมุดไปอยู่กลางส่วนที่มองเห็น */
   getPadding?: () => PaddingOptions;
-  /** แบบลอยใน SearchToggle: ฟอร์มโปร่งใสสูง 48px, รายการผลค้นหาลอยใต้ช่อง, มีปุ่ม ✕ ปิดแถบ + Esc */
+  /** แบบลอยใน SearchToggle: ฟอร์มโปร่งใสสูง 40px, รายการผลค้นหาลอยใต้ช่อง, มีปุ่ม ✕ ปิดแถบ + Esc */
   floating?: boolean;
   onClose?: () => void;
 }) {
@@ -172,11 +172,11 @@ export default function SearchBox({
         onSubmit={search}
         className={
           floating
-            ? "flex h-12 items-center gap-1 pr-1 pl-4"
+            ? "flex h-10 items-center gap-1 pr-1 pl-3.5"
             : "flex h-10 items-center gap-1 rounded-lg bg-muted pr-1 pl-3 focus-within:ring-2 focus-within:ring-primary/40"
         }
       >
-        <SearchIcon className="size-[18px] text-muted-foreground" />
+        <SearchIcon className="size-4.5 text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => onChange(e.target.value)}

@@ -108,6 +108,13 @@ export default function MobileSheet({
   const base = offsets ? offsets[shown] : 0;
   const offset = Math.min(max, Math.max(0, base + drag.dy));
 
+  // เลือก feature ใหม่ → แท็บสลับเป็น "รายละเอียด" เอง แต่ focus ยังค้างที่ปุ่มเดิม (กรอบค้าง) → ปล่อย focus ในแถบแท็บ
+  useEffect(() => {
+    const el = document.activeElement;
+    if (selectionKey && el instanceof HTMLElement && headRef.current?.contains(el)) el.blur();
+  }, [selectionKey]);
+
+  // onClick ด้วย เพราะ onValueChange ไม่ยิงเมื่อแตะแท็บที่ active อยู่แล้ว (แผ่นยุบอยู่แต่แท็บนั้น active → ไม่เปิด)
   const pick = (t: Tab) => {
     setTab(t);
     if (!expanded) goTo("half");
@@ -140,15 +147,15 @@ export default function MobileSheet({
           <Tabs value={current} onValueChange={(v) => pick(v as Tab)} className="px-4 pb-3">
             <TabsList className={cn("grid h-11 w-full gap-1 p-1", hasDetails ? "grid-cols-2" : "grid-cols-1")}>
               {hasDetails && (
-                <TabsTrigger value="details" className="h-9 gap-1.5 text-[13px] font-semibold">
+                <TabsTrigger value="details" onClick={() => pick("details")} className="h-9 gap-1.5 text-[0.8125rem] font-semibold">
                   <InfoIcon />
                   รายละเอียด
                 </TabsTrigger>
               )}
-              <TabsTrigger value="features" className="h-9 gap-1.5 text-[13px] font-semibold">
+              <TabsTrigger value="features" onClick={() => pick("features")} className="h-9 gap-1.5 text-[0.8125rem] font-semibold">
                 <ListIcon />
                 รายการทั้งหมด
-                <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">{featureCount}</span>
+                <span className="rounded-full bg-primary px-1.5 text-[0.6875rem] font-bold text-primary-foreground">{featureCount}</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>

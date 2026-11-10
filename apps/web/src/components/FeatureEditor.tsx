@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { centerOf, message } from "../lib/featureMeta";
+import { message } from "../lib/featureMeta";
 import {
   badInputLabel,
   badNumberMessage,
@@ -19,25 +19,40 @@ import {
   type Layer,
   type LayerField,
 } from "../lib/layers";
-import { describeGeometry, fmtLat, fmtLng } from "../lib/measure";
+import { fmtLat, fmtLng, formatArea, formatLength, lineLength, polygonArea, polygonPerimeter } from "../lib/measure";
 import type { GeomType } from "../lib/types";
 import FieldInput from "./FieldInput";
 
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
-/** Point = ตำแหน่งจุด, Line/Polygon = จุดกึ่งกลางของกรอบ (อัปเดตเมื่อลากแก้เสร็จ) */
-function LocationView({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
-  const [lng, lat] = centerOf(geometry);
+/** ข้อมูลรูปทรงตามชนิด: Point = ตำแหน่ง, Line = ความยาวรวม, Polygon = พื้นที่ + ความยาวรอบรูป (อัปเดตตาม geometry ล่าสุด) */
+function GeometryInfo({ geometry, mobile }: { geometry: GeoJSON.Geometry; mobile: boolean }) {
+  let title = "ขนาด";
+  let rows: [string, string][] = [];
+  if (geometry.type === "Point") {
+    title = "ตำแหน่ง";
+    const [lng, lat] = geometry.coordinates;
+    rows = [
+      ["ละติจูด", fmtLat(lat)],
+      ["ลองจิจูด", fmtLng(lng)],
+    ];
+  } else if (geometry.type === "LineString") {
+    rows = [["ความยาวรวม", formatLength(lineLength(geometry.coordinates))]];
+  } else if (geometry.type === "Polygon") {
+    const ring = geometry.coordinates[0] ?? [];
+    rows = [
+      ["พื้นที่", formatArea(polygonArea(ring))],
+      ["ความยาวรอบรูป", formatLength(polygonPerimeter(ring))],
+    ];
+  }
+  if (!rows.length) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-semibold text-muted-foreground">ตำแหน่ง</span>
-      <div className="grid grid-cols-2 gap-2">
-        {[
-          ["ละติจูด", fmtLat(lat)],
-          ["ลองจิจูด", fmtLng(lng)],
-        ].map(([label, value]) => (
+      <span className="text-xs font-semibold text-muted-foreground">{title}</span>
+      <div className={cn("grid gap-2", rows.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+        {rows.map(([label, value]) => (
           <div key={label} className={cn("rounded-lg border bg-muted/50 text-xs", mobile ? "p-3" : "p-2.5")}>
-            <span className="block text-[11px] text-muted-foreground">{label}</span>
+            <span className="block text-[0.6875rem] text-muted-foreground">{label}</span>
             <span className="font-mono font-medium">{value}</span>
           </div>
         ))}
@@ -252,7 +267,6 @@ export default function FeatureEditor({
       else next[key] = v;
       return next;
     });
-  const info = describeGeometry(geometry);
   // มือถือ: input สูง 44px+ และตัวอักษร 16px กัน iOS ซูมเอง
   const ctl = mobile ? "h-11 text-base md:text-base" : "";
 
@@ -261,14 +275,21 @@ export default function FeatureEditor({
       {!readOnly && (
         <div className="flex items-start gap-2 rounded-lg bg-primary/10 px-2.5 py-2 text-xs text-teal-900">
           <MoveIcon className="mt-0.5 size-4 shrink-0" />
-          <span>{mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}</span>
+          <span>
+            {mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}
+            {mode === "edit" && ` · กดยกเลิกหรือ${mobile ? "แตะ" : "คลิก"}นอกรูปเพื่อออกโดยไม่บันทึก`}
+          </span>
         </div>
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="fe-name" className="justify-between">
-          <span>ชื่อ</span>
-          <span className="font-normal text-destructive">จำเป็น</span>
+        <Label htmlFor="fe-name">
+          ชื่อ
+          {!readOnly && (
+            <span aria-hidden="true" className="text-destructive">
+              *
+            </span>
+          )}
         </Label>
         <Input
           id="fe-name"
@@ -318,7 +339,7 @@ export default function FeatureEditor({
 
       {related}
 
-      <LocationView geometry={geometry} mobile={mobile} />
+      <GeometryInfo geometry={geometry} mobile={mobile} />
 
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-800">
@@ -338,10 +359,10 @@ export default function FeatureEditor({
   const deleteButton = (
     <Button
       type="button"
-      variant="outline"
+      variant="destructive"
       disabled={busy}
       onClick={() => void run(onDelete)}
-      className={cn("border-red-200 text-destructive hover:bg-red-50 hover:text-destructive", mobile && "h-11")}
+      className={cn(mobile && "h-11 px-4")}
     >
       <Trash2Icon data-icon="inline-start" />
       ลบ
@@ -349,7 +370,7 @@ export default function FeatureEditor({
   );
 
   if (mobile) {
-    const h = "h-11 text-[15px]";
+    const h = "h-11 text-[0.9375rem]";
     return (
       <div className="flex h-full min-h-0 flex-col bg-card">
         {mode === "create" ? (
@@ -358,7 +379,6 @@ export default function FeatureEditor({
               <span className="size-2.5 rounded-full bg-primary" />
               <h2 className="text-lg font-bold">{TYPE_LABEL[type]}</h2>
             </div>
-            <span className="text-xs font-medium text-muted-foreground">{[info.metric, info.count].filter(Boolean).join(" · ")}</span>
           </div>
         ) : (
           <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3">
@@ -374,12 +394,6 @@ export default function FeatureEditor({
               </div>
               <h2 className="truncate text-lg font-semibold">{initial.name}</h2>
             </div>
-            {info.metric && (
-              <div className="flex shrink-0 flex-col items-end">
-                <span className="text-[15px] font-semibold text-primary">{info.metric}</span>
-                <span className="font-mono text-[11px] text-muted-foreground">{info.count}</span>
-              </div>
-            )}
           </div>
         )}
 
@@ -407,7 +421,7 @@ export default function FeatureEditor({
             ) : (
               <>
                 {deleteButton}
-                <Button type="button" variant="secondary" disabled={busy} onClick={onCancel} className={h}>
+                <Button type="button" variant="secondary" disabled={busy} onClick={onCancel} className={cn(h, "px-4")}>
                   ยกเลิก
                 </Button>
                 <Button type="button" disabled={busy || !trimmed} onClick={() => void save()} className={cn(h, "flex-1")}>
@@ -429,7 +443,6 @@ export default function FeatureEditor({
         <h2 className="text-sm font-semibold">
           {mode === "create" ? "เพิ่มรายการใหม่" : mode === "view" ? "รายละเอียด" : "แก้ไขรายละเอียด"} · {TYPE_LABEL[type]}
         </h2>
-        {info.metric && <span className="ml-auto text-xs font-medium text-muted-foreground">{info.metric}</span>}
       </div>
 
       <form id={formId} ref={formRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3" onSubmit={onSubmit}>
@@ -437,12 +450,21 @@ export default function FeatureEditor({
       </form>
 
       <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-          {readOnly ? "ปิด" : "ยกเลิก"}
-        </Button>
+        {/* แก้ไข: ลบชิดซ้าย ยกเลิก+บันทึกชิดขวา (ยกเลิก = เหมือนคลิกพื้นที่ว่าง) / สร้างใหม่: ยกเลิกชิดซ้าย เพราะคลิกพื้นที่ว่างไม่ทิ้ง draft */}
+        {mode === "edit" ? (
+          deleteButton
+        ) : (
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+            {readOnly ? "ปิด" : "ยกเลิก"}
+          </Button>
+        )}
         {!readOnly && (
           <div className="flex items-center gap-2">
-            {mode !== "create" && deleteButton}
+            {mode === "edit" && (
+              <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+                ยกเลิก
+              </Button>
+            )}
             <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
               <SaveIcon data-icon="inline-start" />
               {busy ? "กำลังบันทึก…" : "บันทึก"}

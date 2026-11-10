@@ -2,23 +2,23 @@ import { useEffect, useState } from "react";
 import type { Map as MlMap } from "maplibre-gl";
 import { CompassIcon, MinusIcon, PlusIcon, TableIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const CARD = "bg-card rounded-xl shadow-float border border-black/5";
-const SEG = "w-full font-semibold data-[state=on]:bg-primary data-[state=on]:text-primary-foreground";
 
 /**
- * กลุ่มควบคุมมุมมอง (ขวาล่าง): สลับ 2D/3D, ซูม +/− (เฉพาะจอคอม), เข็มทิศ (เฉพาะตอน 3D)
- * + ปุ่มเปิด/ปิด Attribute table (ส่ง onToggleTable มาเท่านั้น)
- * paused = แอปบังคับให้แผนที่แบนชั่วคราวระหว่างวาด/แก้/ย้าย → ปุ่ม 3D จางลงพร้อมป้ายอธิบาย
+ * กลุ่มควบคุมมุมมอง (ขวาล่าง): ปุ่ม 3D ปุ่มเดียว (กดครั้งแรกเป็น 3D กดซ้ำกลับ 2D), เข็มทิศ reset ทิศ (เฉพาะตอน 3D),
+ * ซูม +/− (เฉพาะจอคอม) + ปุ่มเปิด/ปิด Attribute table (ส่ง onToggleTable มาเท่านั้น)
+ * paused = แอปบังคับให้แผนที่แบนชั่วคราว (เช่น ตอนดูรายละเอียด) → ปุ่ม 3D จางลงพร้อมป้ายอธิบาย
+ * hide3D = ระหว่างวาด/สร้าง/แก้/ย้าย ซ่อนปุ่ม 3D ไปเลย
  */
 export default function MapControls({
   map,
   is3D,
   paused,
   onToggle3D,
+  hide3D = false,
   compact = false,
   className,
   tableOpen,
@@ -28,6 +28,8 @@ export default function MapControls({
   is3D: boolean;
   paused: boolean;
   onToggle3D: () => void;
+  /** ซ่อนปุ่ม 3D (ระหว่างวาด/สร้าง/แก้/ย้าย) */
+  hide3D?: boolean;
   /** มือถือ: ไม่มีปุ่มซูม (ใช้ pinch) ปุ่มสูง 44px */
   compact?: boolean;
   className?: string;
@@ -45,43 +47,53 @@ export default function MapControls({
   }, [map]);
 
   const showCompass = is3D && !paused;
-  const segH = compact ? "h-11" : "h-9";
+  const size = compact ? "size-12" : "size-11";
+  const toggle3DLabel = is3D ? "กลับเป็นมุมมอง 2D" : "มุมมอง 3D";
 
   return (
     <div className={cn("flex flex-col items-center gap-2", className)}>
-      {showCompass && (
-        <Button
-          variant="ghost"
-          aria-label="หันไปทิศเหนือ"
-          title="หันไปทิศเหนือ"
-          className={cn(CARD, "size-12 rounded-full text-primary hover:bg-card")}
-          onClick={() => map?.easeTo({ bearing: 0, duration: 400 })}
-        >
-          <CompassIcon style={{ transform: `rotate(${-bearing}deg)` }} />
-        </Button>
-      )}
+      {/* render ไว้ตลอดแล้วสลับ class → ค่อยๆ fade/scale เข้า-ออก (กลุ่มยึดขอบล่าง ปุ่มที่ซ่อนไม่ดันปุ่มอื่น) */}
+      <Button
+        variant="ghost"
+        aria-label="หันไปทิศเหนือ"
+        title="หันไปทิศเหนือ"
+        aria-hidden={!showCompass}
+        tabIndex={showCompass ? 0 : -1}
+        className={cn(
+          CARD,
+          "size-12 rounded-full text-primary transition-[opacity,scale,translate,visibility] duration-300 ease-out hover:bg-card motion-reduce:transition-none",
+          showCompass ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none invisible translate-y-2 scale-75 opacity-0",
+        )}
+        onClick={() => map?.easeTo({ bearing: 0, duration: 400 })}
+      >
+        <CompassIcon style={{ transform: `rotate(${-bearing}deg)` }} />
+      </Button>
 
-      <Tooltip open={paused && tipOpen} onOpenChange={setTipOpen}>
-        <TooltipTrigger asChild>
-          <div className={cn(CARD, "p-1", paused && "opacity-60")}>
-            <ToggleGroup
-              type="single"
-              value={is3D ? "3d" : "2d"}
-              onValueChange={(v) => v && (v === "3d") !== is3D && onToggle3D()}
-              aria-label="มุมมองแผนที่"
-              className={cn("flex-col gap-0.5", compact && "min-w-12")}
-            >
-              <ToggleGroupItem value="2d" aria-label="มุมมองแบน 2D" className={cn(SEG, segH)}>
-                2D
-              </ToggleGroupItem>
-              <ToggleGroupItem value="3d" aria-label="มุมมอง 3D" className={cn(SEG, segH)}>
+      {!hide3D && (
+        <Tooltip open={paused && tipOpen} onOpenChange={setTipOpen}>
+          <TooltipTrigger asChild>
+            {/* span ครอบไว้ให้ tooltip ยังโผล่ได้ตอนปุ่มจาง (paused) */}
+            <span className={cn(paused && "opacity-60")}>
+              <Button
+                variant={is3D ? "default" : "ghost"}
+                aria-pressed={is3D}
+                aria-label={toggle3DLabel}
+                title={paused ? undefined : toggle3DLabel}
+                className={cn(
+                  CARD,
+                  size,
+                  "text-base font-bold",
+                  is3D ? "border-transparent bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-card",
+                )}
+                onClick={onToggle3D}
+              >
                 3D
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="left">พัก 3D ขณะวาด/แก้ไข เสร็จแล้วจะเอียงกลับให้เอง</TooltipContent>
-      </Tooltip>
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="left">พัก 3D ขณะดูรายละเอียด ปิดแล้วจะเอียงกลับให้เอง</TooltipContent>
+        </Tooltip>
+      )}
 
       {onToggleTable && (
         <Tooltip>
@@ -92,8 +104,8 @@ export default function MapControls({
               aria-label={tableOpen ? "ปิดตาราง" : "เปิดตาราง (Attribute table)"}
               className={cn(
                 CARD,
-                compact ? "size-12" : "size-11",
-                tableOpen ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-card",
+                size,
+                tableOpen ? "border-transparent bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-card",
               )}
               onClick={onToggleTable}
             >

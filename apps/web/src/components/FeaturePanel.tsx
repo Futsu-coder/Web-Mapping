@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -7,7 +7,6 @@ import {
   EyeOffIcon,
   LockIcon,
   MapIcon,
-  PencilIcon,
   PlusIcon,
   SettingsIcon,
   TableIcon,
@@ -15,7 +14,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { GEOM_LABEL, type Layer } from "../lib/layers";
 import { FILTERS, type GeomType, type Item } from "../lib/types";
@@ -30,38 +28,102 @@ const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line
 
 function RowButton({
   title,
-  active,
   danger,
   onClick,
   children,
 }: {
   title: string;
-  active?: boolean;
   danger?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant={active ? "default" : "ghost"}
-          size="icon"
-          aria-label={title}
-          className={cn("size-8", danger && "text-muted-foreground hover:bg-red-50 hover:text-destructive")}
-          onClick={(e) => {
-            e.stopPropagation(); // ไม่ให้ไปเข้า onClick ของแถว
-            onClick();
-          }}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{title}</TooltipContent>
-    </Tooltip>
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      title={title}
+      aria-label={title}
+      className={cn("size-8", danger && "text-muted-foreground hover:bg-red-50 hover:text-destructive")}
+      onClick={(e) => {
+        e.stopPropagation(); // ไม่ให้ไปเข้า onClick ของแถว
+        onClick();
+      }}
+    >
+      {children}
+    </Button>
   );
 }
+
+type RowHandlers = {
+  onFocus: (item: Item) => void;
+  onToggleVisible: (item: Item) => void;
+  onRemove: (item: Item) => void;
+  onHover: (id: number | null) => void;
+};
+
+/** แถวรายการ — memo: render ใหม่เฉพาะแถวที่ข้อมูล/สถานะเปลี่ยน (ไม่ใช่ทุกแถวทุกครั้งที่ App เปลี่ยน state) */
+const FeatureRow = memo(function FeatureRow({
+  item,
+  layer,
+  selected,
+  hidden,
+  hovered,
+  modifiable,
+  showOwner,
+  h,
+}: {
+  item: Item;
+  /** layer ของ feature นี้ (ไม่มี = ไม่อยู่ใน layer) — ใช้สีของ layer เป็นจุดหน้าชื่อ */
+  layer: Layer | undefined;
+  selected: boolean;
+  hidden: boolean;
+  hovered: boolean;
+  modifiable: boolean;
+  showOwner: boolean;
+  h: RowHandlers;
+}) {
+  return (
+    <li
+      id={`feature-${item.id}`}
+      onClick={() => h.onFocus(item)}
+      onMouseEnter={() => h.onHover(item.id)}
+      onMouseLeave={() => h.onHover(null)}
+      className={cn(
+        "flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+        selected ? "bg-primary/10" : hovered ? "bg-muted" : "hover:bg-muted",
+        hidden && "opacity-55",
+      )}
+    >
+      <span
+        className="size-2.5 shrink-0 rounded-full bg-zinc-500"
+        style={layer ? { backgroundColor: layer.color } : undefined}
+        title={layer?.name ?? "ไม่มี layer"}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{item.props.name}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {TYPE_LABEL[item.type]}
+          {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
+        </span>
+      </span>
+      <div className="flex shrink-0 items-center">
+        <RowButton title={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"} onClick={() => h.onToggleVisible(item)}>
+          {hidden ? <EyeOffIcon /> : <EyeIcon />}
+        </RowButton>
+        {modifiable ? (
+          <RowButton title="ลบ" danger onClick={() => h.onRemove(item)}>
+            <Trash2Icon />
+          </RowButton>
+        ) : (
+          <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="px-2 text-muted-foreground/60">
+            <LockIcon className="size-4" />
+          </span>
+        )}
+      </div>
+    </li>
+  );
+});
 
 /**
  * การ์ดลอยซ้ายบน: โลโก้ + ค้นหา + ตัวกรอง + รายการ feature
@@ -74,17 +136,14 @@ export default function FeaturePanel({
   hoveredId,
   onHover,
   onFocus,
-  onEdit,
   onToggleVisible,
   onRemove,
   selectedId,
-  editingId,
   hiddenIds,
   canModify,
   showOwner,
   open,
   onToggle,
-  footer,
   layers,
   hiddenLayers,
   onToggleLayer,
@@ -105,25 +164,31 @@ export default function FeaturePanel({
   hoveredId: number | null;
   onHover: (id: number | null) => void;
   onFocus: (item: Item) => void;
-  onEdit: (item: Item) => void;
   onToggleVisible: (item: Item) => void;
   onRemove: (item: Item) => void;
   selectedId: number | null;
-  /** feature ที่กำลังอยู่ในโหมดแก้ไข (ปุ่มปากกาไฮไลต์) */
-  editingId: number | null;
   /** feature ที่ถูกซ่อนจากแผนที่ */
   hiddenIds: Set<number>;
-  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มปากกาและถังขยะ */
+  /** แก้/ลบได้ไหม (เจ้าของ feature หรือเจ้าของ group) — ไม่ได้ก็ซ่อนปุ่มถังขยะ */
   canModify: (item: Item) => boolean;
   /** แสดงชื่อคนสร้าง (login แล้ว) */
   showOwner: boolean;
   open: boolean;
   /** ย่อ/ขยายการ์ด */
   onToggle: () => void;
-  /** ท้ายการ์ด (แสดงแม้ย่อรายการ) เช่นแบนเนอร์โหมดทดลอง */
-  footer?: ReactNode;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
+  // handler คงที่ตลอดอายุ component (อ่านตัวล่าสุดผ่าน ref) → FeatureRow ที่ memo ไว้ไม่ render ใหม่โดยไม่จำเป็น
+  const latest = useRef<RowHandlers>({ onFocus, onToggleVisible, onRemove, onHover });
+  useEffect(() => {
+    latest.current = { onFocus, onToggleVisible, onRemove, onHover };
+  });
+  const [handlers] = useState<RowHandlers>(() => ({
+    onFocus: (i) => latest.current.onFocus(i),
+    onToggleVisible: (i) => latest.current.onToggleVisible(i),
+    onRemove: (i) => latest.current.onRemove(i),
+    onHover: (id) => latest.current.onHover(id),
+  }));
   // layer ที่พับรายการไว้
   const [folded, setFolded] = useState<Set<number>>(new Set());
 
@@ -140,58 +205,19 @@ export default function FeaturePanel({
     else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
   }, [hoveredId, open]);
 
-  const renderRow = (item: Item) => {
-    const selected = item.id === selectedId;
-    const hidden = hiddenIds.has(item.id);
-    const hovered = item.id === hoveredId;
-    const layer = layers?.find((l) => l.id === item.props.layerId);
-    return (
-      <li
-        key={item.id}
-        id={`feature-${item.id}`}
-        onClick={() => onFocus(item)}
-        onMouseEnter={() => onHover(item.id)}
-        onMouseLeave={() => onHover(null)}
-        className={cn(
-          "flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
-          selected ? "bg-primary/10" : hovered ? "bg-muted" : "hover:bg-muted",
-          hidden && "opacity-55",
-        )}
-      >
-        <span
-          className="size-2.5 shrink-0 rounded-full bg-zinc-500"
-          style={layer ? { backgroundColor: layer.color } : undefined}
-          title={layer?.name ?? "ไม่มี layer"}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{item.props.name}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {TYPE_LABEL[item.type]}
-            {showOwner && item.ownerName ? ` · โดย ${item.ownerName}` : ""}
-          </span>
-        </span>
-        <div className="flex shrink-0 items-center">
-          <RowButton title={hidden ? "แสดงบนแผนที่" : "ซ่อนจากแผนที่"} onClick={() => onToggleVisible(item)}>
-            {hidden ? <EyeOffIcon /> : <EyeIcon />}
-          </RowButton>
-          {canModify(item) ? (
-            <>
-              <RowButton title="แก้ไข" active={item.id === editingId} onClick={() => onEdit(item)}>
-                <PencilIcon />
-              </RowButton>
-              <RowButton title="ลบ" danger onClick={() => onRemove(item)}>
-                <Trash2Icon />
-              </RowButton>
-            </>
-          ) : (
-            <span title="แก้ไขได้เฉพาะเจ้าของ feature หรือเจ้าของ group" className="px-2 text-muted-foreground/60">
-              <LockIcon className="size-4" />
-            </span>
-          )}
-        </div>
-      </li>
-    );
-  };
+  const renderRow = (item: Item) => (
+    <FeatureRow
+      key={item.id}
+      item={item}
+      layer={layers?.find((l) => l.id === item.props.layerId)}
+      selected={item.id === selectedId}
+      hidden={hiddenIds.has(item.id)}
+      hovered={item.id === hoveredId}
+      modifiable={canModify(item)}
+      showOwner={showOwner}
+      h={handlers}
+    />
+  );
   // feature ที่ไม่มี layer (หรือ layer ถูกลบไปแล้ว)
   const noLayer = layers ? items.filter((i) => !layers.some((l) => l.id === i.props.layerId)) : [];
   const toggleFold = (id: number) =>
@@ -211,7 +237,7 @@ export default function FeaturePanel({
         <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
           <MapIcon className="size-4" />
         </span>
-        <span className="flex-1 text-[15px] font-bold">Web Mapping</span>
+        <span className="flex-1 text-[0.9375rem] font-bold">Web Mapping</span>
         <Button
           type="button"
           variant="ghost"
@@ -296,7 +322,7 @@ export default function FeaturePanel({
                           )}
                           <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: layer.color }} />
                           <span className="truncate text-sm font-semibold">{layer.name}</span>
-                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                          <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
                             {GEOM_LABEL[layer.geomType]} · {members.length}
                           </span>
                         </button>
@@ -343,8 +369,6 @@ export default function FeaturePanel({
           )}
         </ul>
       </div>
-
-      {footer && <div className="shrink-0 border-t p-2">{footer}</div>}
     </div>
   );
 }

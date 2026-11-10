@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Popup, type Map as MlMap, type PaddingOptions } from "maplibre-gl";
 import type MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type { Session } from "@supabase/supabase-js";
@@ -23,17 +23,19 @@ import RelatedRecords, { type RecordDraft } from "./components/RelatedRecords";
 import RelatedTableDialog, { type RelatedTableDraft } from "./components/RelatedTableDialog";
 import MapView, { type MapCtx } from "./components/MapView";
 import AccountMenu from "./components/AccountMenu";
+import GuestIndicator from "./components/GuestIndicator";
 import DetailCard from "./components/DetailCard";
-import { AlertCircleIcon, FlaskConicalIcon, XIcon } from "lucide-react";
+import { AlertCircleIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import Toast, { type ToastData } from "./components/Toast";
+import { notifyInfo, notifySaved } from "./components/Toast";
+import { Toaster } from "@/components/ui/sonner";
 import Toolbar from "./components/Toolbar";
 import MapControls from "./components/MapControls";
 import DrawFab from "./components/mobile/DrawFab";
 import FeaturePanel from "./components/FeaturePanel";
 import SearchToggle from "./components/SearchToggle";
-import CrosshairDraw, { Crosshair, MobileScale } from "./components/mobile/CrosshairDraw";
+import CrosshairDraw, { Crosshair } from "./components/mobile/CrosshairDraw";
 import DrawSheet from "./components/mobile/DrawSheet";
 import MobileFeatureList from "./components/mobile/MobileFeatureList";
 import MobileHeader from "./components/mobile/MobileHeader";
@@ -124,11 +126,15 @@ export default function App() {
   // รูปทรงล่าสุดของสิ่งที่วาด/แก้อยู่ใน draw (ยังไม่บันทึก) — ใช้แสดงตำแหน่ง/พื้นที่ในฟอร์ม
   const [draftGeom, setDraftGeom] = useState<GeoJSON.Geometry | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
-  const [toast, setToast] = useState<ToastData | null>(null);
   const [moveMode, setMoveMode] = useState(false);
   // โหมด 3D: แผนที่เอียง 60° หมุนได้ เห็นภูเขาและตึก 3D (ตึกมีตั้งแต่ซูม 14)
   const [is3D, setIs3D] = useState(false);
   const zoomInFor3D = useRef(false);
+  /** กล้องถูกสั่งแบน (pitch 0) พร้อมการเลื่อนไปแล้ว → effect mustBeFlat ไม่ต้อง easeTo ซ้ำ (ไม่งั้นตัดการบินที่ค้างอยู่) */
+  const skipFlatEase = useRef(false);
+  /** กล้องที่รอเลื่อนหลัง render ถัดไป (ดู requestFit) */
+  const pendingFit = useRef<{ geometry: GeoJSON.Geometry; fly: boolean; maxZoom?: number; flat: boolean } | null>(null);
+  const [, bumpFit] = useReducer((n: number) => n + 1, 0);
   // feature ที่ถูกดึงเข้า draw เพื่อลากย้ายในโหมด Move
   const [movingId, setMovingId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -166,7 +172,6 @@ export default function App() {
   const [layerDialog, setLayerDialog] = useState<{ layer: Layer | null; lockType?: GeomType } | null>(null);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
-  const closeToast = useCallback(() => setToast(null), []);
   const onMapReady = useCallback((c: MapCtx | null) => {
     mapRef.current = c?.map ?? null;
     setCtx(c);
@@ -280,12 +285,40 @@ export default function App() {
 
   // วาด / แก้จุด / Move ต้องทำบนแผนที่แบนเสมอ (draw คำนวณตำแหน่งคลาดเมื่อแผนที่เอียง)
   // → ระหว่างนั้นกลับเป็น 2D ชั่วคราว ทำเสร็จแล้วเอียงกลับให้เอง
-  const mustBeFlat =
-    !!activeTool || !!mobileDraw || moveMode || selection?.mode === "create" || selection?.mode === "edit";
+  // โหมดดูรายละเอียด (view) ก็แบนด้วย เพื่อให้ทุกครั้งที่เลือก feature ได้มุมมองเดียวกัน
+  const mustBeFlat = !!activeTool || !!mobileDraw || moveMode || !!selection;
+  // กำลังวาด/สร้าง/แก้/ย้าย → ซ่อนปุ่ม 3D ไปเลย (โหมดดูรายละเอียดอย่างเดียวยังเห็นปุ่ม)
+  const editingData = !!activeTool || !!mobileDraw || moveMode || selection?.mode === "create" || selection?.mode === "edit";
+  /** ตอนนี้ควรเอียงอยู่ไหม (is3D และไม่ได้อยู่ในโหมดที่ต้องแบน) — ให้ตัวกันพลาด moveend ด้านล่างอ่านค่าล่าสุด */
+  const tiltRef = useRef(false);
+  // ตัวกันพลาด: การแบนด้วย easeTo อาจถูกตัดกลางทาง (ผู้ใช้ลาก/ซูม, flyTo ของค้นหา, ปุ่มตำแหน่งปัจจุบัน, กด cluster)
+  // แล้วแผนที่ค้างเอียง — moveend ยิงทั้งตอนจบเองและตอนถูกขัด → ถ้าควรแบนแต่ยังเอียง/หมุนอยู่ ให้แบนให้อีกรอบ
+  // (แบนแล้วก็หยุดเอง ไม่วนซ้ำ)
+  useEffect(() => {
+    if (!ctx) return;
+    const { map } = ctx;
+    let raf = 0;
+    const onMoveEnd = () => {
+      // เลื่อนไปเฟรมถัดไป: moveend ยิงตอน map.stop() ของอนิเมชันใหม่/การลากของผู้ใช้ด้วย — ถ้า easeTo ทันทีจะแย่งกัน
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (tiltRef.current || map.isMoving()) return; // กำลังเลื่อนใหม่อยู่ → moveend ของมันจะเช็กอีกรอบเอง
+        if (map.getPitch() > 0.1 || Math.abs(map.getBearing()) > 0.1) {
+          map.easeTo({ pitch: 0, bearing: 0, duration: 300 });
+        }
+      });
+    };
+    map.on("moveend", onMoveEnd);
+    return () => {
+      cancelAnimationFrame(raf);
+      map.off("moveend", onMoveEnd);
+    };
+  }, [ctx]);
   useEffect(() => {
     if (!ctx) return;
     const { map } = ctx;
     const tilt = is3D && !mustBeFlat;
+    tiltRef.current = tilt;
     if (tilt) {
       map.dragRotate.enable();
       map.touchPitch.enable();
@@ -303,6 +336,10 @@ export default function App() {
     const zoom = tilt && zoomInFor3D.current && map.getZoom() < 7 ? 9 : undefined;
     zoomInFor3D.current = false;
     const pitch = tilt ? 60 : 0;
+    if (skipFlatEase.current) {
+      skipFlatEase.current = false;
+      return;
+    }
     if (map.getPitch() !== pitch || zoom !== undefined || (!tilt && map.getBearing() !== 0)) {
       map.easeTo({ pitch, zoom, ...(tilt ? {} : { bearing: 0 }), duration: 500 });
     }
@@ -311,6 +348,22 @@ export default function App() {
   const onToggle3D = () => {
     zoomInFor3D.current = !is3D;
     setIs3D(!is3D);
+  };
+
+  /**
+   * ขอให้กล้องไปอยู่กลางพื้นที่ที่มองเห็นของ feature (ซูมออกถ้าใหญ่เกิน) — ทำ "หลัง" commit ถัดไป
+   * เพราะการ์ดรายการ/รายละเอียด (จอคอม) หรือ sheet (มือถือ) เพิ่งสั่งเปิด ยังไม่อยู่ใน DOM ตอนนี้ วัดระยะเว้นขอบตอนนี้จะผิด
+   * ถ้าเปิด 3D อยู่ (และยังไม่แบน) จะแบนเป็น 2D ในคำสั่งกล้องเดียวกัน
+   * ไม่ปล่อยให้ effect mustBeFlat easeTo แยก เพราะมันจะตัดการบิน/เลื่อนที่ค้างอยู่
+   */
+  const requestFit = (
+    geometry: GeoJSON.Geometry,
+    opts: { fly?: boolean; maxZoom?: number } = {},
+  ) => {
+    const flat = is3D && !mustBeFlat;
+    if (flat) skipFlatEase.current = true;
+    pendingFit.current = { geometry, fly: !!opts.fly, maxZoom: opts.maxZoom, flat };
+    bumpFit(); // ถ้า state อื่นไม่เปลี่ยน (เช่น เปิดการ์ดอยู่แล้ว) ก็ยังต้อง render เพื่อให้ effect ด้านล่างทำงาน
   };
 
   // ย่อจอเป็นมือถือระหว่างวาดด้วย draw → ปิดโหมดวาดของ draw (มือถือวาดด้วยกากบาทแทน)
@@ -396,7 +449,7 @@ export default function App() {
       clearGuest();
       setGuestExpiry(null);
       setGuestEpoch((e) => e + 1);
-      setToast({ id: Date.now(), message: "ลบข้อมูลทดลองแล้ว (เก็บไว้ครบ 1 ชั่วโมง)" });
+      notifyInfo("ลบข้อมูลทดลองแล้ว (เก็บไว้ครบ 1 ชั่วโมง)");
     }, Math.max(0, guestExpiry - Date.now()));
     return () => {
       clearInterval(tick);
@@ -435,16 +488,9 @@ export default function App() {
     setSelection({ mode: "edit", id: item.id });
   };
 
-  /** ปุ่ม Cancel ในฟอร์ม: edit = ทิ้งการแก้แล้วกลับไปโหมดดู, create = ทิ้ง shape */
-  const cancel = () => {
-    const keepId = selection?.mode === "edit" ? selection.id : null;
-    discardPending();
-    setSelection(keepId !== null ? { mode: "view", id: keepId } : null);
-  };
-
   const toggleVisible = (item: Item) => {
     if (hiddenIds.has(item.id)) return showItem(item);
-    if (selection?.mode === "edit" && selection.id === item.id) cancel();
+    if (selection?.mode === "edit" && selection.id === item.id) closeSelection();
     closePopup();
     setHiddenIds((s) => new Set(s).add(item.id));
   };
@@ -452,7 +498,7 @@ export default function App() {
   /** ซ่อน/แสดง feature ทั้งหมดของสมาชิกคนหนึ่ง (เฉพาะบนจอเรา) */
   const toggleOwner = (ownerId: string) => {
     const hiding = !hiddenOwners.has(ownerId);
-    if (hiding && selection?.mode === "edit" && selectedItem?.ownerId === ownerId) cancel();
+    if (hiding && selection?.mode === "edit" && selectedItem?.ownerId === ownerId) closeSelection();
     setHiddenOwners((s) => {
       const next = new Set(s);
       if (hiding) next.add(ownerId);
@@ -507,7 +553,7 @@ export default function App() {
     if (guest) persistGuest(() => removeGuestLayer(layer.id));
     else await layerApi.remove(layer.id);
     // ฟอร์มแก้ที่เปิดค้างยังถือ layer เดิมอยู่ → ยกเลิกการแก้ (กลับเป็นโหมดดู)
-    if (selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) cancel();
+    if (selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) closeSelection();
     const removedTables = new Set(tables.filter((t) => t.layerId === layer.id).map((t) => t.id));
     setLayers((list) => list.filter((l) => l.id !== layer.id));
     setTables((list) => list.filter((t) => !removedTables.has(t.id)));
@@ -526,7 +572,7 @@ export default function App() {
   /** ซ่อน/แสดงทั้ง layer (เฉพาะบนจอ) */
   const toggleLayer = (layer: Layer) => {
     const hiding = !hiddenLayers.has(layer.id);
-    if (hiding && selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) cancel();
+    if (hiding && selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) closeSelection();
     if (hiding) closePopup();
     setHiddenLayers((s) => {
       const next = new Set(s);
@@ -742,10 +788,12 @@ export default function App() {
       persistGuest(() => upsertGuest(localFeature(id, item.type, geometry, item.props)));
       return;
     }
+    // optimistic: ปล่อยเมาส์แล้วรูปอยู่ที่ใหม่ทันที ไม่รอ API (บันทึกเงียบ ไม่ขึ้น toast)
+    apply(geometry);
     patchFeature(id, { geometry })
-      .then((f) => apply(f.geometry)) // บันทึกเงียบ ไม่ขึ้น toast
       .catch((err) => {
-        // API ไม่รับ = คืนตำแหน่งเดิม
+        // API ไม่รับ = คืนตำแหน่งเดิมทั้งใน items และใน draw
+        apply(item.geometry);
         if (ctx?.draw.get(moveDrawId(id))) {
           loadIntoDraw(moveDrawId(id), item.geometry);
           setDrawMode(ctx.draw, "simple_select", { featureIds: [moveDrawId(id)] });
@@ -756,7 +804,7 @@ export default function App() {
 
   // ---------- event ของแผนที่ ----------
   useMapEvents(ctx, {
-    // คลิก feature บนแผนที่ = ดูข้อมูล (ระหว่างแก้ไข/สร้างไม่ทำอะไร กันข้อมูลที่กรอกไว้หาย)
+    // คลิก feature บนแผนที่ = แก้ไขทันทีถ้ามีสิทธิ์ ไม่งั้นดูข้อมูล
     onFeatureClick: (id, lngLat) => {
       const item = items.find((i) => i.id === id);
       if (!item || !ctx) return;
@@ -767,14 +815,24 @@ export default function App() {
         setMovingId(id);
         return;
       }
-      if (mobileDraw || selection?.mode === "edit" || selection?.mode === "create") return;
-      showPopup(lngLat, item.props.name);
-      view(id);
+      // ระหว่างแก้ชิ้นอื่นอยู่ คลิกชิ้นนี้ = ทิ้งชิ้นเดิมแล้วสลับมาชิ้นนี้ (เหมือนคลิกจากรายการ) / ระหว่างสร้างใหม่ไม่ทำอะไร กัน draft หาย
+      if (mobileDraw || selection?.mode === "create") return;
+      const editable = canModify(item);
+      if (editable) startEdit(item);
+      else {
+        showPopup(lngLat, item.props.name);
+        view(id);
+      }
+      // เลื่อนให้อยู่กลางพื้นที่ที่มองเห็น (ไม่ถูกการ์ด/sheet บัง) ซูมออกถ้ารูปใหญ่เกิน
+      requestFit(item.geometry);
     },
-    // คลิกพื้นที่ว่าง: ปิดเฉพาะโหมดดู
+    // คลิกพื้นที่ว่าง: ดูอยู่ / แก้อยู่ → ทิ้งการแก้ที่ยังไม่บันทึก แล้วปิดรายละเอียดกับการ์ดรายการ
+    // (โหมด create ไม่ทำอะไร กัน draft หายเพราะเผลอคลิก)
     onMapClick: () => {
-      if (selection?.mode === "view") setSelection(null);
       closePopup();
+      if (selection?.mode !== "view" && selection?.mode !== "edit") return;
+      closeSelection();
+      setPanelOpen(false);
     },
     onHover: hoverEnabled ? onHover : () => {},
     onDrawCreate: (f) => {
@@ -862,19 +920,38 @@ export default function App() {
     return { ...pad, left: listW ? listW + 40 : 40, right: detailW ? detailW + 40 : 40 };
   };
 
-  const focus = (item: Item) => {
+  // เลื่อนกล้องตามที่ขอไว้ (requestFit) — รันหลัง effect mustBeFlat (ประกาศไว้ก่อนหน้า) และหลังการ์ด/sheet อยู่ใน DOM แล้ว
+  useEffect(() => {
+    const fit = pendingFit.current;
     const map = mapRef.current;
-    if (map && !isHidden(item)) {
-      const padding = visiblePadding();
-      const center = centerOf(item.geometry);
-      // หมุดอาจอยู่ใน cluster → บินไปซูม 17 (cluster แตกหมด)
-      const camera =
-        item.type === "Point"
-          ? map.cameraForBounds([center, center], { padding, maxZoom: 17 })
-          : map.cameraForBounds(bboxOf(item.geometry), { padding, maxZoom: 16 });
-      if (camera) map.flyTo(camera);
-      showPopup(center, item.props.name);
+    if (!fit || !map) return;
+    pendingFit.current = null;
+    skipFlatEase.current = false; // ถ้า effect mustBeFlat ไม่ได้รันรอบนี้ ไม่ให้ค่าค้างไปข้าม easeTo ครั้งหน้า
+    const camera = map.cameraForBounds(bboxOf(fit.geometry), {
+      padding: visiblePadding(),
+      maxZoom: fit.maxZoom ?? map.getZoom(), // ไม่ระบุ = ซูมออกได้อย่างเดียว ไม่ซูมเข้าเพิ่ม
+    });
+    // ควรแบนเมื่อสั่งไว้ตอนขอ หรือตอนนี้ไม่ควรเอียงแล้ว (เช่น กดชิ้นที่สองระหว่างบินชิ้นแรก — fit.flat เป็น false แต่กล้องยังเอียงครึ่งทาง)
+    const flat = fit.flat || !tiltRef.current;
+    if (!camera) {
+      // วัดไม่ได้ (เว้นขอบเกินขนาดจอ) แต่ effect mustBeFlat ข้ามการแบนไว้ให้ที่นี่แล้ว → ต้องแบนเองไม่งั้นค้างเอียง
+      if (flat) map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+      return;
     }
+    const opts = flat ? { ...camera, pitch: 0, bearing: 0 } : camera;
+    if (fit.fly) map.flyTo(opts);
+    else map.easeTo(opts);
+  });
+
+  const focus = (item: Item) => {
+    // มีสิทธิ์แก้ (และไม่ได้ซ่อนอยู่) = คลิกแล้วเข้าโหมดแก้ไขเลย
+    const editable = canModify(item) && !isHidden(item);
+    if (!isHidden(item)) {
+      // หมุดอาจอยู่ใน cluster → ซูมไป 17 (cluster แตกหมด)
+      requestFit(item.geometry, { fly: true, maxZoom: item.type === "Point" ? 17 : 16 });
+      if (!editable) showPopup(centerOf(item.geometry), item.props.name);
+    }
+    if (editable) return startEdit(item);
     view(item.id);
   };
 
@@ -893,8 +970,10 @@ export default function App() {
       setDraftGeom(null);
       // Realtime อาจส่ง INSERT ของเรามาก่อนแล้ว → แทนที่ ไม่เพิ่มซ้ำ
       setItems((list) => [...list.filter((i) => i.id !== f.id), toItem(f)]);
-      setSelection({ mode: "view", id: f.id });
-      setToast({ id: Date.now(), name: f.properties.name });
+      // บันทึกแล้ว → ปิดรายละเอียดกับแถบรายการ เหลือแต่แผนที่ + toast
+      setSelection(null);
+      setPanelOpen(false);
+      notifySaved({ name: f.properties.name, type: selection.type, layerName: layers.find((l) => l.id === props.layerId)?.name, temp: guest });
     } else if (selection?.mode === "edit" && selectedItem) {
       const { id, type } = selectedItem;
       let f: ApiFeature;
@@ -908,7 +987,8 @@ export default function App() {
         if (!patch.geometry && !patch.properties) {
           clearDraw(); // ไม่มีอะไรเปลี่ยน ไม่ต้องยิง API
           setDraftGeom(null);
-          setSelection({ mode: "view", id });
+          setSelection(null);
+          setPanelOpen(false);
           return;
         }
         f = await patchFeature(id, patch);
@@ -917,8 +997,9 @@ export default function App() {
       clearDraw();
       setDraftGeom(null);
       setItems((list) => list.map((i) => (i.id === id ? { ...i, props: saved, geometry: f.geometry } : i)));
-      setSelection({ mode: "view", id });
-      setToast({ id: Date.now(), name: saved.name });
+      setSelection(null);
+      setPanelOpen(false);
+      notifySaved({ name: saved.name, type, layerName: layers.find((l) => l.id === saved.layerId)?.name, temp: guest });
     }
   };
 
@@ -968,8 +1049,8 @@ export default function App() {
         variant={isMobile ? "mobile" : "desktop"}
         formId="fe-form"
         onSave={save}
-        onCancel={cancel}
-        onDelete={async () => cancel()}
+        onCancel={closeSelection}
+        onDelete={async () => closeSelection()}
       />
     ) : selection && selection.mode !== "create" && selectedItem ? (
       <FeatureEditor
@@ -986,7 +1067,7 @@ export default function App() {
         formId="fe-form"
         onEdit={() => startEdit(selectedItem)}
         onSave={save}
-        onCancel={selection.mode === "edit" ? cancel : closeSelection}
+        onCancel={closeSelection}
         onDelete={() => removeItem(selectedItem)}
         ownerName={guest ? null : selectedItem.ownerName}
         canModify={canModify(selectedItem)}
@@ -1003,32 +1084,6 @@ export default function App() {
   const showTable = tableOpen && !mobileDraw && !(isMobile && creating);
   const tableDocked = showTable && !isMobile;
   const panelVars = { "--panel-w": "clamp(20rem, 28vw, 26rem)" } as CSSProperties;
-
-  const guestBanner = (positionClass: string) => (
-    <div
-            className={`flex items-start gap-2 px-3 py-2 border rounded-xl shadow-float text-xs ${positionClass} ${
-              guestMinutesLeft !== null && guestMinutesLeft <= 5
-                ? "bg-red-50 border-red-300 text-red-900"
-                : "bg-amber-50 border-amber-300 text-amber-900"
-            }`}
-          >
-            <FlaskConicalIcon className="mt-0.5 size-[18px] shrink-0" />
-            <span>
-              <strong>โหมดทดลอง</strong> —{" "}
-              {guestExpiry === null ? (
-                "เก็บในเบราว์เซอร์นี้ 1 ชั่วโมงแล้วลบ"
-              ) : (
-                <>
-                  ลบเวลา {new Date(guestExpiry).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.
-                  (อีก {guestMinutesLeft} นาที)
-                </>
-              )}
-            </span>
-            <button type="button" onClick={openLogin} className="shrink-0 font-semibold text-teal-800 hover:underline">
-              เข้าสู่ระบบเพื่อบันทึก
-            </button>
-          </div>
-  );
 
   const renderAccount = (className: string) => (
     <AccountMenu
@@ -1066,7 +1121,6 @@ export default function App() {
       >
         <MapView className="absolute inset-0 w-full h-full z-0" onReady={onMapReady} />
         <CrosshairDraw map={ctx?.map ?? null} draw={mobileDraw} />
-        {isMobile && <MobileScale map={ctx?.map ?? null} />}
 
         {mobileDraw && <Crosshair />}
 
@@ -1091,7 +1145,7 @@ export default function App() {
             <MobileHeader
               mode={mobileDraw ? "drawing" : "form"}
               formId="fe-form"
-              onCancel={mobileDraw ? crosshair.cancel : cancel}
+              onCancel={mobileDraw ? crosshair.cancel : closeSelection}
               onUndo={crosshair.undo}
               onRedo={crosshair.redo}
               onClear={crosshair.clear}
@@ -1103,6 +1157,7 @@ export default function App() {
           ) : (
             <div className="absolute inset-x-3 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-30 flex items-start justify-end gap-2">
               <SearchToggle mapRef={mapRef} getPadding={visiblePadding} fill />
+              {guest && <GuestIndicator expiry={guestExpiry} minutesLeft={guestMinutesLeft} ttlMinutes={GUEST_TTL_MS / 60000} onLogin={openLogin} />}
               {renderAccount("shrink-0")}
             </div>
           ))}
@@ -1112,6 +1167,7 @@ export default function App() {
           is3D={is3D}
           paused={is3D && mustBeFlat}
           onToggle3D={onToggle3D}
+          hide3D={editingData}
           compact={isMobile}
           className={
             isMobile
@@ -1122,7 +1178,9 @@ export default function App() {
                       ? "bottom-[calc(60%+5rem)]"
                       : "bottom-[calc(5.5rem+6.75rem+env(safe-area-inset-bottom,0px))]"
                 }`
-              : `absolute bottom-6 z-20 ${editor && tableDocked ? "right-[24.5rem]" : "right-4"}` // เปิดตาราง + ฟอร์ม: การ์ดฟอร์มยืดลงเต็ม → ปุ่มย้ายไปซ้ายของการ์ด
+              : editor
+                ? "absolute top-[4.5rem] right-[24.5rem] z-20" // มีการ์ดฟอร์ม (ยืดลงเกือบสุดจอ) → ปุ่มย้ายไปซ้ายของการ์ด ชิดบน (ล่างจะชน pill เครื่องมือบนจอแคบ)
+                : "absolute bottom-6 right-4 z-20"
           }
           tableOpen={tableOpen}
           onToggleTable={() => (tableOpen ? setTableOpen(false) : openTable())}
@@ -1187,17 +1245,14 @@ export default function App() {
               filter={filter}
               onFilterChange={setFilter}
               onFocus={focus}
-              onEdit={startEdit}
               onToggleVisible={toggleVisible}
               onRemove={(item) => removeItem(item).catch(onError)}
               selectedId={selectedId}
-              editingId={editingId}
               hiddenIds={hiddenSet}
               canModify={canModify}
               showOwner={!guest}
               hoveredId={activeHoverId}
               onHover={onHover}
-              footer={guest ? guestBanner("w-full") : undefined}
               layers={layers}
               hiddenLayers={hiddenLayers}
               onToggleLayer={toggleLayer}
@@ -1208,16 +1263,15 @@ export default function App() {
 
             <div className="absolute top-4 right-4 z-30 flex items-start gap-2">
               <SearchToggle mapRef={mapRef} getPadding={visiblePadding} />
+              {guest && <GuestIndicator expiry={guestExpiry} minutesLeft={guestMinutesLeft} ttlMinutes={GUEST_TTL_MS / 60000} onLogin={openLogin} />}
               {renderAccount("")}
             </div>
 
-            {editor && <DetailCard tall={tableDocked}>{editor}</DetailCard>}
+            {editor && <DetailCard>{editor}</DetailCard>}
           </>
         )}
 
-        {/* มือถือ: แบนเนอร์โหมดทดลองลอยบน / จอคอมอยู่ท้ายการ์ดรายการซ้าย */}
-        {guest && isMobile && !(mobileDraw || creating) && guestBanner("absolute top-[calc(4.5rem+env(safe-area-inset-top,0px))] left-3 right-3 z-20")}
-        {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
+        <Toaster />
       </div>
 
       {showTable && (

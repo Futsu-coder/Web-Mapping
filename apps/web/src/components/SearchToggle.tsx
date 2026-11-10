@@ -32,11 +32,11 @@ export default function SearchToggle({
     <div
       ref={boxRef}
       className={cn(
-        "relative h-12 min-w-12 rounded-full border border-black/5 bg-card shadow-float transition-[width,flex-grow] duration-300 ease-out motion-reduce:transition-none",
-        fill ? (open ? "flex-1" : "flex-none basis-12") : open ? "w-80" : "w-12",
+        "relative h-10 min-w-10 rounded-full border border-black/5 bg-card shadow-float transition-[width,flex-grow] duration-300 ease-out motion-reduce:transition-none",
+        fill ? (open ? "flex-1" : "flex-none basis-10") : open ? "w-80" : "w-10",
         !open && "overflow-hidden",
       )}
-      style={fill ? { flexGrow: open ? 1 : 0, flexBasis: open ? "0%" : "3rem" } : undefined}
+      style={fill ? { flexGrow: open ? 1 : 0, flexBasis: open ? "0%" : "2.5rem" } : undefined}
     >
       <button
         type="button"
@@ -49,7 +49,7 @@ export default function SearchToggle({
           open && "pointer-events-none opacity-0",
         )}
       >
-        <SearchIcon className="size-5" />
+        <SearchIcon className="size-4.5" />
       </button>
 
       <div className={cn("transition-opacity duration-200", !open && "pointer-events-none invisible opacity-0")}>

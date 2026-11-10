@@ -41,6 +41,12 @@ export function lineLength(pts: Pos[]): number {
   return sum;
 }
 
+/** ความยาวรอบรูป polygon (เมตร) — ต่อจุดสุดท้ายกลับจุดแรกเสมอ */
+export function polygonPerimeter(ring: Pos[]): number {
+  const pts = openRing(ring);
+  return pts.length < 2 ? 0 : lineLength([...pts, pts[0]]);
+}
+
 export function formatArea(m2: number): string {
   if (m2 < 10_000) return `${Math.round(m2)} m²`;
   if (m2 < 1_000_000) return `${(m2 / 10_000).toFixed(1)} ha`;
