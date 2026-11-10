@@ -106,7 +106,7 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
     // Radix Dialog จัดการ Esc / focus trap / ปิดเมื่อกดพื้นหลังให้ (กด-ปล่อยบนพื้นหลังเอง)
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className="max-h-[calc(100%-1.5rem)] gap-0 overflow-y-auto rounded-2xl p-0 sm:max-w-[26.25rem]"
+        className="max-h-[calc(100%-1.5rem)] gap-0 overflow-y-auto rounded-2xl p-0 sm:max-w-[420px]"
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           document.getElementById("auth-username")?.focus();
@@ -149,7 +149,7 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
 
           {error && (
             <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-              <TriangleAlertIcon className="size-4.5 shrink-0 text-red-600" />
+              <TriangleAlertIcon className="size-[18px] shrink-0 text-red-600" />
               <div className="flex-1 leading-relaxed">
                 <span className="font-medium">{isLogin ? "เข้าสู่ระบบไม่สำเร็จ:" : "สมัครสมาชิกไม่สำเร็จ:"}</span> {error}
               </div>
@@ -159,7 +159,7 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="auth-username">ชื่อผู้ใช้</Label>
             <div className="relative">
-              <UserIcon className="pointer-events-none absolute top-1/2 left-3 size-4.5 -translate-y-1/2 text-muted-foreground" />
+              <UserIcon className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="auth-username"
                 value={username}
@@ -181,7 +181,7 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="auth-password">รหัสผ่าน</Label>
             <div className="relative">
-              <LockIcon className="pointer-events-none absolute top-1/2 left-3 size-4.5 -translate-y-1/2 text-muted-foreground" />
+              <LockIcon className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="auth-password"
                 type={showPw ? "text" : "password"}
@@ -204,7 +204,7 @@ export default function AuthDialog({ onClose }: { onClose: () => void }) {
                 aria-label={showPw ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground"
               >
-                {showPw ? <EyeOffIcon className="size-4.5" /> : <EyeIcon className="size-4.5" />}
+                {showPw ? <EyeOffIcon className="size-[18px]" /> : <EyeIcon className="size-[18px]" />}
               </button>
             </div>
             {!isLogin && <p className="text-xs text-muted-foreground">อย่างน้อย {PASSWORD_MIN} ตัวอักษร</p>}

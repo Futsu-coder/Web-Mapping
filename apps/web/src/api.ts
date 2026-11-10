@@ -52,20 +52,8 @@ const toBody = (geometry: GeoJSON.Geometry, properties: FeatureProps) => ({ type
 export const listFeatures = () =>
   request<GeoJSON.FeatureCollection>(BASE).then((c) => c.features as ApiFeature[]);
 
-// id ที่เราเพิ่งเขียนเอง — Realtime จะส่งกลับมาอีกรอบ ไม่ต้องโหลดซ้ำ (ลด request ที่แย่งกับการบันทึก)
-const ECHO_MS = 2000;
-const recentWrites = new Map<number, number>();
-const markWrite = (id: number) => void recentWrites.set(id, Date.now() + ECHO_MS);
-/** true = เป็นการเขียนของเราเอง (ใช้ได้ครั้งเดียวต่อการเขียน) */
-export const isOwnEcho = (id: number) => {
-  const until = recentWrites.get(id);
-  if (until === undefined) return false;
-  recentWrites.delete(id);
-  return until > Date.now();
-};
-
 export const createFeature = (geometry: GeoJSON.Geometry, props: FeatureProps) =>
-  request<ApiFeature>(BASE, json("POST", toBody(geometry, props))).then((f) => (markWrite(f.id), f));
+  request<ApiFeature>(BASE, json("POST", toBody(geometry, props)));
 
 /** JSON Merge Patch: ส่งเฉพาะส่วนที่เปลี่ยน, null = ลบ key */
 export type FeaturePatch = {
@@ -73,13 +61,8 @@ export type FeaturePatch = {
   properties?: { name?: string; category?: Category | null; description?: string | null };
 };
 
-export const patchFeature = (id: number, patch: FeaturePatch) => {
-  markWrite(id);
-  return request<ApiFeature>(`${BASE}/${id}`, json("PATCH", { type: "Feature", ...patch })).catch((e) => {
-    recentWrites.delete(id);
-    throw e;
-  });
-};
+export const patchFeature = (id: number, patch: FeaturePatch) =>
+  request<ApiFeature>(`${BASE}/${id}`, json("PATCH", { type: "Feature", ...patch }));
 
 export const deleteFeature = (id: number) => request<void>(`${BASE}/${id}`, { method: "DELETE" });
 

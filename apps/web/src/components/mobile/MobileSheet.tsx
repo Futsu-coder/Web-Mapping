@@ -140,15 +140,15 @@ export default function MobileSheet({
           <Tabs value={current} onValueChange={(v) => pick(v as Tab)} className="px-4 pb-3">
             <TabsList className={cn("grid h-11 w-full gap-1 p-1", hasDetails ? "grid-cols-2" : "grid-cols-1")}>
               {hasDetails && (
-                <TabsTrigger value="details" className="h-9 gap-1.5 text-[0.8125rem] font-semibold">
+                <TabsTrigger value="details" className="h-9 gap-1.5 text-[13px] font-semibold">
                   <InfoIcon />
                   รายละเอียด
                 </TabsTrigger>
               )}
-              <TabsTrigger value="features" className="h-9 gap-1.5 text-[0.8125rem] font-semibold">
+              <TabsTrigger value="features" className="h-9 gap-1.5 text-[13px] font-semibold">
                 <ListIcon />
                 รายการทั้งหมด
-                <span className="rounded-full bg-primary px-1.5 text-[0.6875rem] font-bold text-primary-foreground">{featureCount}</span>
+                <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">{featureCount}</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>

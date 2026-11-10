@@ -149,7 +149,7 @@ export default function NotificationBell({
           >
             <BellIcon />
             {unread > 0 && (
-              <span className="absolute top-1 right-1 h-4 min-w-4 rounded-full bg-red-600 px-1 text-center text-[0.625rem] leading-4 font-bold text-white">
+              <span className="absolute top-1 right-1 h-4 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] leading-4 font-bold text-white">
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
@@ -176,7 +176,7 @@ export default function NotificationBell({
                   <Icon className="mt-0.5 size-5 shrink-0 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p>{describe(n)}</p>
-                    <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">{timeAgo(n.createdAt)}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{timeAgo(n.createdAt)}</p>
                     {inv && (
                       <div className="mt-1.5 flex gap-2">
                         <Button size="sm" disabled={busyInvitationId === inv.id} onClick={() => onAnswer(inv, "accept")}>
