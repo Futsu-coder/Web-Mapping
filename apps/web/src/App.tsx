@@ -213,10 +213,36 @@ export default function App() {
   // → ระหว่างนั้นกลับเป็น 2D ชั่วคราว ทำเสร็จแล้วเอียงกลับให้เอง
   // โหมดดูรายละเอียด (view) ก็แบนด้วย เพื่อให้ทุกครั้งที่เลือก feature ได้มุมมองเดียวกัน
   const mustBeFlat = !!activeTool || !!mobileDraw || moveMode || !!selection;
+  /** ตอนนี้ควรเอียงอยู่ไหม (is3D และไม่ได้อยู่ในโหมดที่ต้องแบน) — ให้ตัวกันพลาด moveend ด้านล่างอ่านค่าล่าสุด */
+  const tiltRef = useRef(false);
+  // ตัวกันพลาด: การแบนด้วย easeTo อาจถูกตัดกลางทาง (ผู้ใช้ลาก/ซูม, flyTo ของค้นหา, ปุ่มตำแหน่งปัจจุบัน, กด cluster)
+  // แล้วแผนที่ค้างเอียง — moveend ยิงทั้งตอนจบเองและตอนถูกขัด → ถ้าควรแบนแต่ยังเอียง/หมุนอยู่ ให้แบนให้อีกรอบ
+  // (แบนแล้วก็หยุดเอง ไม่วนซ้ำ)
+  useEffect(() => {
+    if (!ctx) return;
+    const { map } = ctx;
+    let raf = 0;
+    const onMoveEnd = () => {
+      // เลื่อนไปเฟรมถัดไป: moveend ยิงตอน map.stop() ของอนิเมชันใหม่/การลากของผู้ใช้ด้วย — ถ้า easeTo ทันทีจะแย่งกัน
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (tiltRef.current || map.isMoving()) return; // กำลังเลื่อนใหม่อยู่ → moveend ของมันจะเช็กอีกรอบเอง
+        if (map.getPitch() > 0.1 || Math.abs(map.getBearing()) > 0.1) {
+          map.easeTo({ pitch: 0, bearing: 0, duration: 300 });
+        }
+      });
+    };
+    map.on("moveend", onMoveEnd);
+    return () => {
+      cancelAnimationFrame(raf);
+      map.off("moveend", onMoveEnd);
+    };
+  }, [ctx]);
   useEffect(() => {
     if (!ctx) return;
     const { map } = ctx;
     const tilt = is3D && !mustBeFlat;
+    tiltRef.current = tilt;
     if (tilt) {
       map.dragRotate.enable();
       map.touchPitch.enable();
@@ -614,8 +640,14 @@ export default function App() {
       padding: visiblePadding(),
       maxZoom: fit.maxZoom ?? map.getZoom(), // ไม่ระบุ = ซูมออกได้อย่างเดียว ไม่ซูมเข้าเพิ่ม
     });
-    if (!camera) return;
-    const opts = fit.flat ? { ...camera, pitch: 0, bearing: 0 } : camera;
+    // ควรแบนเมื่อสั่งไว้ตอนขอ หรือตอนนี้ไม่ควรเอียงแล้ว (เช่น กดชิ้นที่สองระหว่างบินชิ้นแรก — fit.flat เป็น false แต่กล้องยังเอียงครึ่งทาง)
+    const flat = fit.flat || !tiltRef.current;
+    if (!camera) {
+      // วัดไม่ได้ (เว้นขอบเกินขนาดจอ) แต่ effect mustBeFlat ข้ามการแบนไว้ให้ที่นี่แล้ว → ต้องแบนเองไม่งั้นค้างเอียง
+      if (flat) map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+      return;
+    }
+    const opts = flat ? { ...camera, pitch: 0, bearing: 0 } : camera;
     if (fit.fly) map.flyTo(opts);
     else map.easeTo(opts);
   });

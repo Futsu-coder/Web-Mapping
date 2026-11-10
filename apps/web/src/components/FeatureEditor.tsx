@@ -120,7 +120,7 @@ export default function FeatureEditor({
           <MoveIcon className="mt-0.5 size-4 shrink-0" />
           <span>
             {mobile ? "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง" : "ลากจุดยอดบนแผนที่เพื่อปรับรูปร่าง หรือลากทั้งรูปเพื่อย้ายตำแหน่ง"}
-            {mode === "edit" && `${mobile ? " · แตะ" : " · คลิก"}นอกรูปเพื่อออกโดยไม่บันทึก`}
+            {mode === "edit" && ` · กดยกเลิกหรือ${mobile ? "แตะ" : "คลิก"}นอกรูปเพื่อออกโดยไม่บันทึก`}
           </span>
         </div>
       )}
@@ -266,6 +266,9 @@ export default function FeatureEditor({
             ) : (
               <>
                 {deleteButton}
+                <Button type="button" variant="secondary" disabled={busy} onClick={onCancel} className={cn(h, "px-4")}>
+                  ยกเลิก
+                </Button>
                 <Button type="button" disabled={busy || !trimmed} onClick={() => void save()} className={cn(h, "flex-1")}>
                   <SaveIcon data-icon="inline-start" />
                   {busy ? "กำลังบันทึก…" : "บันทึก"}
@@ -292,7 +295,7 @@ export default function FeatureEditor({
       </form>
 
       <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-3">
-        {/* แก้ไข: ลบชิดซ้าย บันทึกชิดขวา (ออกด้วยการคลิกนอกรูป) / สร้างใหม่: ยกเลิกต้องมี เพราะคลิกพื้นที่ว่างไม่ทิ้ง draft */}
+        {/* แก้ไข: ลบชิดซ้าย ยกเลิก+บันทึกชิดขวา (ยกเลิก = เหมือนคลิกพื้นที่ว่าง) / สร้างใหม่: ยกเลิกชิดซ้าย เพราะคลิกพื้นที่ว่างไม่ทิ้ง draft */}
         {mode === "edit" ? (
           deleteButton
         ) : (
@@ -301,10 +304,17 @@ export default function FeatureEditor({
           </Button>
         )}
         {!readOnly && (
-          <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
-            <SaveIcon data-icon="inline-start" />
-            {busy ? "กำลังบันทึก…" : "บันทึก"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {mode === "edit" && (
+              <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+                ยกเลิก
+              </Button>
+            )}
+            <Button type="button" disabled={busy || !trimmed} onClick={() => void save()}>
+              <SaveIcon data-icon="inline-start" />
+              {busy ? "กำลังบันทึก…" : "บันทึก"}
+            </Button>
+          </div>
         )}
       </div>
     </div>
