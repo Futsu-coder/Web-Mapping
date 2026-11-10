@@ -84,7 +84,7 @@ export default function AccountMenu({
   };
 
   return (
-    <div className={cn("flex items-center gap-1 rounded-full border border-black/5 bg-card p-1 shadow-float", className)}>
+    <div className={cn("flex h-10 items-center gap-0.5 rounded-full border border-black/5 bg-card p-1 shadow-float", className)}>
       {bell}
       <Popover
         open={open}
@@ -94,7 +94,7 @@ export default function AccountMenu({
         }}
       >
         <PopoverTrigger asChild>
-          <Button variant="ghost" aria-label="บัญชีและกลุ่ม" className="h-10 gap-2 rounded-full pr-3 pl-1">
+          <Button variant="ghost" aria-label="บัญชีและกลุ่ม" className="h-8 gap-2 rounded-full pr-3 pl-0">
             <span className="grid size-8 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {me.user.username.slice(0, 1).toUpperCase()}
             </span>

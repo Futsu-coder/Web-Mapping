@@ -43,17 +43,22 @@ export default function MapControls({
 
   return (
     <div className={cn("flex flex-col items-center gap-2", className)}>
-      {showCompass && (
-        <Button
-          variant="ghost"
-          aria-label="หันไปทิศเหนือ"
-          title="หันไปทิศเหนือ"
-          className={cn(CARD, "size-12 rounded-full text-primary hover:bg-card")}
-          onClick={() => map?.easeTo({ bearing: 0, duration: 400 })}
-        >
-          <CompassIcon style={{ transform: `rotate(${-bearing}deg)` }} />
-        </Button>
-      )}
+      {/* render ไว้ตลอดแล้วสลับ class → ค่อยๆ fade/scale เข้า-ออก (กลุ่มยึดขอบล่าง ปุ่มที่ซ่อนไม่ดันปุ่มอื่น) */}
+      <Button
+        variant="ghost"
+        aria-label="หันไปทิศเหนือ"
+        title="หันไปทิศเหนือ"
+        aria-hidden={!showCompass}
+        tabIndex={showCompass ? 0 : -1}
+        className={cn(
+          CARD,
+          "size-12 rounded-full text-primary transition-[opacity,scale,translate,visibility] duration-300 ease-out hover:bg-card motion-reduce:transition-none",
+          showCompass ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none invisible translate-y-2 scale-75 opacity-0",
+        )}
+        onClick={() => map?.easeTo({ bearing: 0, duration: 400 })}
+      >
+        <CompassIcon style={{ transform: `rotate(${-bearing}deg)` }} />
+      </Button>
 
       <Tooltip open={paused && tipOpen} onOpenChange={setTipOpen}>
         <TooltipTrigger asChild>

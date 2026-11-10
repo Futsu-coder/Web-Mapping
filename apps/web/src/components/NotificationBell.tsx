@@ -143,21 +143,21 @@ export default function NotificationBell({
           <Button
             variant="ghost"
             size="icon"
-            className="relative size-10 rounded-full"
+            className="relative size-8 rounded-full"
             title="การแจ้งเตือน"
             aria-label={unread ? `การแจ้งเตือน (ยังไม่อ่าน ${unread})` : "การแจ้งเตือน"}
           >
             <BellIcon />
             {unread > 0 && (
-              <span className="absolute top-1 right-1 h-4 min-w-4 rounded-full bg-red-600 px-1 text-center text-[0.625rem] leading-4 font-bold text-white">
+              <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-red-600 px-1 text-center text-[0.625rem] leading-4 font-bold text-white">
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
           </Button>
         </PopoverTrigger>
 
-        <PopoverContent align="end" className="flex max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] flex-col gap-0 rounded-xl p-0 text-sm">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+        <PopoverContent align="end" className="flex max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] flex-col gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
+          <div className="flex items-center justify-between border-b border-black/5 px-4 py-3">
             <span className="font-semibold">การแจ้งเตือน</span>
             {items.length > 0 && (
               <Button variant="link" className="h-auto p-0 text-xs text-muted-foreground hover:text-destructive" onClick={() => setConfirmClear(true)}>
@@ -166,7 +166,7 @@ export default function NotificationBell({
             )}
           </div>
 
-          <ul className="min-h-0 flex-1 divide-y overflow-y-auto">
+          <ul className="min-h-0 flex-1 divide-y divide-black/5 overflow-y-auto">
             {items.length === 0 && <li className="px-4 py-8 text-center text-muted-foreground">ยังไม่มีการแจ้งเตือน</li>}
             {items.map((n) => {
               const inv = n.kind === "invitation" && n.action === "invited" && n.refId !== null ? pending.get(n.refId) : undefined;
@@ -182,7 +182,7 @@ export default function NotificationBell({
                         <Button size="sm" disabled={busyInvitationId === inv.id} onClick={() => onAnswer(inv, "accept")}>
                           ยอมรับ
                         </Button>
-                        <Button size="sm" variant="outline" disabled={busyInvitationId === inv.id} onClick={() => onAnswer(inv, "reject")}>
+                        <Button size="sm" variant="secondary" disabled={busyInvitationId === inv.id} onClick={() => onAnswer(inv, "reject")}>
                           ปฏิเสธ
                         </Button>
                       </div>
