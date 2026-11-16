@@ -29,9 +29,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { notifyInfo, notifySaved } from "./components/Toast";
 import { Toaster } from "@/components/ui/sonner";
-import Toolbar from "./components/Toolbar";
+import DrawHint from "./components/DrawHint";
 import MapControls from "./components/MapControls";
-import DrawFab from "./components/mobile/DrawFab";
+import DrawFab from "./components/DrawFab";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { DRAW_TOOLS, toolOf } from "./lib/drawTools";
 import FeaturePanel from "./components/FeaturePanel";
 import SearchToggle from "./components/SearchToggle";
 import CrosshairDraw, { Crosshair } from "./components/mobile/CrosshairDraw";
@@ -111,9 +113,8 @@ function diffPatch(before: Item, props: FeatureProps, geometry?: GeoJSON.Geometr
 const setDrawMode = (draw: MapboxDraw, mode: string, options?: object) =>
   (draw.changeMode as (mode: string, options?: object) => void)(mode, options);
 
-/** id ของรูปทรงใน draw: ที่กำลังแก้ = `f<id>`, ที่กำลังย้าย = `m<id>`, ที่เพิ่งวาด = id ที่ draw สร้างให้ */
+/** id ของรูปทรงใน draw: ที่กำลังแก้ = `f<id>`, ที่เพิ่งวาด = id ที่ draw สร้างให้ */
 const editDrawId = (id: number) => `f${id}`;
-const moveDrawId = (id: number) => `m${id}`;
 
 const SELF_INTERSECT = "ขอบพื้นที่ตัดกันเอง — บันทึกไม่ได้ (ลากจุดให้ขอบไม่ไขว้กัน)";
 const isBadPolygon = (g: GeoJSON.Geometry) => g.type === "Polygon" && selfIntersects(g.coordinates[0] ?? []);
@@ -128,7 +129,6 @@ export default function App() {
   // รูปทรงล่าสุดของสิ่งที่วาด/แก้อยู่ใน draw (ยังไม่บันทึก) — ใช้แสดงตำแหน่ง/พื้นที่ในฟอร์ม
   const [draftGeom, setDraftGeom] = useState<GeoJSON.Geometry | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
-  const [moveMode, setMoveMode] = useState(false);
   // โหมด 3D: แผนที่เอียง 60° หมุนได้ เห็นภูเขาและตึก 3D (ตึกมีตั้งแต่ซูม 14)
   const [is3D, setIs3D] = useState(false);
   const zoomInFor3D = useRef(false);
@@ -138,7 +138,6 @@ export default function App() {
   const pendingFit = useRef<{ geometry: GeoJSON.Geometry; fly: boolean; maxZoom?: number; flat: boolean } | null>(null);
   const [, bumpFit] = useReducer((n: number) => n + 1, 0);
   // feature ที่ถูกดึงเข้า draw เพื่อลากย้ายในโหมด Move
-  const [movingId, setMovingId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [me, setMe] = useState<Me | null>(null);
@@ -170,6 +169,7 @@ export default function App() {
   const [tableDialog, setTableDialog] = useState<{ layerId: number; table: RelatedTable | null } | null>(null);
   const [tableOpen, setTableOpen] = useState(false);
   const [tableLayerId, setTableLayerId] = useState<number | null>(null);
+  const [pendingTool, setPendingTool] = useState<DrawShape | null>(null);
   const [layerDialog, setLayerDialog] = useState<{ layer: Layer | null; lockType?: GeomType; thenDraw?: DrawShape } | null>(null);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
@@ -221,7 +221,6 @@ export default function App() {
     setItems([]);
     setSelection(null);
     setDraftGeom(null);
-    setMovingId(null);
     setHiddenIds(new Set());
     setHiddenOwners(new Set());
     setHoveredId(null);
@@ -268,7 +267,7 @@ export default function App() {
     if (ctx) syncLayerStack(ctx.map, orderedLayers, hiddenLayers);
   }, [ctx, orderedLayers, hiddenLayers]);
 
-  // วาด feature ที่บันทึกแล้วลงแผนที่ — ไม่รวมที่ซ่อน และที่อยู่ใน draw (กำลังแก้ / กำลังย้าย) จะได้ไม่เห็นซ้อนกัน 2 ชิ้น
+  // วาด feature ที่บันทึกแล้วลงแผนที่ — ไม่รวมที่ซ่อน และที่อยู่ใน draw (กำลังแก้) จะได้ไม่เห็นซ้อนกัน 2 ชิ้น
   useEffect(() => {
     if (!ctx) return;
     setFeatureData(
@@ -278,13 +277,12 @@ export default function App() {
           (filter === "All" || i.type === filter) && // ตัวกรองชนิด: แผนที่แสดงเฉพาะชนิดที่เลือก
           !hiddenIds.has(i.id) &&
           !(i.ownerId !== null && hiddenOwners.has(i.ownerId)) &&
-          i.id !== editingId &&
-          i.id !== movingId,
+          i.id !== editingId,
       ),
       (i) => layers.find((l) => l.id === i.props.layerId)?.color,
     );
     // layer ที่ซ่อนไม่ได้ถูกกรองออกจากข้อมูล — ซ่อนด้วย visibility ของชั้น (syncLayerStack) สลับตาแล้วไม่ต้องสร้าง feature ใหม่
-  }, [ctx, items, filter, hiddenIds, hiddenOwners, layers, orderedLayers, editingId, movingId]);
+  }, [ctx, items, filter, hiddenIds, hiddenOwners, layers, orderedLayers, editingId]);
 
   // hover จากรายการหรือบนแผนที่ → ไฮไลต์บนแผนที่ / ที่เลือกอยู่ → เส้นหนาขึ้น
   useEffect(() => {
@@ -301,9 +299,9 @@ export default function App() {
   // วาด / แก้จุด / Move ต้องทำบนแผนที่แบนเสมอ (draw คำนวณตำแหน่งคลาดเมื่อแผนที่เอียง)
   // → ระหว่างนั้นกลับเป็น 2D ชั่วคราว ทำเสร็จแล้วเอียงกลับให้เอง
   // โหมดดูรายละเอียด (view) ก็แบนด้วย เพื่อให้ทุกครั้งที่เลือก feature ได้มุมมองเดียวกัน
-  const mustBeFlat = !!activeTool || !!mobileDraw || moveMode || !!selection;
+  const mustBeFlat = !!activeTool || !!mobileDraw || !!selection;
   // กำลังวาด/สร้าง/แก้/ย้าย → ซ่อนปุ่ม 3D ไปเลย (โหมดดูรายละเอียดอย่างเดียวยังเห็นปุ่ม)
-  const editingData = !!activeTool || !!mobileDraw || moveMode || selection?.mode === "create" || selection?.mode === "edit";
+  const editingData = !!activeTool || !!mobileDraw || selection?.mode === "create" || selection?.mode === "edit";
   /** ตอนนี้ควรเอียงอยู่ไหม (is3D และไม่ได้อยู่ในโหมดที่ต้องแบน) — ให้ตัวกันพลาด moveend ด้านล่างอ่านค่าล่าสุด */
   const tiltRef = useRef(false);
   // ตัวกันพลาด: การแบนด้วย easeTo อาจถูกตัดกลางทาง (ผู้ใช้ลาก/ซูม, flyTo ของค้นหา, ปุ่มตำแหน่งปัจจุบัน, กด cluster)
@@ -448,14 +446,6 @@ export default function App() {
     setFilter(f);
   };
 
-  /** ออกจากโหมด Move (คืน feature ที่ดึงเข้า draw ไว้กลับไปแสดงตามปกติ) */
-  const exitMove = () => {
-    if (!moveMode) return;
-    if (movingId !== null) clearDraw();
-    setMovingId(null);
-    setMoveMode(false);
-  };
-
   /** เขียนข้อมูลทดลองลง localStorage แล้วอัปเดตเวลาที่จะถูกลบ (เริ่มนับเมื่อมี feature ชิ้นแรก) */
   const persistGuest = (write: () => void) => {
     write();
@@ -519,7 +509,6 @@ export default function App() {
   const startEdit = (item: Item) => {
     if (!canModify(item) || (selection?.mode === "edit" && selection.id === item.id)) return;
     discardPending();
-    exitMove(); // Move กับแก้ทีละจุดเปิดพร้อมกันไม่ได้
     closePopup();
     // แก้ไขต้องเห็นรูปทรงบนแผนที่
     revealType(item.type);
@@ -786,89 +775,75 @@ export default function App() {
     void supabase?.auth.signOut();
   };
 
-  // ---------- เครื่องมือวาด / Move ----------
+  // ---------- เครื่องมือวาด ----------
   /**
    * วาดได้เมื่อมี layer ชนิดนั้นแล้ว — ยังไม่มี: เจ้าของ group (หรือโหมดทดลอง) เปิดหน้าสร้าง layer ก่อน (บันทึกแล้วเริ่มวาดต่อให้เลย)
    * สมาชิกทั่วไปสร้าง layer ไม่ได้ → แจ้งให้ไปบอกเจ้าของ group
    */
+  const layerMissing = (shape: DrawShape) => !layers.some((l) => l.geomType === SHAPE_TO_GEOM_TYPE[shape]);
+
   const needsLayerFirst = (shape: DrawShape) => {
+    if (!layerMissing(shape)) return false;
     const type = SHAPE_TO_GEOM_TYPE[shape];
-    if (layers.some((l) => l.geomType === type)) return false;
     if (canManageLayers) setLayerDialog({ layer: null, lockType: type, thenDraw: shape });
     else onError(new Error(`ยังไม่มี layer ชนิด ${type === "LineString" ? "Line" : type} — ให้เจ้าของ group สร้าง layer ก่อนถึงจะวาดได้`));
     return true;
   };
 
-  /** จอคอม: เลือกเครื่องมือวาด = เปิดโหมดวาดของ draw (เลือกชนิดเดิมซ้ำ = ยกเลิก) */
-  const onDrawSelect = (shape: DrawShape) => {
-    if (!ctx) return;
-    if (activeTool === shape) {
+  /** เครื่องมือที่ใช้อยู่ (จอคอม = draw, มือถือ = กากบาท) */
+  const currentTool = mobileDraw?.shape ?? activeTool;
+
+  /** วางจุดไปแล้วหรือยัง — สลับเครื่องมือตอนนี้จะทำให้จุดหาย (จอคอม: ตัวท้ายของเส้น/ขอบเป็นเคอร์เซอร์ จึงนับตั้งแต่ตัวที่ 2/3) */
+  const hasDrawnPoints = () => {
+    if (mobileDraw) return mobileDraw.points.length > 0;
+    if (!ctx || !activeTool) return false;
+    return ctx.draw.getAll().features.some((f) => {
+      const g = f.geometry;
+      return g.type === "LineString" ? g.coordinates.length > 1 : g.type === "Polygon" ? (g.coordinates[0]?.length ?? 0) > 2 : false;
+    });
+  };
+
+  /** ยกเลิกการวาดที่ค้างอยู่ (ทั้ง 2 จอ) */
+  const cancelDrawing = () => {
+    if (mobileDraw) crosshair.cancel();
+    else if (ctx && activeTool) {
       setDrawMode(ctx.draw, "simple_select");
       setActiveTool(null);
+    }
+  };
+
+  /** เริ่ม/สลับเครื่องมือ — ชนิดที่ไม่มี layer: เจ้าของ group ยกเลิกที่วาดอยู่แล้วเปิดสร้าง layer / สมาชิกแจ้งเตือน (วาดอันเดิมต่อได้) */
+  const startTool = (shape: DrawShape) => {
+    if (needsLayerFirst(shape)) {
+      if (canManageLayers) cancelDrawing();
       return;
     }
-    if (needsLayerFirst(shape)) return;
-    beginDraw(shape);
+    if (isMobile) beginMobileDraw(shape);
+    else beginDraw(shape);
+  };
+
+  /** ขอสลับเครื่องมือ (DrawFab / DrawSheet / คีย์ลัด) — ถ้ามีจุดที่วางไว้แล้วถามยืนยันก่อน */
+  const requestTool = (shape: DrawShape) => {
+    if (shape === currentTool) return;
+    const blocked = layerMissing(shape) && !canManageLayers; // สมาชิกวาดชนิดนี้ไม่ได้ → แจ้งเตือนอย่างเดียว ไม่ทิ้งที่วาดอยู่
+    if (currentTool && hasDrawnPoints() && !blocked) return setPendingTool(shape);
+    startTool(shape);
   };
 
   const beginDraw = (shape: DrawShape) => {
     if (!ctx) return;
     closeSelection(); // เริ่มวาดใหม่ = ทิ้งสิ่งที่ค้างอยู่
     setPanelOpen(false); // ระหว่างวาดย่อรายการ
-    exitMove();
     closePopup();
     ctx.draw.deleteAll();
     setDrawMode(ctx.draw, DRAW_MODE[shape]);
     setActiveTool(shape);
   };
 
-  /** มือถือ: เลือกเครื่องมือวาด = เริ่มโหมดกากบาท (เลือกชนิดเดิมซ้ำ = ยกเลิก) */
-  const onMobileDrawSelect = (shape: DrawShape) => {
-    if (mobileDraw?.shape === shape) return crosshair.cancel();
-    if (needsLayerFirst(shape)) return;
-    beginMobileDraw(shape);
-  };
-
   const beginMobileDraw = (shape: DrawShape) => {
     closeSelection();
-    exitMove();
     closePopup();
     crosshair.start(shape);
-  };
-
-  // Move = ย้ายทั้งก้อน: คลิก feature ที่แก้ได้ → ดึงเข้า draw แล้วลากได้ทันที ปล่อยเมาส์ = บันทึก
-  const onToggleMove = () => {
-    if (moveMode) return exitMove();
-    crosshair.cancel();
-    closeSelection();
-    closePopup();
-    if (ctx && activeTool) setDrawMode(ctx.draw, "simple_select");
-    setActiveTool(null);
-    setMoveMode(true);
-  };
-
-  /** ย้ายเสร็จ (เฉพาะโหมด Move) → บันทึกตำแหน่งทันที ส่ง PATCH เฉพาะ geometry ไม่แตะ properties */
-  const saveMove = (id: number, geometry: GeoJSON.Geometry) => {
-    const item = items.find((i) => i.id === id);
-    if (!item || sameGeometry(geometry, item.geometry)) return; // กดลากแต่ไม่ได้ขยับจริง
-    const apply = (g: GeoJSON.Geometry) => setItems((list) => list.map((i) => (i.id === id ? { ...i, geometry: g } : i)));
-    if (guest) {
-      apply(geometry); // โหมดทดลอง: บันทึกลง localStorage อย่างเดียว
-      persistGuest(() => upsertGuest(localFeature(id, item.type, geometry, item.props)));
-      return;
-    }
-    // optimistic: ปล่อยเมาส์แล้วรูปอยู่ที่ใหม่ทันที ไม่รอ API (บันทึกเงียบ ไม่ขึ้น toast)
-    apply(geometry);
-    patchFeature(id, { geometry })
-      .catch((err) => {
-        // API ไม่รับ = คืนตำแหน่งเดิมทั้งใน items และใน draw
-        apply(item.geometry);
-        if (ctx?.draw.get(moveDrawId(id))) {
-          loadIntoDraw(moveDrawId(id), item.geometry);
-          setDrawMode(ctx.draw, "simple_select", { featureIds: [moveDrawId(id)] });
-        }
-        onError(err);
-      });
   };
 
   // ---------- event ของแผนที่ ----------
@@ -877,13 +852,6 @@ export default function App() {
     onFeatureClick: (id, lngLat) => {
       const item = items.find((i) => i.id === id);
       if (!item || !ctx) return;
-      if (moveMode) {
-        if (!canModify(item)) return onError(new Error("ย้ายได้เฉพาะ feature ของตัวเอง (หรือเจ้าของ group)"));
-        loadIntoDraw(moveDrawId(id), item.geometry);
-        setDrawMode(ctx.draw, "simple_select", { featureIds: [moveDrawId(id)] });
-        setMovingId(id);
-        return;
-      }
       // ระหว่างแก้ชิ้นอื่นอยู่ คลิกชิ้นนี้ = ทิ้งชิ้นเดิมแล้วสลับมาชิ้นนี้ (เหมือนคลิกจากรายการ) / ระหว่างสร้างใหม่ไม่ทำอะไร กัน draft หาย
       if (mobileDraw || selection?.mode === "create") return;
       const editable = canModify(item);
@@ -918,12 +886,8 @@ export default function App() {
       // draw สลับโหมดเองหลังยิง draw.create → รอให้เสร็จก่อนค่อยเลือกให้ลากแก้ได้
       setTimeout(() => selectInDraw(f.id, type), 0);
     },
-    onDrawUpdate: (f, action) => {
+    onDrawUpdate: (f) => {
       if (!ctx) return;
-      if (movingId !== null && f.id === moveDrawId(movingId)) {
-        if (action === "move") saveMove(movingId, f.geometry);
-        return;
-      }
       if (f.id !== activeDrawId) return;
       // ลากจุดจนขอบตัดกันเอง → คืนรูปก่อนหน้า (PostGIS ไม่รับ polygon แบบนี้)
       if (isBadPolygon(f.geometry) && draftGeom) {
@@ -935,12 +899,6 @@ export default function App() {
     },
     onDrawSelectionChange: (selected) => {
       if (selected.length || !ctx) return;
-      // โหมด Move: คลิกที่อื่น = ปล่อย feature กลับไปแสดงตามปกติ
-      if (movingId !== null) {
-        ctx.draw.deleteAll();
-        setMovingId(null);
-        return;
-      }
       // ระหว่างวาด/แก้: คลิกพื้นที่ว่างทำให้ draw เลิกเลือก → เลือกกลับให้ยังลากแก้ได้
       if (activeDrawId && activeType) setTimeout(() => selectInDraw(activeDrawId, activeType), 0);
     },
@@ -1225,55 +1183,81 @@ export default function App() {
             </div>
           ))}
 
-        <MapControls
-          map={ctx?.map ?? null}
-          is3D={is3D}
-          paused={is3D && mustBeFlat}
-          onToggle3D={onToggle3D}
-          hide3D={editingData}
-          compact={isMobile}
-          className={
-            isMobile
-              ? `absolute right-3 z-20 ${
-                  mobileDraw
-                    ? "bottom-[calc(12rem+env(safe-area-inset-bottom,0px))]" // เหนือปุ่มตำแหน่งปัจจุบันของ DrawSheet
-                    : panelOpen
-                      ? "bottom-[calc(60%+5rem)]"
-                      : "bottom-[calc(5.5rem+6.75rem+env(safe-area-inset-bottom,0px))]"
-                }`
-              : editor
-                ? "absolute top-[4.5rem] right-[24.5rem] z-20" // มีการ์ดฟอร์ม (ยืดลงเกือบสุดจอ) → ปุ่มย้ายไปซ้ายของการ์ด ชิดบน (ล่างจะชน pill เครื่องมือบนจอแคบ)
-                : "absolute bottom-6 right-4 z-20"
-          }
-          tableOpen={tableOpen}
-          onToggleTable={() => (tableOpen ? setTableOpen(false) : openTable())}
-        />
-        {isMobile ? (
-          !mobileDraw &&
-          !creating &&
-          !showTable && (
-            <DrawFab
-              moveActive={moveMode}
-              onDrawSelect={onMobileDrawSelect}
-              onToggleMove={onToggleMove}
-              className={`absolute right-3 z-20 ${panelOpen ? "bottom-[calc(60%+0.75rem)]" : "bottom-[calc(5.5rem+2.25rem+env(safe-area-inset-bottom,0px))]"}`}
+        {(() => {
+          const mapControls = (className?: string) => (
+            <MapControls
+              map={ctx?.map ?? null}
+              is3D={is3D}
+              paused={is3D && mustBeFlat}
+              onToggle3D={onToggle3D}
+              hide3D={editingData}
+              compact={isMobile}
+              className={className}
+              tableOpen={tableOpen}
+              onToggleTable={() => (tableOpen ? setTableOpen(false) : openTable())}
             />
-          )
-        ) : (
-          !showTable && (
-          <Toolbar
+          );
+          const layerHint: Partial<Record<DrawShape, string>> = {};
+          for (const t of DRAW_TOOLS) if (layerMissing(t.shape)) layerHint[t.shape] = canManageLayers ? "สร้าง layer ก่อน" : "ยังไม่มี layer";
+          const fab = (className: string) => (
+            <DrawFab
+              activeTool={currentTool}
+              onSelect={requestTool}
+              onCancel={cancelDrawing}
+              layerHint={layerHint}
+              showKeys={!isMobile}
+              className={className}
+            />
+          );
+
+          if (isMobile) {
+            return (
+              <>
+                {mapControls(
+                  `absolute right-3 z-20 ${
+                    mobileDraw
+                      ? "bottom-[calc(12rem+env(safe-area-inset-bottom,0px))]" // เหนือปุ่มตำแหน่งปัจจุบันของ DrawSheet
+                      : panelOpen
+                        ? "bottom-[calc(60%+5rem)]"
+                        : "bottom-[calc(5.5rem+6.75rem+env(safe-area-inset-bottom,0px))]"
+                  }`,
+                )}
+                {!mobileDraw &&
+                  !creating &&
+                  !showTable &&
+                  fab(`absolute right-3 z-20 ${panelOpen ? "bottom-[calc(60%+0.75rem)]" : "bottom-[calc(5.5rem+2.25rem+env(safe-area-inset-bottom,0px))]"}`)}
+              </>
+            );
+          }
+          // จอคอม: ปุ่มควบคุมแผนที่ซ้อนอยู่เหนือ FAB ในคอลัมน์ขวาล่าง / มีการ์ดฟอร์ม → ปุ่มควบคุมไปซ้ายการ์ดชิดบน และ FAB ลงล่างซ้ายการ์ด (ซ่อนตอนสร้าง/แก้)
+          const fabVisible = !showTable && (!selection || selection.mode === "view");
+          if (editor) {
+            return (
+              <>
+                {mapControls("absolute top-[4.5rem] right-[24.5rem] z-20")}
+                {fabVisible && fab("absolute right-[24.5rem] bottom-6 z-20")}
+              </>
+            );
+          }
+          return (
+            <div className="absolute right-4 bottom-6 z-20 flex flex-col items-center gap-3">
+              {mapControls()}
+              {fabVisible && fab("")}
+            </div>
+          );
+        })()}
+        {!isMobile && !showTable && (
+          <DrawHint
             activeTool={activeTool}
-            moveActive={moveMode}
-            onDrawSelect={onDrawSelect}
-            onToggleMove={onToggleMove}
+            onSelect={requestTool}
+            onCancel={cancelDrawing}
             shortcutsEnabled={!selection || selection.mode === "view"}
           />
-          )
         )}
 
         {isMobile ? (
           mobileDraw ? (
-            <DrawSheet draw={mobileDraw} mapRef={mapRef} onAdd={crosshair.addPoint} onError={onError} />
+            <DrawSheet draw={mobileDraw} mapRef={mapRef} onAdd={crosshair.addPoint} onSwitch={requestTool} onError={onError} />
           ) : (
             <MobileSheet
               open={panelOpen}
@@ -1381,6 +1365,26 @@ export default function App() {
       )}
 
       {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
+      <AlertDialog open={pendingTool !== null} onOpenChange={(o) => !o && setPendingTool(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>เปลี่ยนเป็นวาด{pendingTool ? toolOf(pendingTool).label : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>จุดที่วางไว้แล้วจะหายไป ต้องเริ่มวาดใหม่</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>วาดต่อ</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingTool) startTool(pendingTool);
+                setPendingTool(null);
+              }}
+            >
+              เปลี่ยนและเริ่มใหม่
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {layerDialog && (
         <LayerDialog
           layer={layerDialog.layer}

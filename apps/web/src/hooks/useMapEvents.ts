@@ -13,7 +13,7 @@ export type MapHandlers = {
   onHover: (id: number | null) => void;
   /** วาดเสร็จ 1 ชิ้น (mapbox-gl-draw) */
   onDrawCreate: (f: DrawFeature) => void;
-  /** ลากจุด / ย้ายทั้งก้อนเสร็จ — action = "change_coordinates" | "move" */
+  /** ลากจุดเสร็จ — action = "change_coordinates" */
   onDrawUpdate: (f: DrawFeature, action: string) => void;
   /** สิ่งที่เลือกใน draw เปลี่ยน (เช่น คลิกพื้นที่ว่างระหว่างแก้ = ไม่มีอะไรถูกเลือก) */
   onDrawSelectionChange: (selected: DrawFeature[]) => void;

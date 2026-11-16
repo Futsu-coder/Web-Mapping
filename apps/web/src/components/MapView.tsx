@@ -80,8 +80,8 @@ const DRAW_STYLES = [
 ];
 
 /**
- * แผนที่ MapLibre + mapbox-gl-draw (ไม่ใช้ปุ่มของ draw เอง — Toolbar ของเราสั่ง changeMode แทน)
- * - เริ่มเป็น 2D (ปิดการหมุน/เอียง) — โหมด 3D เปิดจาก Toolbar (ตึก 3D ของ style Liberty เห็นตั้งแต่ซูม 14)
+ * แผนที่ MapLibre + mapbox-gl-draw (ไม่ใช้ปุ่มของ draw เอง — DrawFab ของเราสั่ง changeMode แทน)
+ * - เริ่มเป็น 2D (ปิดการหมุน/เอียง) — โหมด 3D เปิดจากปุ่ม 3D ใน MapControls (ตึก 3D ของ style Liberty เห็นตั้งแต่ซูม 14)
  * - เห็นโลกใบเดียว: ไม่วาดโลกซ้ำ + จำกัดขอบที่ WORLD_BOUNDS
  * - พร้อมใช้ (โหลด style + ใส่ layer + draw เสร็จ) แล้วเรียก onReady
  */
