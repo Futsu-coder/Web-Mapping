@@ -156,7 +156,7 @@ export default function NotificationBell({
           </Button>
         </PopoverTrigger>
 
-        <PopoverContent align="end" className="flex max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] flex-col gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
+        <PopoverContent align="end" sideOffset={12} className="menu-drop flex max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] flex-col gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
           <div className="flex items-center justify-between border-b border-black/5 px-4 py-3">
             <span className="font-semibold">การแจ้งเตือน</span>
             {items.length > 0 && (
