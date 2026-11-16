@@ -12,7 +12,7 @@ const Geometry = t.Union([
   t.Object({ type: t.Literal('Polygon'), coordinates: t.Array(t.Array(Position, { minItems: 4 }), { minItems: 1 }) })
 ])
 
-// layer ที่ feature อยู่ (null / ไม่ส่ง = ไม่อยู่ใน layer)
+// layer ที่ feature อยู่ — POST/PUT ต้องส่ง, PATCH ห้าม null (ตรวจใน routes/features.ts); feature เก่าอาจยังไม่มี layer
 const LayerRef = t.Union([t.Integer({ minimum: 1 }), t.Null()])
 
 // ขาเข้า: GeoJSON Feature — name / description / layer_id + ค่าของหัวข้อใน layer (key f_xxxx) เก็บใน properties
@@ -34,12 +34,12 @@ export const FeatureIn = t.Object(
       {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [100.5018, 13.7563] },
-        properties: { name: 'Bangkok', description: 'เมืองหลวง' }
+        properties: { name: 'Bangkok', description: 'เมืองหลวง', layer_id: 1 }
       },
       {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: [[100.49, 13.75], [100.52, 13.74]] },
-        properties: { name: 'ถนนตัวอย่าง', description: 'เส้นทางตัวอย่าง' }
+        properties: { name: 'ถนนตัวอย่าง', description: 'เส้นทางตัวอย่าง', layer_id: 1 }
       },
       {
         type: 'Feature',
@@ -47,7 +47,7 @@ export const FeatureIn = t.Object(
           type: 'Polygon',
           coordinates: [[[100.49, 13.74], [100.51, 13.74], [100.51, 13.76], [100.49, 13.76], [100.49, 13.74]]]
         },
-        properties: { name: 'พื้นที่ตัวอย่าง', description: 'พื้นที่สีเขียว' }
+        properties: { name: 'พื้นที่ตัวอย่าง', description: 'พื้นที่สีเขียว', layer_id: 1 }
       }
     ]
   }

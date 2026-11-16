@@ -31,7 +31,7 @@ apps/server/src/
   db/schema.ts                groups, profiles, invitations, notifications, features (geom = geometry 4326), layers, related_tables, related_records
   routes/layers.ts            layer + ตารางย่อย (/api/layers, /api/related-tables) — เขียนได้เฉพาะเจ้าของ group
   routes/records.ts           แถวของตารางย่อย (/api/related-records) — สิทธิ์เดียวกับ feature (checkModify)
-apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime), layers.sql (RLS + Realtime ของ layer, ล้าง feature เก่า) — รันใน Supabase SQL Editor
+apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime), layers.sql (RLS + Realtime ของ layer, ล้าง feature เก่า — ห้ามรันซ้ำ) — รันใน Supabase SQL Editor
 apps/shared/                  ใช้ร่วม web+server: auth.ts, layers.ts (type หัวข้อ + checkValues / checkFields)
 apps/web/src/
   App.tsx                     state หลักทั้งหมด (items, selection, draw, guest, save/remove/edit) — ไฟล์ใหญ่
@@ -63,11 +63,12 @@ apps/web/src/
 - **ระบบ Layer + Attribute table + ตารางย่อย** (ใช้ทั้ง login และโหมดทดลอง — category ถูกเอาออกแล้ว)
   - login เก็บใน database ผ่าน API (`layerApi` ใน api.ts), โหมดทดลองเก็บ localStorage (`guestStore`) — ฟังก์ชันใน App แยก 2 ทาง (async, UI ครอบด้วย `attempt` → error ขึ้นแถบแดง)
   - โครงสร้าง (layer / ตารางย่อย / คอลัมน์) จัดการได้เฉพาะ `canManageLayers = guest || groupOwner` — คนอื่นไม่เห็นปุ่มจัดการ (server ตอบ 403) สมาชิกเห็นข้อความจาง "ให้เจ้าของ group …" แทน แต่ยังเพิ่ม/แก้ค่าในตารางของ feature ตัวเองได้
-  - **feature ไม่อยู่ใน layer ได้** (`layer_id` null) — ฟอร์มมี "— ไม่มี layer —", attribute table มีแท็บ "ไม่มี layer" (`NO_LAYER_ID`)
-    ลบ layer → feature ไม่ถูกลบ กลายเป็นไม่มี layer (FK `on delete set null` + ล้างค่าของหัวข้อ layer นั้น) — โหมดทดลองทำแบบเดียวกัน
+  - **feature ใหม่ต้องอยู่ใน layer** — กดเครื่องมือวาดแล้วยังไม่มี layer ชนิดนั้น: เจ้าของ group/โหมดทดลองเปิด `LayerDialog` (ล็อกชนิด, `thenDraw`) สร้างก่อนแล้วเริ่มวาดต่อเอง (`needsLayerFirst` ใน App) / สมาชิกทั่วไปขึ้นแถบแดงให้ไปบอกเจ้าของ group; server ปฏิเสธ POST ที่ไม่มี `layer_id` (422)
+    feature **เก่า**ที่ `layer_id` null ยังอยู่ได้ (แท็บ "ไม่มี layer" = `NO_LAYER_ID`, วาดสีเทาล่างสุด) ย้ายเข้า layer ได้แต่เอาออกจาก layer ไม่ได้
+    **ลบ layer = ลบ feature ใน layer ด้วย** (+ ตารางย่อย/แถว) ทั้ง server และ `removeGuestLayer`
   - layer = กลุ่ม feature: รูปทรงชนิดเดียว + สี + หัวข้อ property (`lib/layers.ts`) — key ของหัวข้อสุ่มให้ไม่เปลี่ยน (เปลี่ยน label ได้ ค่าไม่หาย)
   - ใน properties เก็บแบบแบน: `layer_id` + ค่าของแต่ละหัวข้อ (key = `f_xxxx`) — แปลงไป/กลับด้วย `propsOf` / `toStoredProps` (`lib/featureMeta.ts`)
-  - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ, ลบ layer = feature ใน layer ถูกลบด้วย
+  - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ
   - UI: `LayerDialog` (สร้าง/แก้), `AttributeTable` (ตารางด้านล่างแผนที่ — ดับเบิลคลิกช่องแก้ค่า, ปุ่ม + เพิ่มคอลัมน์, ดินสอที่หัวคอลัมน์เปลี่ยนชื่อ), กลุ่มตาม layer ใน `FeaturePanel`
     ปุ่มเปิดตารางอยู่ใน `MapControls` — จอคอม: ตารางอยู่นอก `.map-area` แล้ว App หดพื้นที่แผนที่ขึ้น (`tableDocked`) การ์ด/ปุ่มที่ลอยบนแผนที่เลยขยับตามเอง
     `DetailCard` ยืดลงเกือบสุดจอเสมอ และ `MapControls` ย้ายไปซ้ายของการ์ดเมื่อมีฟอร์ม / มือถือ: ตารางเต็มจอ

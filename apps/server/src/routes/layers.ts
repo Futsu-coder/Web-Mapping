@@ -142,8 +142,7 @@ export const layerRoutes = new Elysia({ tags: ['layers'] })
     { params: IdParams, body: LayerPatch }
   )
 
-  // ลบ layer: feature ใน layer ไม่ถูกลบ — กลายเป็น "ไม่มี layer" (FK on delete set null) และค่าของหัวข้อ layer นี้ถูกล้าง
-  // ตารางย่อย + แถวของ layer ถูกลบตาม (cascade)
+  // ลบ layer: feature ใน layer ถูกลบด้วย (แถวตารางย่อยของ feature ลบตาม cascade) — ตารางย่อยของ layer ก็ลบตาม
   .delete(
     '/layers/:id',
     async ({ user, params, status }) => {
@@ -151,13 +150,7 @@ export const layerRoutes = new Elysia({ tags: ['layers'] })
       const layer = await findLayer(user, params.id)
       if (!layer) return status(404, layerNotFound)
       await db.transaction(async (tx) => {
-        const keys = layer.fields.map((f) => f.key)
-        if (keys.length) {
-          await tx
-            .update(features)
-            .set({ properties: sql`${features.properties} - ${textArray(keys)}` })
-            .where(eq(features.layerId, layer.id))
-        }
+        await tx.delete(features).where(eq(features.layerId, layer.id))
         await tx.delete(layers).where(eq(layers.id, layer.id))
       })
       return status(204)

@@ -170,7 +170,7 @@ export default function App() {
   const [hiddenLayers, setHiddenLayers] = useState<Set<number>>(new Set());
   const [tableOpen, setTableOpen] = useState(false);
   const [tableLayerId, setTableLayerId] = useState<number | null>(null);
-  const [layerDialog, setLayerDialog] = useState<{ layer: Layer | null; lockType?: GeomType } | null>(null);
+  const [layerDialog, setLayerDialog] = useState<{ layer: Layer | null; lockType?: GeomType; thenDraw?: DrawShape } | null>(null);
 
   const onError = useCallback((err: unknown) => setError(message(err)), []);
   const onMapReady = useCallback((c: MapCtx | null) => {
@@ -587,19 +587,18 @@ export default function App() {
     return layer;
   };
 
-  /** ลบ layer — feature ใน layer ไม่ถูกลบ กลายเป็น "ไม่มี layer" (ค่าของหัวข้อ layer นี้ถูกล้าง); ตารางย่อย + แถวถูกลบ */
+  /** ลบ layer — feature ใน layer ถูกลบด้วย (+ แถวตารางย่อยของ feature เหล่านั้น); ตารางย่อยของ layer ถูกลบตาม */
   const deleteLayer = async (layer: Layer) => {
     if (guest) persistGuest(() => removeGuestLayer(layer.id));
     else await layerApi.remove(layer.id);
-    // ฟอร์มแก้ที่เปิดค้างยังถือ layer เดิมอยู่ → ยกเลิกการแก้ (กลับเป็นโหมดดู)
-    if (selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) closeSelection();
+    // ฟอร์มที่เปิดค้างอยู่กับ feature ที่กำลังจะหายไป → ปิด
+    if (selection && selection.mode !== "create" && selectedItem?.props.layerId === layer.id) closeSelection();
     const removedTables = new Set(tables.filter((t) => t.layerId === layer.id).map((t) => t.id));
+    const removedItems = new Set(items.filter((i) => i.props.layerId === layer.id).map((i) => i.id));
     setLayers((list) => list.filter((l) => l.id !== layer.id));
     setTables((list) => list.filter((t) => !removedTables.has(t.id)));
-    setRecords((list) => list.filter((r) => !removedTables.has(r.tableId)));
-    setItems((list) =>
-      list.map((i) => (i.props.layerId === layer.id ? { ...i, props: { ...i.props, layerId: undefined, values: undefined } } : i)),
-    );
+    setRecords((list) => list.filter((r) => !removedTables.has(r.tableId) && !removedItems.has(r.featureId)));
+    setItems((list) => list.filter((i) => !removedItems.has(i.id)));
     setHiddenLayers((s) => {
       const next = new Set(s);
       next.delete(layer.id);
@@ -738,6 +737,7 @@ export default function App() {
    */
   const saveLayerFromDialog = async (draft: LayerDraft, changes: TableChanges) => {
     const before = draft.id !== undefined ? layers.find((l) => l.id === draft.id) : undefined;
+    const thenDraw = layerDialog?.thenDraw;
     for (const c of changes.convert) {
       const field = before?.fields.find((f) => f.key === c.key);
       if (before && field) await copyFieldToTable(before, field, c.name);
@@ -752,6 +752,11 @@ export default function App() {
       if (t) await saveTable({ ...t, name: r.name });
     }
     for (const name of changes.create) await saveTable({ layerId: layer.id, name, fields: [] });
+    // สร้าง layer เพราะกดเครื่องมือวาด → เริ่มวาดต่อทันที
+    if (draft.id === undefined && thenDraw) {
+      if (isMobile) beginMobileDraw(thenDraw);
+      else beginDraw(thenDraw);
+    }
   };
 
   const openTable = (layer?: Layer) => {
@@ -784,6 +789,18 @@ export default function App() {
   };
 
   // ---------- เครื่องมือวาด / Move ----------
+  /**
+   * วาดได้เมื่อมี layer ชนิดนั้นแล้ว — ยังไม่มี: เจ้าของ group (หรือโหมดทดลอง) เปิดหน้าสร้าง layer ก่อน (บันทึกแล้วเริ่มวาดต่อให้เลย)
+   * สมาชิกทั่วไปสร้าง layer ไม่ได้ → แจ้งให้ไปบอกเจ้าของ group
+   */
+  const needsLayerFirst = (shape: DrawShape) => {
+    const type = SHAPE_TO_GEOM_TYPE[shape];
+    if (layers.some((l) => l.geomType === type)) return false;
+    if (canManageLayers) setLayerDialog({ layer: null, lockType: type, thenDraw: shape });
+    else onError(new Error(`ยังไม่มี layer ชนิด ${type === "LineString" ? "Line" : type} — ให้เจ้าของ group สร้าง layer ก่อนถึงจะวาดได้`));
+    return true;
+  };
+
   /** จอคอม: เลือกเครื่องมือวาด = เปิดโหมดวาดของ draw (เลือกชนิดเดิมซ้ำ = ยกเลิก) */
   const onDrawSelect = (shape: DrawShape) => {
     if (!ctx) return;
@@ -792,6 +809,12 @@ export default function App() {
       setActiveTool(null);
       return;
     }
+    if (needsLayerFirst(shape)) return;
+    beginDraw(shape);
+  };
+
+  const beginDraw = (shape: DrawShape) => {
+    if (!ctx) return;
     closeSelection(); // เริ่มวาดใหม่ = ทิ้งสิ่งที่ค้างอยู่
     setPanelOpen(false); // ระหว่างวาดย่อรายการ
     exitMove();
@@ -804,6 +827,11 @@ export default function App() {
   /** มือถือ: เลือกเครื่องมือวาด = เริ่มโหมดกากบาท (เลือกชนิดเดิมซ้ำ = ยกเลิก) */
   const onMobileDrawSelect = (shape: DrawShape) => {
     if (mobileDraw?.shape === shape) return crosshair.cancel();
+    if (needsLayerFirst(shape)) return;
+    beginMobileDraw(shape);
+  };
+
+  const beginMobileDraw = (shape: DrawShape) => {
     closeSelection();
     exitMove();
     closePopup();

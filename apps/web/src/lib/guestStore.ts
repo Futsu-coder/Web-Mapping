@@ -105,26 +105,20 @@ export function upsertGuestLayer(layer: Layer) {
 }
 
 /**
- * ลบ layer — feature ใน layer ไม่ถูกลบ กลายเป็น "ไม่มี layer" (ค่าของหัวข้อ layer นี้ถูกล้าง) เหมือนฝั่ง API
- * ตารางย่อยของ layer + แถวในตารางเหล่านั้นถูกลบ
+ * ลบ layer — feature ใน layer ถูกลบด้วย เหมือนฝั่ง API
+ * ตารางย่อยของ layer + แถวของตารางเหล่านั้น + แถวของ feature ที่ถูกลบ
  */
 export function removeGuestLayer(id: number) {
   const s = read();
   if (!s) return;
-  const keys = s.layers?.find((l) => l.id === id)?.fields.map((f) => f.key) ?? [];
   const tableIds = new Set(s.tables?.filter((t) => t.layerId === id).map((t) => t.id));
+  const goneFeatures = new Set(s.features.filter((f) => f.properties.layer_id === id).map((f) => f.id));
   save({
     ...s,
     layers: (s.layers ?? []).filter((l) => l.id !== id),
-    features: s.features.map((f) => {
-      if (f.properties.layer_id !== id) return f;
-      const properties = { ...f.properties };
-      delete properties.layer_id;
-      for (const k of keys) delete properties[k];
-      return { ...f, properties };
-    }),
+    features: s.features.filter((f) => !goneFeatures.has(f.id)),
     tables: s.tables?.filter((t) => !tableIds.has(t.id)),
-    records: s.records?.filter((r) => !tableIds.has(r.tableId)),
+    records: s.records?.filter((r) => !tableIds.has(r.tableId) && !goneFeatures.has(r.featureId)),
   });
 }
 

@@ -276,8 +276,8 @@ export default function FeaturePanel({
               {layers.length === 0 && (
                 <li className="px-2 py-4 text-center text-sm text-muted-foreground">
                   {onAddLayer
-                    ? 'ยังไม่มี layer — กด "+ Layer" เพื่อสร้างกลุ่ม feature เช่น โรงเรียน / แม่น้ำ'
-                    : "ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง layer (วาด feature แบบไม่มี layer ได้)"}
+                    ? 'ยังไม่มี layer — กด "+ Layer" (หรือเลือกเครื่องมือวาด) เพื่อสร้าง layer ก่อนวาด เช่น โรงเรียน / แม่น้ำ'
+                    : "ยังไม่มี layer — ต้องให้เจ้าของ group สร้าง layer ก่อนถึงจะวาดได้"}
                 </li>
               )}
               {filter !== "All" &&
