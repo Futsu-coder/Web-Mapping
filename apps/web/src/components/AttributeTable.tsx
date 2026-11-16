@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { FeatureProps } from "../api";
+import { ListSkeleton } from "./LoadingPill";
 import {
   badNumberMessage,
   formatValue,
@@ -115,12 +116,15 @@ export default function AttributeTable({
   onUpdateLayer,
   onConvertField,
   canManage,
+  loading = false,
   canModify,
   variant = "desktop",
   style,
 }: {
   /** จัดการโครงสร้างได้ (เพิ่ม/เปลี่ยนชื่อ/ลบคอลัมน์, ตารางย่อย) — โหมดทดลองหรือเจ้าของ group */
   canManage: boolean;
+  /** กำลังโหลดครั้งแรก: แสดง skeleton แทนข้อความ "ยังไม่มี layer/feature" */
+  loading?: boolean;
   /** แก้ค่าของ feature นี้ได้ (เจ้าของ feature หรือเจ้าของ group) */
   canModify: (item: Item) => boolean;
   /** feature ที่เปิดแก้ในฟอร์มอยู่ — แก้ในตารางไม่ได้ (กันค่าชนกัน) */
@@ -427,7 +431,9 @@ export default function AttributeTable({
         </Alert>
       )}
 
-      {!layer ? (
+      {!layer && loading ? (
+        <ListSkeleton loading rows={4} className="flex flex-col gap-2 p-3" />
+      ) : !layer ? (
         <p className="m-auto px-4 text-center text-sm text-muted-foreground">{canManage ? 'ยังไม่มี layer — สร้างจากปุ่ม "+ Layer" ในพาเนลรายการ' : "ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง layer"}</p>
       ) : viewTable ? (
         <RelatedTableView
@@ -481,7 +487,7 @@ export default function AttributeTable({
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
+              {rows.length === 0 && !loading && (
                 <tr>
                   <td colSpan={columns.length + 2} className="px-3 py-6 text-center text-sm text-muted-foreground">
                     ยังไม่มี feature ใน layer นี้ — วาด {GEOM_LABEL[layer.geomType]} แล้วเลือก layer "{layer.name}"

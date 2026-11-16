@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GEOM_LABEL, type Layer } from "../lib/layers";
+import { ListSkeleton } from "./LoadingPill";
 import type { GeomType, Item } from "../lib/types";
 import GeomFilter from "./GeomFilter";
 import LayerOrderList from "./LayerOrderList";
@@ -147,6 +148,7 @@ export default function FeaturePanel({
   onToggleLayer,
   onEditLayer,
   onAddLayer,
+  loading = false,
   onOpenTable,
   onMoveLayer,
   onSetLayerVisible,
@@ -157,6 +159,8 @@ export default function FeaturePanel({
   onToggleLayer?: (layer: Layer) => void;
   onEditLayer?: (layer: Layer) => void;
   onAddLayer?: () => void;
+  /** กำลังโหลดครั้งแรก: แสดง skeleton แทนข้อความ "ยังไม่มี..." */
+  loading?: boolean;
   onOpenTable?: (layer: Layer) => void;
   /** ย้าย layer ไปตำแหน่ง toIndex (0 = บนสุด) / ตั้งซ่อน-แสดง — ของบัญชีนี้เท่านั้น */
   onMoveLayer?: (layerId: number, toIndex: number) => void;
@@ -301,7 +305,8 @@ export default function FeaturePanel({
         </div>
 
         <ul ref={listRef} className="relative flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
-          {!layers && items.length === 0 && (
+          <ListSkeleton loading={loading} className="flex flex-col gap-2 py-1" />
+          {!layers && items.length === 0 && !loading && (
             <li className="px-2 py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล ใช้เครื่องมือด้านล่างวาดบนแผนที่</li>
           )}
           {orderMode ? (
@@ -316,7 +321,7 @@ export default function FeaturePanel({
             </li>
           ) : layers ? (
             <>
-              {layers.length === 0 && (
+              {layers.length === 0 && !loading && (
                 <li className="px-2 py-4 text-center text-sm text-muted-foreground">
                   {onAddLayer
                     ? 'ยังไม่มี layer — กด "+ Layer" (หรือเลือกเครื่องมือวาด) เพื่อสร้าง layer ก่อนวาด เช่น โรงเรียน / แม่น้ำ'
@@ -378,7 +383,7 @@ export default function FeaturePanel({
                       </div>
                       {!isFolded && (
                         <ul className="flex flex-col gap-0.5 pl-3">
-                          {members.length === 0 && (
+                          {members.length === 0 && !loading && (
                             <li className="px-2 py-1 text-xs text-muted-foreground">
                               ยังไม่มี feature — วาด {GEOM_LABEL[layer.geomType]} แล้วเลือก layer นี้
                             </li>

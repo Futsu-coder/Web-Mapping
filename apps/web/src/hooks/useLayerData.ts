@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { layerApi } from "../api";
 import type { Layer, RelatedRecord, RelatedTable } from "../lib/layers";
+import type { LoadState } from "../lib/loadState";
 import { subscribeTable } from "../lib/realtime";
 
 type Setter<T> = (value: T) => void;
@@ -21,9 +22,30 @@ export function useLayerData(
   setRecords: Setter<RelatedRecord[]>,
   onError: (err: unknown) => void,
 ) {
+  // สถานะโหลดครั้งแรก (layer + แถวต้องมาครบ) เก็บคู่กับ viewKey — poll เบื้องหลังไม่เปลี่ยนสถานะ
+  const [res, setRes] = useState<{ key: string; state: LoadState }>({ key: "", state: "loading" });
+  const [nonce, setNonce] = useState(0);
+  // viewKey เปลี่ยน (รวมไปโหมดทดลอง/pending) → กลับเป็น loading ทันที กัน res เก่าของ key เดิมค้างแล้วตอบ ready ทั้งที่ยังไม่ได้โหลด
+  const [shownKey, setShownKey] = useState(viewKey);
+  if (shownKey !== viewKey) {
+    setShownKey(viewKey);
+    setRes({ key: viewKey, state: "loading" });
+  }
+  const retry = useCallback(() => {
+    setRes({ key: viewKey, state: "loading" });
+    setNonce((n) => n + 1);
+  }, [viewKey]);
+
   useEffect(() => {
     if (guest) return;
     let alive = true;
+    let layersOk = false;
+    let recordsOk = false;
+    const initial = (ok: boolean) => {
+      if (!alive) return;
+      const next: LoadState | null = !ok ? "error" : layersOk && recordsOk ? "ready" : null;
+      if (next) setRes((r) => (r.key === viewKey && r.state === next ? r : { key: viewKey, state: next }));
+    };
     // ชุดล่าสุดที่โหลดได้ (JSON) — เหมือนเดิม = ไม่ set state ไม่ให้ render ใหม่ / ช่องที่กำลังแก้ในตารางไม่หลุดตอน poll
     let lastLayers = "";
     let lastRecords = "";
@@ -33,22 +55,32 @@ export function useLayerData(
         .list()
         .then((d) => {
           const json = JSON.stringify(d);
+          layersOk = true;
+          initial(true);
           if (!alive || json === lastLayers) return;
           lastLayers = json;
           setLayers(d.layers);
           setTables(d.tables);
         })
-        .catch((e) => !quiet && onError(e));
+        .catch((e) => {
+          if (!layersOk) initial(false); // ยังโหลดครั้งแรกไม่ได้ → pill แสดง error + ลองใหม่
+          else if (!quiet) onError(e);
+        });
     const loadRecords = (quiet = false) =>
       layerApi
         .listRecords()
         .then((r) => {
           const json = JSON.stringify(r);
+          recordsOk = true;
+          initial(true);
           if (!alive || json === lastRecords) return;
           lastRecords = json;
           setRecords(r);
         })
-        .catch((e) => !quiet && onError(e));
+        .catch((e) => {
+          if (!recordsOk) initial(false);
+          else if (!quiet) onError(e);
+        });
 
     void loadLayers();
     void loadRecords();
@@ -80,5 +112,8 @@ export function useLayerData(
       window.removeEventListener("focus", onVisible);
       for (const u of unsubscribe) u();
     };
-  }, [viewKey, guest, setLayers, setTables, setRecords, onError]);
+  }, [viewKey, guest, setLayers, setTables, setRecords, onError, nonce]);
+
+  const state: LoadState = guest ? "ready" : res.key === viewKey ? res.state : "loading";
+  return { state, retry };
 }

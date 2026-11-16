@@ -44,6 +44,8 @@ import MobileSheet, { SHEET_HALF_RATIO } from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { toItem, useFeatureData } from "./hooks/useFeatureData";
 import { useLayerData } from "./hooks/useLayerData";
+import { LoadingPill } from "./components/LoadingPill";
+import { mergeLoadState, PENDING_VIEW } from "./lib/loadState";
 import { useLayerPrefs } from "./hooks/useLayerPrefs";
 import { useMapEvents } from "./hooks/useMapEvents";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
@@ -139,8 +141,12 @@ export default function App() {
   const [, bumpFit] = useReducer((n: number) => n + 1, 0);
   // feature ที่ถูกดึงเข้า draw เพื่อลากย้ายในโหมด Move
   const [hoveredId, setHoveredId] = useState<number | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  // session: undefined = ยังไม่รู้ว่า login อยู่ไหม (รอ Supabase ตอบ)
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [me, setMe] = useState<Me | null>(null);
+  // getMe พลาดของ user นี้ (ให้ pill ขึ้น error + ลองใหม่) / ตัวนับเรียก getMe ใหม่
+  const [meFailedFor, setMeFailedFor] = useState<string | null>(null);
+  const [meNonce, setMeNonce] = useState(0);
   const [authOpen, setAuthOpen] = useState(false);
   // สมาชิกที่ซ่อน feature ไว้ (ซ่อนแค่บนจอเรา)
   const [hiddenOwners, setHiddenOwners] = useState<Set<string>>(new Set());
@@ -181,7 +187,10 @@ export default function App() {
   // ---------- บัญชีผู้ใช้ ----------
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setSession(data.session))
+      .catch(() => setSession(null)); // ถามไม่ได้ → ถือว่ายังไม่ login ไม่ให้ค้าง loading
     const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => data.subscription.unsubscribe();
   }, []);
@@ -199,12 +208,20 @@ export default function App() {
 
   useEffect(() => {
     if (!userId || isIdleExpired()) return;
-    getMe().then(setMe).catch(onError);
-  }, [userId, onError]);
+    getMe()
+      .then(setMe)
+      .catch((e) => {
+        setMeFailedFor(userId); // pill แดง + ลองใหม่ แสดงอยู่แล้ว ไม่ต้องขึ้นแถบแดงซ้ำ
+        console.error(e);
+      });
+  }, [userId, onError, meNonce]);
 
   // me ที่ตรงกับ session ปัจจุบันเท่านั้น (logout แล้ว me เก่าไม่ถูกใช้)
   const activeMe = userId && me?.user.id === userId ? me : null;
   const guest = !activeMe;
+  // ยังไม่รู้ว่าเป็นใคร: รอ session หรือ login แล้วแต่รอ getMe — ต้องไม่โชว์ว่า "ยังไม่มี layer" / ข้อมูลโหมดทดลอง
+  const accountFailed = !!userId && !activeMe && meFailedFor === userId;
+  const accountPending = !!supabase && !accountFailed && (session === undefined || (!!userId && !activeMe && !isIdleExpired()));
   const myId = activeMe?.user.id ?? null;
   const groupOwner = !!activeMe && activeMe.group.ownerId === activeMe.user.id;
 
@@ -213,8 +230,8 @@ export default function App() {
   const canModify = (item: Item) => canModifyOwner(item.ownerId);
 
   // เปลี่ยนบัญชี / ย้าย group / ข้อมูลทดลองหมดอายุ → โหลด feature ชุดใหม่ และล้างสถานะที่ผูกกับชุดเก่า
-  const viewKey = activeMe ? `group-${activeMe.group.id}` : `guest-${guestEpoch}`;
-  const [shownKey, setShownKey] = useState(viewKey);
+  const viewKey = activeMe ? `group-${activeMe.group.id}` : accountPending || accountFailed ? PENDING_VIEW : `guest-${guestEpoch}`;
+  const [shownKey, setShownKey] = useState(""); // เริ่มว่าง → render แรกล้าง/ตั้งค่าตาม viewKey เสมอ
   if (shownKey !== viewKey) {
     setShownKey(viewKey);
     setGuestExpiry(guestExpiresAt()); // กลับมาโหมดทดลอง (logout) ข้อมูลอาจหมดอายุไประหว่างนั้น
@@ -224,15 +241,28 @@ export default function App() {
     setHiddenIds(new Set());
     setHiddenOwners(new Set());
     setHoveredId(null);
-    setLayers(activeMe ? [] : loadGuestLayers());
-    setTables(activeMe ? [] : loadGuestTables());
-    setRecords(activeMe ? [] : loadGuestRecords());
+    const empty = !!activeMe || viewKey === PENDING_VIEW;
+    setLayers(empty ? [] : loadGuestLayers());
+    setTables(empty ? [] : loadGuestTables());
+    setRecords(empty ? [] : loadGuestRecords());
     setTableDialog(null);
     setLayerDialog(null);
     setTableOpen(false);
   }
-  useFeatureData(viewKey, guest, setItems, onError);
-  useLayerData(viewKey, guest, setLayers, setTables, setRecords, onError);
+  const featureLoad = useFeatureData(viewKey, guest, setItems, onError);
+  const layerLoad = useLayerData(viewKey, guest, setLayers, setTables, setRecords, onError);
+  // สถานะโหลดรวม (โหมดทดลอง = ready เสมอ) — loading = ยังโหลดครั้งแรกไม่เสร็จ: ห้ามขึ้น "ยังไม่มี layer/ข้อมูล"
+  const loadState = accountFailed ? "error" : accountPending ? "loading" : mergeLoadState(featureLoad.state, layerLoad.state);
+  const loadingFirst = loadState === "loading" || loadState === "error";
+  const retryLoad = () => {
+    if (accountFailed) {
+      setMeFailedFor(null);
+      setMeNonce((n) => n + 1);
+      return;
+    }
+    featureLoad.retry();
+    layerLoad.retry();
+  };
   // ลำดับ (z-order) + การซ่อน layer: ส่วนตัวของบัญชีนี้ — orderedLayers เรียงบนสุด → ล่างสุด
   const {
     ordered: orderedLayers,
@@ -780,7 +810,7 @@ export default function App() {
    * วาดได้เมื่อมี layer ชนิดนั้นแล้ว — ยังไม่มี: เจ้าของ group (หรือโหมดทดลอง) เปิดหน้าสร้าง layer ก่อน (บันทึกแล้วเริ่มวาดต่อให้เลย)
    * สมาชิกทั่วไปสร้าง layer ไม่ได้ → แจ้งให้ไปบอกเจ้าของ group
    */
-  const layerMissing = (shape: DrawShape) => !layers.some((l) => l.geomType === SHAPE_TO_GEOM_TYPE[shape]);
+  const layerMissing = (shape: DrawShape) => !loadingFirst && !layers.some((l) => l.geomType === SHAPE_TO_GEOM_TYPE[shape]);
 
   const needsLayerFirst = (shape: DrawShape) => {
     if (!layerMissing(shape)) return false;
@@ -825,6 +855,7 @@ export default function App() {
   /** ขอสลับเครื่องมือ (DrawFab / DrawSheet / คีย์ลัด) — ถ้ามีจุดที่วางไว้แล้วถามยืนยันก่อน */
   const requestTool = (shape: DrawShape) => {
     if (shape === currentTool) return;
+    if (loadingFirst) return onError(new Error("กำลังโหลดข้อมูล รอสักครู่แล้วค่อยวาด")); // layer ยังมาไม่ครบ บันทึกไปจะไม่มี layer_id
     const blocked = layerMissing(shape) && !canManageLayers; // สมาชิกวาดชนิดนี้ไม่ได้ → แจ้งเตือนอย่างเดียว ไม่ทิ้งที่วาดอยู่
     if (currentTool && hasDrawnPoints() && !blocked) return setPendingTool(shape);
     startTool(shape);
@@ -1141,6 +1172,7 @@ export default function App() {
         }
       >
         <MapView className="absolute inset-0 w-full h-full z-0" onReady={onMapReady} />
+        <LoadingPill state={loadState} onRetry={retryLoad} />
         <CrosshairDraw map={ctx?.map ?? null} draw={mobileDraw} />
 
         {mobileDraw && <Crosshair />}
@@ -1198,7 +1230,10 @@ export default function App() {
             />
           );
           const layerHint: Partial<Record<DrawShape, string>> = {};
-          for (const t of DRAW_TOOLS) if (layerMissing(t.shape)) layerHint[t.shape] = canManageLayers ? "สร้าง layer ก่อน" : "ยังไม่มี layer";
+          for (const t of DRAW_TOOLS) {
+            if (loadingFirst) layerHint[t.shape] = "กำลังโหลด…";
+            else if (layerMissing(t.shape)) layerHint[t.shape] = canManageLayers ? "สร้าง layer ก่อน" : "ยังไม่มี layer";
+          }
           const fab = (className: string) => (
             <DrawFab
               activeTool={currentTool}
@@ -1269,6 +1304,7 @@ export default function App() {
               details={editor}
               list={
                 <MobileFeatureList
+                  loading={loadingFirst}
                   items={items}
                   filter={filter}
                   onFilterChange={changeFilter}
@@ -1292,6 +1328,7 @@ export default function App() {
         ) : (
           <>
             <FeaturePanel
+              loading={loadingFirst}
               open={panelOpen}
               onToggle={() => setPanelOpen((o) => !o)}
               items={shown}
@@ -1332,6 +1369,7 @@ export default function App() {
 
       {showTable && (
         <AttributeTable
+          loading={loadingFirst}
           layers={orderedLayers}
           items={items}
           layerId={tableLayerId}

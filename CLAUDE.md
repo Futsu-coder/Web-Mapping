@@ -94,6 +94,7 @@ apps/web/src/
   - ห้าม `<form>` ซ้อนใน `<form>`: ตารางย่อยอยู่ในฟอร์ม feature → `AddColumn` ใช้ div + จัดการ Enter เอง (form ซ้อนทำให้ browser ส่งฟอร์มจริง → หน้า reload)
   - server ตรวจค่าด้วย `checkValues` (apps/shared/layers.ts) → 422, key ที่ไม่มีในหัวข้อถูกตัดทิ้ง; ลบ/เปลี่ยนชนิดหัวข้อ = `properties - key` ใน transaction
   - แปลงคอลัมน์เป็นตารางย่อยตอน login ทำที่ server endpoint เดียว (`/api/layers/:id/fields/:key/to-table`) แล้วเว็บโหลดใหม่ (`reloadLayerData`)
+- **สถานะโหลด** (`lib/loadState.ts`): `useFeatureData`/`useLayerData` คืน `{ state, retry }` (loading / refreshing / ready / error; โหมดทดลอง = ready) → App รวมด้วย `mergeLoadState` → `LoadingPill` (กลางบนแผนที่, รอ 300ms ผ่าน `useDelayedFlag`, error = สีแดง + ลองใหม่) + `ListSkeleton` ใน FeaturePanel/MobileFeatureList/AttributeTable (prop `loading`) — ระหว่างโหลดครั้งแรกห้ามขึ้น "ยังไม่มี layer/ข้อมูล" และ `layerMissing` เป็น false
 - เปลี่ยนบัญชี/group → `viewKey` เปลี่ยน → ล้าง items แล้ว `useFeatureData` โหลดชุดใหม่
 - เทียบรูปทรงที่ 6 ทศนิยม (`sameGeometry`) เพราะ PostGIS ตอบละเอียดกว่าที่วาดบนเว็บ
 - **items ใน App คือข้อมูลจริง** แผนที่แค่วาดตาม (`setFeatureData`); รูปที่กำลังแก้/ย้ายอยู่ใน draw และถูกซ่อนจาก source ปกติ

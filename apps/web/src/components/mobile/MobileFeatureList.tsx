@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { layerCounts, type Layer } from "../../lib/layers";
+import { ListSkeleton } from "../LoadingPill";
 import { geometrySummary } from "../../lib/measure";
 import type { GeomType, Item } from "../../lib/types";
 import GeomFilter from "../GeomFilter";
@@ -27,6 +28,7 @@ export default function MobileFeatureList({
   layers,
   onEditLayer,
   onAddLayer,
+  loading = false,
   hiddenLayers,
   onMoveLayer,
   onSetLayerVisible,
@@ -35,6 +37,8 @@ export default function MobileFeatureList({
   layers?: Layer[];
   onEditLayer?: (layer: Layer) => void;
   onAddLayer?: () => void;
+  /** กำลังโหลดครั้งแรก: แสดง skeleton แทนข้อความ "ยังไม่มี..." */
+  loading?: boolean;
   /** ลำดับ/ซ่อน layer ของบัญชีนี้ — layers ที่ส่งมาต้องเรียงบนสุด → ล่างสุดแล้ว */
   hiddenLayers?: Set<number>;
   onMoveLayer?: (layerId: number, toIndex: number) => void;
@@ -133,7 +137,7 @@ export default function MobileFeatureList({
         </div>
       )}
 
-      {layers && layers.length === 0 && !onAddLayer && (
+      {layers && layers.length === 0 && !onAddLayer && !loading && (
         <p className="mb-3 shrink-0 px-4 text-xs text-muted-foreground">ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง</p>
       )}
 
@@ -159,7 +163,8 @@ export default function MobileFeatureList({
         </div>
       ) : (
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-6">
-        {shown.length === 0 && (
+        <ListSkeleton loading={loading} className="flex flex-col gap-2 py-1" />
+        {shown.length === 0 && !loading && (
           <li className="py-6 text-center text-sm text-muted-foreground">
             {items.length === 0 ? "ยังไม่มีข้อมูล กดปุ่ม + แล้วเริ่มวาดบนแผนที่" : "ไม่พบ feature ที่ตรงกับตัวกรอง"}
           </li>
