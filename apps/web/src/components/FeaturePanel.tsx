@@ -156,7 +156,7 @@ export default function FeaturePanel({
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
-  /** จำนวน feature แต่ละชนิด (นับจากทั้งหมด) */
+  /** จำนวน layer แต่ละชนิด (นับจากทั้งหมด) */
   counts: Record<GeomType | "All", number>;
   hoveredId: number | null;
   onHover: (id: number | null) => void;
@@ -186,8 +186,15 @@ export default function FeaturePanel({
     onRemove: (i) => latest.current.onRemove(i),
     onHover: (id) => latest.current.onHover(id),
   }));
-  // layer ที่พับรายการไว้
-  const [folded, setFolded] = useState<Set<number>>(new Set());
+  // layer ที่กางรายการไว้ — เริ่มต้นพับหมด (refresh แล้วเห็นแค่หัว layer)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // เลือก feature (เช่น คลิกบนแผนที่) → กาง layer ของมันให้เห็นแถว (ปรับ state ระหว่าง render ไม่ใช้ effect)
+  const [prevSelectedId, setPrevSelectedId] = useState(selectedId);
+  if (selectedId !== prevSelectedId) {
+    setPrevSelectedId(selectedId);
+    const lid = selectedId === null ? undefined : items.find((i) => i.id === selectedId)?.props.layerId;
+    if (lid !== undefined && !expanded.has(lid)) setExpanded(new Set(expanded).add(lid));
+  }
 
   // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
   // เลื่อนเฉพาะในรายการเอง ไม่ใช้ scrollIntoView เพราะมันเลื่อนกล่องแผนที่ด้านนอกด้วย
@@ -218,7 +225,7 @@ export default function FeaturePanel({
   // feature ที่ไม่มี layer (หรือ layer ถูกลบไปแล้ว)
   const noLayer = layers ? items.filter((i) => !layers.some((l) => l.id === i.props.layerId)) : [];
   const toggleFold = (id: number) =>
-    setFolded((s) => {
+    setExpanded((s) => {
       const next = new Set(s);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -230,7 +237,8 @@ export default function FeaturePanel({
       data-feature-panel
       className="absolute top-4 left-4 z-20 flex max-h-[calc(100%-7.5rem)] w-[22rem] flex-col rounded-xl border border-black/5 bg-card shadow-float"
     >
-      <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
+      {/* คลิกตรงไหนของแถบก็ย่อ/ขยายได้ (ปุ่มลูกศร bubble ขึ้นมาที่นี่ จึง toggle ครั้งเดียว) */}
+      <div className="flex shrink-0 cursor-pointer items-center gap-2 px-3 pt-3 pb-2 select-none" onClick={onToggle}>
         <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
           <MapIcon className="size-4" />
         </span>
@@ -242,7 +250,6 @@ export default function FeaturePanel({
           className="size-8"
           aria-expanded={open}
           aria-label={open ? "ย่อรายการ" : "ขยายรายการ"}
-          onClick={onToggle}
         >
           {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
         </Button>
@@ -293,7 +300,7 @@ export default function FeaturePanel({
                 .map((layer) => {
                   const members = items.filter((i) => i.props.layerId === layer.id);
                   const hidden = hiddenLayers?.has(layer.id) ?? false;
-                  const isFolded = folded.has(layer.id);
+                  const isFolded = !expanded.has(layer.id);
                   return (
                     <li key={`layer-${layer.id}`} className="flex flex-col gap-0.5">
                       <div className={cn("flex items-center gap-1.5 rounded-lg bg-muted/60 px-1.5 py-1", hidden && "opacity-55")}>

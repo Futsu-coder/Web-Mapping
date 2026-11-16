@@ -66,7 +66,7 @@ import {
   upsertGuestRecord,
   upsertGuestTable,
 } from "./lib/guestStore";
-import type { Layer, LayerField, RecordDraft, RelatedRecord, RelatedTable } from "./lib/layers";
+import { layerCounts, type Layer, type LayerField, type RecordDraft, type RelatedRecord, type RelatedTable } from "./lib/layers";
 import { isIdleExpired, watchIdle } from "./lib/idleLogout";
 import { supabase } from "./lib/supabase";
 import { useInvitations } from "./lib/useInvitations";
@@ -247,12 +247,8 @@ export default function App() {
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
   const hiddenSet = new Set(items.filter(isHidden).map((i) => i.id));
-  const typeCounts: Record<GeomType | "All", number> = {
-    All: items.length,
-    Point: items.filter((i) => i.type === "Point").length,
-    LineString: items.filter((i) => i.type === "LineString").length,
-    Polygon: items.filter((i) => i.type === "Polygon").length,
-  };
+  // ตัวเลขบนตัวกรองชนิด = จำนวน layer (จำนวน feature แสดงที่หัวกลุ่มของแต่ละ layer)
+  const typeCounts = layerCounts(layers);
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
   const selectedItem = selectedId !== null ? items.find((i) => i.id === selectedId) : undefined;

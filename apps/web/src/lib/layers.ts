@@ -94,3 +94,11 @@ export function summarize(table: RelatedTable, records: RelatedRecord[], feature
   if (!table.countKey) return rows.length;
   return new Set(rows.map((r) => r.values[table.countKey!]).filter((v) => v !== undefined && v !== "")).size;
 }
+
+/** จำนวน layer แต่ละชนิด (ใช้แสดงบนตัวกรองชนิด — ไม่ใช่จำนวน feature) */
+export const layerCounts = (layers: Layer[]): Record<GeomType | "All", number> => ({
+  All: layers.length,
+  Point: layers.filter((l) => l.geomType === "Point").length,
+  LineString: layers.filter((l) => l.geomType === "LineString").length,
+  Polygon: layers.filter((l) => l.geomType === "Polygon").length,
+});

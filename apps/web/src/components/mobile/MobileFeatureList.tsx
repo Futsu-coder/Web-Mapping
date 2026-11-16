@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Layer } from "../../lib/layers";
+import { layerCounts, type Layer } from "../../lib/layers";
 import { geometrySummary } from "../../lib/measure";
 import type { GeomType, Item } from "../../lib/types";
 import GeomFilter from "../GeomFilter";
@@ -46,7 +46,6 @@ export default function MobileFeatureList({
 }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  const count = (f: GeomType | "All") => (f === "All" ? items.length : items.filter((i) => i.type === f).length);
   const layerOf = (i: Item) => layers?.find((l) => l.id === i.props.layerId);
   const groupName = (i: Item) => layerOf(i)?.name ?? "";
   const shown = items.filter(
@@ -115,7 +114,7 @@ export default function MobileFeatureList({
           size="lg"
           value={filter}
           onChange={onFilterChange}
-          counts={{ All: count("All"), Point: count("Point"), LineString: count("LineString"), Polygon: count("Polygon") }}
+          counts={layerCounts(layers ?? [])}
         />
       </div>
 

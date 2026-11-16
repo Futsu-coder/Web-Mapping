@@ -25,7 +25,7 @@ export default function GeomFilter({
 }: {
   value: GeomFilterValue;
   onChange: (f: GeomFilterValue) => void;
-  /** จำนวนของแต่ละชนิด (นับจากทั้งหมด ไม่ใช่เฉพาะที่กรองแล้ว) */
+  /** จำนวน layer ของแต่ละชนิด (นับจากทั้งหมด ไม่ใช่เฉพาะที่กรองแล้ว) */
   counts: Record<GeomFilterValue, number>;
   /** lg = มือถือ (แตะง่าย สูง 44px) */
   size?: "sm" | "lg";
@@ -44,7 +44,7 @@ export default function GeomFilter({
           <ToggleGroupItem
             key={f}
             value={f}
-            aria-label={`${LABEL[f]} ${counts[f]} รายการ`}
+            aria-label={`${LABEL[f]} ${counts[f]} layer`}
             className={cn(
               "flex h-auto min-w-0 flex-col items-center gap-0 rounded-md! border-0 px-1 py-1 text-muted-foreground shadow-none transition-colors",
               "hover:bg-transparent hover:text-foreground",
