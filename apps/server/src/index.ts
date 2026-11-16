@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia'
 import { openapi } from '@elysiajs/openapi'
+import { opentelemetry } from '@elysia/opentelemetry'
 import { authRoutes } from './routes/auth'
 import { featuresRoutes } from './routes/features'
 import { groupRoutes } from './routes/groups'
@@ -19,7 +20,14 @@ const docs = docsEnabled
     })
   : new Elysia()
 
+// ส่ง traces ไป Telemetry Collection Service ผ่าน OpenTelemetry (OTLP)
+// เปิดเฉพาะตอนตั้ง OTEL_EXPORTER_OTLP_ENDPOINT ไว้ใน .env — ไม่ได้ตั้ง/Vercel ไม่มีผล
+const telemetry = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+  ? opentelemetry({ serviceName: process.env.OTEL_SERVICE_NAME ?? 'web-mapping-api' })
+  : new Elysia()
+
 export const app = new Elysia({ prefix: '/api' })
+  .use(telemetry)
   .use(docs)
   .get('/health', () => ({ status: 'ok' }))
   .use(authRoutes)

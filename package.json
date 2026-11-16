@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@elysia/opentelemetry": "^1.4.12",
     "@elysiajs/openapi": "^1.4.16",
     "@mapbox/mapbox-gl-draw": "^1.5.2",
     "@supabase/supabase-js": "^2.118.0",
