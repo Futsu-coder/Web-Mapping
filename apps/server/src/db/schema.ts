@@ -2,6 +2,9 @@ import { sql } from 'drizzle-orm'
 import type { FieldValues, LayerField } from '../../../shared/layers'
 import {
   bigint,
+  boolean,
+  integer,
+  primaryKey,
   check,
   customType,
   index,
@@ -181,4 +184,22 @@ export const relatedRecords = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [index('related_records_table_idx').on(t.tableId), index('related_records_feature_idx').on(t.featureId)]
+)
+
+// ลำดับ (z-order) + การซ่อน layer ของผู้ใช้แต่ละคน — ส่วนตัว ไม่กระทบคนอื่นใน group
+// position: 0 = บนสุด (วาดทับ layer ถัดไป); ไม่มีแถว = layer ใหม่ที่ยังไม่เคยจัด (อยู่บนสุด, แสดง)
+export const userLayerPreferences = pgTable(
+  'user_layer_preferences',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    layerId: bigint('layer_id', { mode: 'number' })
+      .notNull()
+      .references(() => layers.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    visible: boolean('visible').notNull().default(true),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.layerId] })]
 )

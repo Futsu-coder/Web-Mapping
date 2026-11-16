@@ -108,3 +108,9 @@ export const RecordPatch = t.Object({ values: Values })
 
 export const ToTableBody = t.Object({ name: t.Optional(Name) })
 export const FieldKeyParams = t.Object({ id: t.Numeric(), key: t.String({ pattern: FIELD_KEY_PATTERN }) })
+
+// ---------- ลำดับ/การซ่อน layer ของผู้ใช้ (ส่วนตัว) ----------
+// ลำดับใน array = บนสุดลงล่างสุด
+export const LayerPrefsIn = t.Object({
+  items: t.Array(t.Object({ layerId: t.Integer({ minimum: 1 }), visible: t.Boolean() }), { maxItems: 500 })
+})

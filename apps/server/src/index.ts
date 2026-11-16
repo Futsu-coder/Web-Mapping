@@ -3,6 +3,7 @@ import { openapi } from '@elysiajs/openapi'
 import { authRoutes } from './routes/auth'
 import { featuresRoutes } from './routes/features'
 import { groupRoutes } from './routes/groups'
+import { layerPrefRoutes } from './routes/layerPrefs'
 import { layerRoutes } from './routes/layers'
 import { notificationRoutes } from './routes/notifications'
 import { recordRoutes } from './routes/records'
@@ -25,6 +26,7 @@ export const app = new Elysia({ prefix: '/api' })
   .use(authRoutes)
   .use(featuresRoutes)
   .use(layerRoutes)
+  .use(layerPrefRoutes)
   .use(recordRoutes)
   .use(groupRoutes)
   .use(notificationRoutes)

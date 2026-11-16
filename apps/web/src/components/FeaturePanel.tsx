@@ -2,6 +2,8 @@ import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  ArrowUpDownIcon,
+  CheckIcon,
   ChevronUpIcon,
   EyeIcon,
   EyeOffIcon,
@@ -17,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { GEOM_LABEL, type Layer } from "../lib/layers";
 import type { GeomType, Item } from "../lib/types";
 import GeomFilter from "./GeomFilter";
+import LayerOrderList from "./LayerOrderList";
 
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
@@ -145,6 +148,8 @@ export default function FeaturePanel({
   onEditLayer,
   onAddLayer,
   onOpenTable,
+  onMoveLayer,
+  onSetLayerVisible,
 }: {
   /** layer ทั้งหมด: มี = จัดรายการเป็นกลุ่มตาม layer (+ กลุ่ม "ไม่มี layer") */
   layers?: Layer[];
@@ -153,6 +158,9 @@ export default function FeaturePanel({
   onEditLayer?: (layer: Layer) => void;
   onAddLayer?: () => void;
   onOpenTable?: (layer: Layer) => void;
+  /** ย้าย layer ไปตำแหน่ง toIndex (0 = บนสุด) / ตั้งซ่อน-แสดง — ของบัญชีนี้เท่านั้น */
+  onMoveLayer?: (layerId: number, toIndex: number) => void;
+  onSetLayerVisible?: (layerId: number, visible: boolean) => void;
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
@@ -175,6 +183,12 @@ export default function FeaturePanel({
   onToggle: () => void;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
+  // โหมดเรียงลำดับ layer: แทนรายการ feature ด้วยแถว layer ที่ลาก/กด ↑↓ ได้ (เหลือ layer ≤ 1 = ไม่มีอะไรให้เรียง → ออกเอง)
+  const [reordering, setReordering] = useState(false);
+  const canReorder = !!layers && !!onMoveLayer && layers.length > 1;
+  // เหลือ layer ≤ 1 = ออกจากโหมดจริงๆ (ไม่งั้นพอมี layer ใหม่ โหมดจะเปิดกลับมาเอง)
+  if (reordering && !canReorder) setReordering(false);
+  const orderMode = reordering && canReorder;
   // handler คงที่ตลอดอายุ component (อ่านตัวล่าสุดผ่าน ref) → FeatureRow ที่ memo ไว้ไม่ render ใหม่โดยไม่จำเป็น
   const latest = useRef<RowHandlers>({ onFocus, onToggleVisible, onRemove, onHover });
   useEffect(() => {
@@ -264,7 +278,19 @@ export default function FeaturePanel({
         <div className="flex shrink-0 items-center justify-between border-t px-4 pt-2 text-sm font-semibold">
           <span>รายการ</span>
           <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
-            {items.length} รายการ{layers && ` · ${layers.length} layer`}
+            {canReorder && (
+              <Button
+                type="button"
+                variant={orderMode ? "default" : "ghost"}
+                size="sm"
+                aria-pressed={orderMode}
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => setReordering((r) => !r)}
+              >
+                {orderMode ? <CheckIcon className="size-3.5" /> : <ArrowUpDownIcon className="size-3.5" />}
+                {orderMode ? "เสร็จ" : "เรียงลำดับ"}
+              </Button>
+            )}
             {onAddLayer && (
               <Button type="button" variant="ghost" size="sm" className="h-7 gap-0.5 px-2 text-xs text-primary" onClick={onAddLayer}>
                 <PlusIcon className="size-3.5" />
@@ -278,7 +304,17 @@ export default function FeaturePanel({
           {!layers && items.length === 0 && (
             <li className="px-2 py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล ใช้เครื่องมือด้านล่างวาดบนแผนที่</li>
           )}
-          {layers ? (
+          {orderMode ? (
+            <li>
+              <LayerOrderList
+                layers={layers!}
+                hidden={hiddenLayers ?? new Set()}
+                onMove={onMoveLayer!}
+                onSetVisible={(id, visible) => onSetLayerVisible?.(id, visible)}
+                scrollRef={listRef}
+              />
+            </li>
+          ) : layers ? (
             <>
               {layers.length === 0 && (
                 <li className="px-2 py-4 text-center text-sm text-muted-foreground">

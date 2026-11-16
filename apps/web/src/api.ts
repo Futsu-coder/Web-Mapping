@@ -1,5 +1,5 @@
 import { toStoredProps } from "./lib/featureMeta";
-import type { FieldValue, FieldValues, Layer, LayerField, RelatedRecord, RelatedTable } from "./lib/layers";
+import type { FieldValue, FieldValues, Layer, LayerField, LayerPref, RelatedRecord, RelatedTable } from "./lib/layers";
 import { accessToken, supabase } from "./lib/supabase";
 
 export type GeomType = "Point" | "LineString" | "Polygon";
@@ -180,3 +180,11 @@ export const listNotifications = () =>
 export const markNotificationsRead = () => request<void>("/api/notifications/read", { method: "POST" });
 
 export const clearNotifications = () => request<void>("/api/notifications", { method: "DELETE" });
+
+// ---------- ลำดับ/การซ่อน layer ของตัวเอง (ทุกคนใน group ทำได้ ไม่ใช่แค่เจ้าของ) ----------
+export const layerPrefsApi = {
+  list: () => request<LayerPref[]>("/api/layer-preferences"),
+  /** แทนทั้งชุด (ลำดับใน array = บนสุดลงล่าง); keepalive = ยังส่งได้ตอนปิดหน้า */
+  save: (items: LayerPref[], keepalive = false) =>
+    request<LayerPref[]>("/api/layer-preferences", { ...json("PUT", { items }), keepalive }),
+};

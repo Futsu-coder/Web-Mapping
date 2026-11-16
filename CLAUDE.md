@@ -104,6 +104,12 @@ apps/web/src/
 - Nominatim: ไม่เกิน 1 req/วินาที (`MIN_INTERVAL_MS` ใน SearchBox) — autocomplete ใช้ debounce + cache + AbortController ยกเลิกคำค้นเก่า
 - มือถือ: input ต้อง `text-base` (16px) กัน iOS ซูมเอง
 
+## ลำดับ layer (z-order) + ซ่อน layer — ส่วนตัวต่อบัญชี
+- เก็บใน `user_layer_preferences` (user_id, layer_id, position, visible) — API `GET/PUT /api/layer-preferences` (`routes/layerPrefs.ts`; PUT = แทนทั้งชุด ลำดับใน array = บนสุด→ล่างสุด, layer นอก group ถูกตัดทิ้ง) ไม่ใช่เจ้าของ group ก็เรียงได้; ลบ layer = cascade; รัน `apps/server/sql/layer_prefs.sql` (RLS) หลัง `db:push`
+- โหมดทดลองเก็บใน guestStore (`layerPrefs`); ฝั่งเว็บ `hooks/useLayerPrefs.ts` (optimistic + debounce 600ms + ย้อนกลับเมื่อพลาด, ไม่ poll/Realtime) และ `orderLayers` ใน `lib/layers.ts` (layer ที่ยังไม่มี pref อยู่บนสุด ใหม่สุดก่อน)
+- แผนที่: ต่อ layer มี source `lyr-<id>` + ชั้นย่อย (Polygon fill/halo/line, Line halo/line, Point cluster/cluster-count/point-halo/point) จัดลำดับด้วย `syncLayerStack` (`lib/mapLayers.ts`) วางใต้ `crosshair-fill`; feature ไม่มี layer อยู่ `shapes`/`points` ล่างสุด; ซ่อน = visibility ของชั้น (ไม่แตะข้อมูล)
+- hit-test ใช้ `hitLayerIds`/`clusterLayerIds` (ตัวบนสุดตรงจุดคลิกชนะ); UI: ปุ่ม "เรียงลำดับ" → `LayerOrderList` (ลาก ⠿ ด้วย `hooks/useSortable.ts` + ปุ่ม ↑↓ + ตา)
+
 ## งานที่วางแผนไว้
 แผนละเอียด: `~/.claude/plans/home-panapong-downloads-docx-mossy-nautilus.md`
 1. ✅ ทำใน branch `group/realtime`: SearchBox autocomplete (debounce + AbortController + throttle + cache) และ guest เก็บ localStorage ลบทุก 1 ชม. พร้อมแบนเนอร์นับถอยหลัง

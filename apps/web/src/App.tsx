@@ -42,10 +42,11 @@ import MobileSheet, { SHEET_HALF_RATIO } from "./components/mobile/MobileSheet";
 import { MIN_POINTS, useCrosshairDraw } from "./hooks/useCrosshairDraw";
 import { toItem, useFeatureData } from "./hooks/useFeatureData";
 import { useLayerData } from "./hooks/useLayerData";
+import { useLayerPrefs } from "./hooks/useLayerPrefs";
 import { useMapEvents } from "./hooks/useMapEvents";
 import { useIsMobile, useMediaQuery } from "./lib/useMediaQuery";
 import { bboxOf, centerOf, message, propsOf, sameGeometry, toStoredProps } from "./lib/featureMeta";
-import { setFeatureData, setItemState, setTerrainEnabled } from "./lib/mapLayers";
+import { setFeatureData, setItemState, setTerrainEnabled, syncLayerStack } from "./lib/mapLayers";
 import { selfIntersects } from "./lib/measure";
 import {
   clearGuest,
@@ -167,7 +168,6 @@ export default function App() {
   const [tables, setTables] = useState<RelatedTable[]>(loadGuestTables);
   const [records, setRecords] = useState<RelatedRecord[]>(loadGuestRecords);
   const [tableDialog, setTableDialog] = useState<{ layerId: number; table: RelatedTable | null } | null>(null);
-  const [hiddenLayers, setHiddenLayers] = useState<Set<number>>(new Set());
   const [tableOpen, setTableOpen] = useState(false);
   const [tableLayerId, setTableLayerId] = useState<number | null>(null);
   const [layerDialog, setLayerDialog] = useState<{ layer: Layer | null; lockType?: GeomType; thenDraw?: DrawShape } | null>(null);
@@ -229,12 +229,18 @@ export default function App() {
     setTables(activeMe ? [] : loadGuestTables());
     setRecords(activeMe ? [] : loadGuestRecords());
     setTableDialog(null);
-    setHiddenLayers(new Set());
     setLayerDialog(null);
     setTableOpen(false);
   }
   useFeatureData(viewKey, guest, setItems, onError);
   useLayerData(viewKey, guest, setLayers, setTables, setRecords, onError);
+  // ลำดับ (z-order) + การซ่อน layer: ส่วนตัวของบัญชีนี้ — orderedLayers เรียงบนสุด → ล่างสุด
+  const {
+    ordered: orderedLayers,
+    hidden: hiddenLayers,
+    move: moveLayer,
+    setVisible: setLayerVisible,
+  } = useLayerPrefs(viewKey, guest, layers, onError);
 
   // จัดการโครงสร้าง (layer / ตารางย่อย / คอลัมน์) ได้: โหมดทดลอง (เป็นเจ้าของทุกอย่าง) หรือเจ้าของ group
   const canManageLayers = guest || groupOwner;
@@ -257,6 +263,11 @@ export default function App() {
   const onHover = useCallback((id: number | null) => setHoveredId(id), []);
   const hoveredItem = activeHoverId !== null ? items.find((i) => i.id === activeHoverId) : undefined;
 
+  // z-order: ชั้นของแต่ละ layer ตามลำดับ/การซ่อนของบัญชีนี้ — ต้องอยู่ก่อน effect วาดข้อมูล เพื่อให้ source ของ layer ใหม่มีก่อนใส่ข้อมูล
+  useEffect(() => {
+    if (ctx) syncLayerStack(ctx.map, orderedLayers, hiddenLayers);
+  }, [ctx, orderedLayers, hiddenLayers]);
+
   // วาด feature ที่บันทึกแล้วลงแผนที่ — ไม่รวมที่ซ่อน และที่อยู่ใน draw (กำลังแก้ / กำลังย้าย) จะได้ไม่เห็นซ้อนกัน 2 ชิ้น
   useEffect(() => {
     if (!ctx) return;
@@ -267,13 +278,13 @@ export default function App() {
           (filter === "All" || i.type === filter) && // ตัวกรองชนิด: แผนที่แสดงเฉพาะชนิดที่เลือก
           !hiddenIds.has(i.id) &&
           !(i.ownerId !== null && hiddenOwners.has(i.ownerId)) &&
-          !(i.props.layerId !== undefined && hiddenLayers.has(i.props.layerId)) &&
           i.id !== editingId &&
           i.id !== movingId,
       ),
       (i) => layers.find((l) => l.id === i.props.layerId)?.color,
     );
-  }, [ctx, items, filter, hiddenIds, hiddenOwners, hiddenLayers, layers, editingId, movingId]);
+    // layer ที่ซ่อนไม่ได้ถูกกรองออกจากข้อมูล — ซ่อนด้วย visibility ของชั้น (syncLayerStack) สลับตาแล้วไม่ต้องสร้าง feature ใหม่
+  }, [ctx, items, filter, hiddenIds, hiddenOwners, layers, orderedLayers, editingId, movingId]);
 
   // hover จากรายการหรือบนแผนที่ → ไฮไลต์บนแผนที่ / ที่เลือกอยู่ → เส้นหนาขึ้น
   useEffect(() => {
@@ -595,11 +606,7 @@ export default function App() {
     setTables((list) => list.filter((t) => !removedTables.has(t.id)));
     setRecords((list) => list.filter((r) => !removedTables.has(r.tableId) && !removedItems.has(r.featureId)));
     setItems((list) => list.filter((i) => !removedItems.has(i.id)));
-    setHiddenLayers((s) => {
-      const next = new Set(s);
-      next.delete(layer.id);
-      return next;
-    });
+    // preference ของ layer นี้: database ลบตาม (cascade) / โหมดทดลองลบใน removeGuestLayer — ค่าค้างในหน่วยความจำไม่มีผล (orderLayers ข้าม layer ที่ไม่มี)
     setLayerDialog(null);
   };
 
@@ -608,12 +615,7 @@ export default function App() {
     const hiding = !hiddenLayers.has(layer.id);
     if (hiding && selection?.mode === "edit" && selectedItem?.props.layerId === layer.id) closeSelection();
     if (hiding) closePopup();
-    setHiddenLayers((s) => {
-      const next = new Set(s);
-      if (hiding) next.add(layer.id);
-      else next.delete(layer.id);
-      return next;
-    });
+    setLayerVisible(layer.id, !hiding);
   };
 
   /** แก้ค่าจากตาราง — บันทึกทันที (login ส่งเฉพาะที่เปลี่ยน) */
@@ -1293,7 +1295,10 @@ export default function App() {
                   onFocus={focus}
                   onToggleVisible={toggleVisible}
                   onRemove={(item) => removeItem(item).catch(onError)}
-                  layers={layers}
+                  layers={orderedLayers}
+                  hiddenLayers={hiddenLayers}
+                  onMoveLayer={moveLayer}
+                  onSetLayerVisible={setLayerVisible}
                   onEditLayer={canManageLayers ? (layer) => setLayerDialog({ layer }) : undefined}
                   onAddLayer={canManageLayers ? () => openNewLayer() : undefined}
                 />
@@ -1318,7 +1323,9 @@ export default function App() {
               showOwner={!guest}
               hoveredId={activeHoverId}
               onHover={onHover}
-              layers={layers}
+              layers={orderedLayers}
+              onMoveLayer={moveLayer}
+              onSetLayerVisible={setLayerVisible}
               hiddenLayers={hiddenLayers}
               onToggleLayer={toggleLayer}
               onEditLayer={canManageLayers ? (layer: Layer) => setLayerDialog({ layer }) : undefined}
@@ -1341,7 +1348,7 @@ export default function App() {
 
       {showTable && (
         <AttributeTable
-          layers={layers}
+          layers={orderedLayers}
           items={items}
           layerId={tableLayerId}
           onLayerChange={setTableLayerId}
