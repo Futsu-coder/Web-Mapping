@@ -247,6 +247,12 @@ export default function App() {
 
   const shown = filter === "All" ? items : items.filter((i) => i.type === filter);
   const hiddenSet = new Set(items.filter(isHidden).map((i) => i.id));
+  const typeCounts: Record<GeomType | "All", number> = {
+    All: items.length,
+    Point: items.filter((i) => i.type === "Point").length,
+    LineString: items.filter((i) => i.type === "LineString").length,
+    Polygon: items.filter((i) => i.type === "Polygon").length,
+  };
 
   const selectedId = selection && selection.mode !== "create" ? selection.id : null;
   const selectedItem = selectedId !== null ? items.find((i) => i.id === selectedId) : undefined;
@@ -262,6 +268,7 @@ export default function App() {
       ctx.map,
       items.filter(
         (i) =>
+          (filter === "All" || i.type === filter) && // ตัวกรองชนิด: แผนที่แสดงเฉพาะชนิดที่เลือก
           !hiddenIds.has(i.id) &&
           !(i.ownerId !== null && hiddenOwners.has(i.ownerId)) &&
           !(i.props.layerId !== undefined && hiddenLayers.has(i.props.layerId)) &&
@@ -270,7 +277,7 @@ export default function App() {
       ),
       (i) => layers.find((l) => l.id === i.props.layerId)?.color,
     );
-  }, [ctx, items, hiddenIds, hiddenOwners, hiddenLayers, layers, editingId, movingId]);
+  }, [ctx, items, filter, hiddenIds, hiddenOwners, hiddenLayers, layers, editingId, movingId]);
 
   // hover จากรายการหรือบนแผนที่ → ไฮไลต์บนแผนที่ / ที่เลือกอยู่ → เส้นหนาขึ้น
   useEffect(() => {
@@ -420,6 +427,20 @@ export default function App() {
     setSelection(null);
   };
 
+  /** ตัวกรองซ่อนชนิดนี้อยู่ → กลับเป็น "ทั้งหมด" (ก่อนซูม/แก้ feature ชนิดนั้น ไม่งั้นรูปไม่อยู่บนแผนที่) */
+  const revealType = (type: GeomType) => {
+    if (filter !== "All" && filter !== type) setFilter("All");
+  };
+
+  /** เปลี่ยนตัวกรองชนิด — ปิดการ์ดดูรายละเอียด/popup ของ feature ที่กำลังจะหายจากแผนที่ (โหมดแก้/สร้าง/ย้ายไม่แตะ กันงานที่ยังไม่บันทึกหาย) */
+  const changeFilter = (f: GeomType | "All") => {
+    if (f !== "All" && selection?.mode === "view" && selectedItem && selectedItem.type !== f) {
+      closeSelection();
+      closePopup();
+    }
+    setFilter(f);
+  };
+
   /** ออกจากโหมด Move (คืน feature ที่ดึงเข้า draw ไว้กลับไปแสดงตามปกติ) */
   const exitMove = () => {
     if (!moveMode) return;
@@ -494,6 +515,7 @@ export default function App() {
     exitMove(); // Move กับแก้ทีละจุดเปิดพร้อมกันไม่ได้
     closePopup();
     // แก้ไขต้องเห็นรูปทรงบนแผนที่
+    revealType(item.type);
     if (hiddenIds.has(item.id)) showItem(item);
     if (item.ownerId !== null && hiddenOwners.has(item.ownerId)) toggleOwner(item.ownerId);
     const itemLayer = layerOf(item);
@@ -965,6 +987,7 @@ export default function App() {
   });
 
   const focus = (item: Item) => {
+    revealType(item.type);
     // มีสิทธิ์แก้ (และไม่ได้ซ่อนอยู่) = คลิกแล้วเข้าโหมดแก้ไขเลย
     const editable = canModify(item) && !isHidden(item);
     if (!isHidden(item)) {
@@ -979,6 +1002,7 @@ export default function App() {
   /** คลิกแถวใน attribute table (จอคอม) = ซูมไปหา feature อย่างเดียว ไม่เปิดโหมดแก้ไข — ไม่งั้นแถวถูกล็อกแก้ในตารางไม่ได้ (ดับเบิลคลิกช่องต้องแก้ได้เลย) */
   const locate = (item: Item) => {
     if (isHidden(item)) return;
+    revealType(item.type);
     requestFit(item.geometry, { fly: true, maxZoom: item.type === "Point" ? 17 : 16 });
   };
 
@@ -995,6 +1019,8 @@ export default function App() {
       if (guest) persistGuest(() => upsertGuest(f));
       clearDraw();
       setDraftGeom(null);
+      // วาดคนละชนิดกับตัวกรอง → กลับเป็น "ทั้งหมด" ไม่งั้นรูปที่เพิ่งบันทึกจะหายจากแผนที่
+      revealType(selection.type);
       // Realtime อาจส่ง INSERT ของเรามาก่อนแล้ว → แทนที่ ไม่เพิ่มซ้ำ
       setItems((list) => [...list.filter((i) => i.id !== f.id), toItem(f)]);
       // บันทึกแล้ว → ปิดรายละเอียดกับแถบรายการ เหลือแต่แผนที่ + toast
@@ -1235,7 +1261,7 @@ export default function App() {
                 <MobileFeatureList
                   items={items}
                   filter={filter}
-                  onFilterChange={setFilter}
+                  onFilterChange={changeFilter}
                   selectedId={selectedId}
                   hiddenIds={hiddenSet}
                   canModify={canModify}
@@ -1257,7 +1283,8 @@ export default function App() {
               onToggle={() => setPanelOpen((o) => !o)}
               items={shown}
               filter={filter}
-              onFilterChange={setFilter}
+              onFilterChange={changeFilter}
+              counts={typeCounts}
               onFocus={focus}
               onToggleVisible={toggleVisible}
               onRemove={(item) => removeItem(item).catch(onError)}

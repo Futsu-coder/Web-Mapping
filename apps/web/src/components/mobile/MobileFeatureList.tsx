@@ -3,13 +3,12 @@ import { CircleXIcon, EyeIcon, EyeOffIcon, LockIcon, PlusIcon, SearchIcon, Setti
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import type { Layer } from "../../lib/layers";
 import { geometrySummary } from "../../lib/measure";
-import { FILTERS, type GeomType, type Item } from "../../lib/types";
+import type { GeomType, Item } from "../../lib/types";
+import GeomFilter from "../GeomFilter";
 
-const FILTER_LABEL: Record<GeomType | "All", string> = { All: "ทั้งหมด", Point: "Point", LineString: "Line", Polygon: "Polygon" };
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 /** แท็บรายการทั้งหมดบนมือถือ: ช่องกรอง + ตัวกรองชนิด + แถว feature (สูง ≥56px) */
@@ -111,26 +110,13 @@ export default function MobileFeatureList({
         <p className="mb-3 shrink-0 px-4 text-xs text-muted-foreground">ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง</p>
       )}
 
-      <div className="no-scrollbar mb-3 shrink-0 overflow-x-auto px-4">
-        <ToggleGroup
-          type="single"
-          variant="outline"
+      <div className="mb-3 shrink-0 px-4">
+        <GeomFilter
+          size="lg"
           value={filter}
-          onValueChange={(v) => v && onFilterChange(v as GeomType | "All")}
-          aria-label="กรองตามชนิด"
-          className="w-max gap-2"
-        >
-          {FILTERS.map((f) => (
-            <ToggleGroupItem
-              key={f}
-              value={f}
-              className="h-9 rounded-full px-3.5 text-[0.8125rem] data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-            >
-              {FILTER_LABEL[f]}
-              <span className="font-normal opacity-80">({count(f)})</span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+          onChange={onFilterChange}
+          counts={{ All: count("All"), Point: count("Point"), LineString: count("LineString"), Polygon: count("Polygon") }}
+        />
       </div>
 
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-6">

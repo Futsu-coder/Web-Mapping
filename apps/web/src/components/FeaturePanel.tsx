@@ -13,17 +13,11 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { GEOM_LABEL, type Layer } from "../lib/layers";
-import { FILTERS, type GeomType, type Item } from "../lib/types";
+import type { GeomType, Item } from "../lib/types";
+import GeomFilter from "./GeomFilter";
 
-const FILTER_LABEL: Record<GeomType | "All", string> = {
-  All: "ทั้งหมด",
-  Point: "Point",
-  LineString: "Line",
-  Polygon: "Polygon",
-};
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 function RowButton({
@@ -133,6 +127,7 @@ export default function FeaturePanel({
   items,
   filter,
   onFilterChange,
+  counts,
   hoveredId,
   onHover,
   onFocus,
@@ -161,6 +156,8 @@ export default function FeaturePanel({
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
+  /** จำนวน feature แต่ละชนิด (นับจากทั้งหมด) */
+  counts: Record<GeomType | "All", number>;
   hoveredId: number | null;
   onHover: (id: number | null) => void;
   onFocus: (item: Item) => void;
@@ -254,25 +251,7 @@ export default function FeaturePanel({
       {/* ย่อการ์ด = ซ่อนส่วนเนื้อหา */}
       <div className={cn("flex min-h-0 flex-1 flex-col", !open && "hidden")}>
         <div className="shrink-0 px-3 pb-2">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={filter}
-            onValueChange={(v) => v && onFilterChange(v as GeomType | "All")}
-            aria-label="กรองตามชนิด"
-            className="flex-wrap justify-start gap-1"
-          >
-            {FILTERS.map((f) => (
-              <ToggleGroupItem
-                key={f}
-                value={f}
-                className="h-7 rounded-full px-3 text-xs data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-              >
-                {FILTER_LABEL[f]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <GeomFilter value={filter} onChange={onFilterChange} counts={counts} />
         </div>
 
         <div className="flex shrink-0 items-center justify-between border-t px-4 pt-2 text-sm font-semibold">
@@ -301,6 +280,14 @@ export default function FeaturePanel({
                     : "ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง layer (วาด feature แบบไม่มี layer ได้)"}
                 </li>
               )}
+              {filter !== "All" &&
+                layers.length > 0 &&
+                noLayer.length === 0 &&
+                !layers.some((l) => l.geomType === filter) && (
+                  <li className="px-2 py-4 text-center text-sm text-muted-foreground">
+                    ไม่มี {TYPE_LABEL[filter]} — เลือก "ทั้งหมด" เพื่อดูทุกชนิด
+                  </li>
+                )}
               {layers
                 .filter((l) => filter === "All" || l.geomType === filter)
                 .map((layer) => {

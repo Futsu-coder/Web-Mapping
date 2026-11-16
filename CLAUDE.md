@@ -57,6 +57,7 @@ apps/web/src/
   ข้อยกเว้น: **สมาชิกทุกคนใน group ดับเบิลคลิกใส่/แก้ค่าหัวข้อ layer (PATCH เฉพาะ key `f_xxxx`) และค่าในแถวตารางย่อยที่มีอยู่ได้ทุก feature** — เพิ่ม/ลบแถว + จัดการ layer/คอลัมน์ = เจ้าของ group เท่านั้น
 - **PATCH = JSON Merge Patch (RFC 7396)**: ส่งเฉพาะที่เปลี่ยน, `null` ใน properties = ลบ key; เว็บส่งเฉพาะ diff (ดู `save` ใน App.tsx)
 - `name` เก็บเป็นคอลัมน์แยก, ฟิลด์อื่นอยู่ใน `properties` (jsonb); SYSTEM_KEYS (name, geom_type, owner_*, *_at) client เขียนทับไม่ได้
+- **ตัวกรองชนิด (`components/GeomFilter.tsx`)** ใช้ทั้งจอคอม/มือถือ: กรองทั้งรายการและ **แผนที่** (effect วาดใน App) — บันทึก feature ใหม่คนละชนิดกับตัวกรอง → กลับเป็น "ทั้งหมด"
 - Polygon ห้ามตัดกันเอง (เว็บตรวจด้วย `selfIntersects` ตอนวาด/ลากจุด/บันทึก, server ตรวจ ST_IsValid)
 - **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจากสิ่งแรกที่สร้าง (feature หรือ layer)
 - **ระบบ Layer + Attribute table + ตารางย่อย** (ใช้ทั้ง login และโหมดทดลอง — category ถูกเอาออกแล้ว)
