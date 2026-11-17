@@ -63,9 +63,12 @@ function LayerFields({
   layer,
   readOnly,
   mobile,
+  allowNone,
   onLayerChange,
   onCreateLayer,
 }: {
+  /** feature เก่าที่ยังไม่มี layer: แสดง "— ไม่มี layer —" ได้จนกว่าจะเลือก layer (feature ใหม่ต้องมี layer เสมอ) */
+  allowNone: boolean;
   type: GeomType;
   /** layer ที่รูปทรงตรงกับ feature นี้ */
   layers: Layer[];
@@ -92,9 +95,11 @@ function LayerFields({
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              <SelectItem value={NO_LAYER}>
-                <span className="size-2.5 rounded-full border border-dashed border-muted-foreground" />— ไม่มี layer —
-              </SelectItem>
+              {(allowNone || !layer) && (
+                <SelectItem value={NO_LAYER} disabled={!allowNone}>
+                  <span className="size-2.5 rounded-full border border-dashed border-muted-foreground" />— เลือก layer —
+                </SelectItem>
+              )}
               {layers.map((l) => (
                 <SelectItem key={l.id} value={String(l.id)}>
                   <span className="size-2.5 rounded-full" style={{ backgroundColor: l.color }} />
@@ -158,7 +163,7 @@ export default function FeatureEditor({
 }) {
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description ?? "");
-  // วาดใหม่: ใช้ layer แรกที่รูปทรงตรงกัน (ไม่มีก็ "ไม่มี layer") / feature เดิม: layer ที่อยู่ (หรือไม่มี)
+  // วาดใหม่: ใช้ layer แรกที่รูปทรงตรงกัน / feature เดิม: layer ที่อยู่ (feature เก่าอาจไม่มี)
   const [layerId, setLayerId] = useState<number | null>(() =>
     mode === "create"
       ? (initial.layerId ?? layers.find((l) => l.geomType === type)?.id ?? null)
@@ -201,6 +206,10 @@ export default function FeatureEditor({
   const layer = matching.find((l) => l.id === layerId);
   const trimmed = name.trim();
   const save = () => {
+    if (!layer && !(mode !== "create" && initial.layerId === undefined)) {
+      setError("ต้องเลือก layer ก่อนบันทึก");
+      return Promise.resolve();
+    }
     return run(() =>
       onSave({
         name: trimmed,
@@ -253,6 +262,7 @@ export default function FeatureEditor({
         layers={matching}
         layer={layer}
         readOnly={readOnly}
+        allowNone={mode !== "create" && initial.layerId === undefined}
         mobile={mobile}
         onLayerChange={setLayerId}
         onCreateLayer={createLayer}

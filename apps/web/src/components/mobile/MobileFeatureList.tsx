@@ -1,15 +1,16 @@
-import { useState } from "react";
-import { CircleXIcon, EyeIcon, EyeOffIcon, LockIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowUpDownIcon, CheckIcon, CircleXIcon, EyeIcon, EyeOffIcon, LockIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import type { Layer } from "../../lib/layers";
+import { layerCounts, type Layer } from "../../lib/layers";
+import { ListSkeleton } from "../LoadingPill";
 import { geometrySummary } from "../../lib/measure";
-import { FILTERS, type GeomType, type Item } from "../../lib/types";
+import type { GeomType, Item } from "../../lib/types";
+import GeomFilter from "../GeomFilter";
+import LayerOrderList from "../LayerOrderList";
 
-const FILTER_LABEL: Record<GeomType | "All", string> = { All: "ทั้งหมด", Point: "Point", LineString: "Line", Polygon: "Polygon" };
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 /** แท็บรายการทั้งหมดบนมือถือ: ช่องกรอง + ตัวกรองชนิด + แถว feature (สูง ≥56px) */
@@ -27,11 +28,21 @@ export default function MobileFeatureList({
   layers,
   onEditLayer,
   onAddLayer,
+  loading = false,
+  hiddenLayers,
+  onMoveLayer,
+  onSetLayerVisible,
 }: {
   /** layer ทั้งหมด: แสดงชื่อ/สี layer ของแต่ละ feature + แถบ layer (แตะเพื่อตั้งค่า เฉพาะคนที่จัดการได้) */
   layers?: Layer[];
   onEditLayer?: (layer: Layer) => void;
   onAddLayer?: () => void;
+  /** กำลังโหลดครั้งแรก: แสดง skeleton แทนข้อความ "ยังไม่มี..." */
+  loading?: boolean;
+  /** ลำดับ/ซ่อน layer ของบัญชีนี้ — layers ที่ส่งมาต้องเรียงบนสุด → ล่างสุดแล้ว */
+  hiddenLayers?: Set<number>;
+  onMoveLayer?: (layerId: number, toIndex: number) => void;
+  onSetLayerVisible?: (layerId: number, visible: boolean) => void;
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
@@ -46,8 +57,14 @@ export default function MobileFeatureList({
   onRemove: (item: Item) => void;
 }) {
   const [query, setQuery] = useState("");
+  // โหมดเรียงลำดับ layer (แทนรายการ feature) — เหลือ layer ≤ 1 = ไม่มีอะไรให้เรียง
+  const [reordering, setReordering] = useState(false);
+  const orderRef = useRef<HTMLDivElement>(null);
+  const canReorder = !!onMoveLayer && (layers?.length ?? 0) > 1;
+  // เหลือ layer ≤ 1 = ออกจากโหมดจริงๆ (ไม่งั้นพอมี layer ใหม่ โหมดจะเปิดกลับมาเอง)
+  if (reordering && !canReorder) setReordering(false);
+  const orderMode = reordering && canReorder;
   const q = query.trim().toLowerCase();
-  const count = (f: GeomType | "All") => (f === "All" ? items.length : items.filter((i) => i.type === f).length);
   const layerOf = (i: Item) => layers?.find((l) => l.id === i.props.layerId);
   const groupName = (i: Item) => layerOf(i)?.name ?? "";
   const shown = items.filter(
@@ -78,6 +95,19 @@ export default function MobileFeatureList({
 
       {layers && (
         <div className="no-scrollbar mb-3 flex shrink-0 gap-2 overflow-x-auto px-4">
+          {canReorder && (
+            <Button
+              type="button"
+              variant={orderMode ? "default" : "outline"}
+              size="sm"
+              aria-pressed={orderMode}
+              onClick={() => setReordering((r) => !r)}
+              className="h-8 shrink-0 gap-1 rounded-lg text-xs"
+            >
+              {orderMode ? <CheckIcon className="size-3.5" /> : <ArrowUpDownIcon className="size-3.5" />}
+              {orderMode ? "เสร็จ" : "เรียงลำดับ"}
+            </Button>
+          )}
           {layers.map((l) => (
             <Button
               key={l.id}
@@ -85,7 +115,7 @@ export default function MobileFeatureList({
               variant="outline"
               size="sm"
               onClick={() => onEditLayer?.(l)}
-              className="h-8 shrink-0 gap-1.5 rounded-lg text-xs"
+              className={cn("h-8 shrink-0 gap-1.5 rounded-lg text-xs", hiddenLayers?.has(l.id) && "opacity-55")}
             >
               <span className="size-2.5 rounded-full" style={{ backgroundColor: l.color }} />
               {l.name}
@@ -107,34 +137,34 @@ export default function MobileFeatureList({
         </div>
       )}
 
-      {layers && layers.length === 0 && !onAddLayer && (
+      {layers && layers.length === 0 && !onAddLayer && !loading && (
         <p className="mb-3 shrink-0 px-4 text-xs text-muted-foreground">ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง</p>
       )}
 
-      <div className="no-scrollbar mb-3 shrink-0 overflow-x-auto px-4">
-        <ToggleGroup
-          type="single"
-          variant="outline"
+      <div className="mb-3 shrink-0 px-4">
+        <GeomFilter
+          size="lg"
           value={filter}
-          onValueChange={(v) => v && onFilterChange(v as GeomType | "All")}
-          aria-label="กรองตามชนิด"
-          className="w-max gap-2"
-        >
-          {FILTERS.map((f) => (
-            <ToggleGroupItem
-              key={f}
-              value={f}
-              className="h-9 rounded-full px-3.5 text-[0.8125rem] data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-            >
-              {FILTER_LABEL[f]}
-              <span className="font-normal opacity-80">({count(f)})</span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+          onChange={onFilterChange}
+          counts={layerCounts(layers ?? [])}
+        />
       </div>
 
+      {orderMode && layers ? (
+        <div ref={orderRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
+          <LayerOrderList
+            layers={layers}
+            hidden={hiddenLayers ?? new Set()}
+            onMove={onMoveLayer!}
+            onSetVisible={(id, visible) => onSetLayerVisible?.(id, visible)}
+            large
+            scrollRef={orderRef}
+          />
+        </div>
+      ) : (
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-6">
-        {shown.length === 0 && (
+        <ListSkeleton loading={loading} className="flex flex-col gap-2 py-1" />
+        {shown.length === 0 && !loading && (
           <li className="py-6 text-center text-sm text-muted-foreground">
             {items.length === 0 ? "ยังไม่มีข้อมูล กดปุ่ม + แล้วเริ่มวาดบนแผนที่" : "ไม่พบ feature ที่ตรงกับตัวกรอง"}
           </li>
@@ -211,6 +241,7 @@ export default function MobileFeatureList({
           );
         })}
       </ul>
+      )}
     </div>
   );
 }

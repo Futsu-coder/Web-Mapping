@@ -101,7 +101,7 @@ export default function AccountMenu({
             <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">{me.user.username}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
+        <PopoverContent align="end" sideOffset={12} className="menu-drop w-[min(22rem,calc(100vw-2rem))] gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
           <GroupMenu
             me={me}
             isOwner={isOwner}

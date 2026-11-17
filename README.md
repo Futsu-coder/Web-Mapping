@@ -48,7 +48,7 @@ Web Application สำหรับสร้าง แก้ไข และล�
 | GET | `/api/layers` | `{ layers, tables }` — layer + ตารางย่อยของ group |
 | POST | `/api/layers` | 201 / 403 / 409 (ชื่อซ้ำ) / 422 — `{ name, geomType, color, fields }` |
 | PATCH | `/api/layers/:id` | Layer / 403 / 404 / 409 / 422 (เปลี่ยน `geomType` ไม่ได้) |
-| DELETE | `/api/layers/:id` | 204 / 403 / 404 — feature ใน layer ไม่ถูกลบ กลายเป็นไม่มี layer |
+| DELETE | `/api/layers/:id` | 204 / 403 / 404 — feature ใน layer ถูกลบด้วย (รวมแถวตารางย่อยของ feature เหล่านั้น) |
 | POST | `/api/layers/:id/fields/:key/to-table` | 201 + ตารางย่อย — ย้ายหัวข้อไปเป็นตารางย่อย (ค่าเดิมเป็นแถวแรก) |
 | POST / PATCH / DELETE | `/api/related-tables(/:id)` | ตารางย่อยของ layer — `{ layerId, name, fields, countKey }` |
 | GET | `/api/related-records` | แถวของตารางย่อยทั้งหมดของ group |
@@ -65,7 +65,7 @@ Web Application สำหรับสร้าง แก้ไข และล�
 - geometry ที่ไม่ใช่ 3 ชนิดนี้ หรือรูปทรงไม่ถูกต้อง (เช่น Polygon ตัดกันเอง) → 422
 - แก้/ลบได้เฉพาะ feature ของตัวเอง หรือเป็นเจ้าของ group → ไม่งั้น 403 (แถวในตารางย่อยใช้สิทธิ์เดียวกับ feature)
 - **Layer**: กลุ่ม feature ชนิดรูปทรงเดียวกัน + หัวข้อ property ที่กำหนดเอง (`fields`: `{ key: "f_xxxx", label, type: text|number|choice|boolean, options? }`)
-  - feature ระบุ layer ด้วย `properties.layer_id` (ไม่ส่ง / `null` = ไม่อยู่ใน layer) ค่าของหัวข้อส่งแบบแบนใน properties เช่น `{"layer_id": 3, "f_ab12": 120}`
+  - feature ระบุ layer ด้วย `properties.layer_id` (**ต้องส่งตอน POST/PUT** — ไม่ส่ง/`null` → 422 ต้องสร้าง layer ก่อน; PATCH ส่ง `null` ไม่ได้ ย้ายไป layer อื่นได้) ค่าของหัวข้อส่งแบบแบนใน properties เช่น `{"layer_id": 3, "f_ab12": 120}`
   - layer อยู่ group อื่น / รูปทรงไม่ตรงชนิดของ layer / ค่าผิดชนิด (เช่น ตัวเลขเป็นข้อความ) → 422, key ที่ไม่มีในหัวข้อถูกตัดทิ้ง
   - สร้าง/แก้/ลบ layer และตารางย่อยได้เฉพาะเจ้าของ group → ไม่งั้น 403
 

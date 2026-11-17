@@ -53,7 +53,7 @@ export default function LayerDialog({
   lockType?: GeomType;
   /** ชื่อ layer อื่นที่มีอยู่แล้ว (ห้ามซ้ำ) */
   takenNames: string[];
-  /** จำนวน feature ใน layer นี้ (แสดงตอนยืนยันลบ — feature ไม่ถูกลบ แค่ออกจาก layer) */
+  /** จำนวน feature ใน layer นี้ (แสดงตอนยืนยันลบ — feature ใน layer ถูกลบด้วย) */
   featureCount: number;
   onSave: (layer: LayerDraft, tables: TableChanges) => void;
   onDelete?: () => void;
@@ -74,6 +74,7 @@ export default function LayerDialog({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (confirmDelete) return; // กำลังยืนยันลบ — Enter ในช่องชื่อต้องไม่บันทึก
     const trimmed = name.trim();
     const badName = (msg: string) => {
       setNameError(msg);
@@ -134,9 +135,7 @@ export default function LayerDialog({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label id="layer-geom">
-                ชนิดรูปทรง {typeLocked && <span className="font-normal text-muted-foreground">(เปลี่ยนไม่ได้)</span>}
-              </Label>
+              <Label id="layer-geom">ชนิดรูปทรง</Label>
               <ToggleGroup
                 type="single"
                 variant="outline"
@@ -144,15 +143,14 @@ export default function LayerDialog({
                 onValueChange={(v) => v && setGeomType(v as GeomType)}
                 aria-labelledby="layer-geom"
                 spacing={2}
-                className="grid w-full grid-cols-3"
+                className={typeLocked ? "flex w-fit" : "grid w-full grid-cols-3"}
               >
-                {GEOM_TYPES.map((t) => {
+                {(typeLocked ? [geomType] : GEOM_TYPES).map((t) => {
                   const Icon = GEOM_ICON[t];
                   return (
                     <ToggleGroupItem
                       key={t}
                       value={t}
-                      disabled={typeLocked && t !== geomType}
                       className="h-9 gap-1.5 data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:font-semibold data-[state=on]:text-primary"
                     >
                       <Icon />
@@ -218,17 +216,17 @@ export default function LayerDialog({
           <DialogFooter className="shrink-0 flex-row items-center justify-between gap-2 border-t px-5 py-3 sm:justify-between">
             {onDelete ? (
               confirmDelete ? (
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-1 items-center gap-1.5">
                   {featureCount > 0 && (
-                    <span className="max-w-[11rem] text-[0.6875rem] leading-tight text-muted-foreground">
-                      feature {featureCount} ชิ้นจะกลายเป็น "ไม่มี layer" (ค่าในคอลัมน์ของ layer และตารางย่อยหาย)
+                    <span className="flex-1 text-[0.6875rem] leading-tight text-muted-foreground">
+                      feature {featureCount} ชิ้นใน layer นี้จะถูกลบด้วย (รวมตารางย่อยและแถวข้อมูลทั้งหมด)
                     </span>
                   )}
                   <Button type="button" variant="destructive" size="sm" className="shrink-0" onClick={onDelete}>
                     ยืนยันลบ
                   </Button>
                   <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
-                    ไม่ลบ
+                    ยกเลิก
                   </Button>
                 </div>
               ) : (
@@ -246,15 +244,17 @@ export default function LayerDialog({
             ) : (
               <span />
             )}
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-                ยกเลิก
-              </Button>
-              <Button type="submit" size="sm">
-                <SaveIcon />
-                บันทึก
-              </Button>
-            </div>
+            {!confirmDelete && (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+                  ยกเลิก
+                </Button>
+                <Button type="submit" size="sm">
+                  <SaveIcon />
+                  บันทึก
+                </Button>
+              </div>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

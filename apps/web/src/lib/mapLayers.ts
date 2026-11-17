@@ -1,4 +1,5 @@
-import type { ExpressionSpecification, GeoJSONSource, Map as MlMap } from "maplibre-gl";
+import type { ExpressionSpecification, GeoJSONSource, LayerSpecification, Map as MlMap } from "maplibre-gl";
+import type { Layer } from "./layers";
 import type { GeomType, Item } from "./types";
 import { LABEL_FONT, TERRAIN_EXAGGERATION, TERRAIN_TILES } from "./mapStyle";
 
@@ -164,9 +165,18 @@ export function setFeatureData(map: MlMap, items: Item[], colorOf: (i: Item) => 
       properties: color ? { fid: String(i.id), name: i.props.name, color } : { fid: String(i.id), name: i.props.name },
     };
   };
-  setData(map, POINTS, items.filter((i) => i.type === "Point").map(toFeature));
-  setData(map, SHAPES, items.filter((i) => i.type !== "Point").map(toFeature));
+  // feature อยู่ source ของ layer ตัวเอง (ถ้ามีบนแผนที่) ไม่งั้นลง SHAPES/POINTS (ไม่มี layer)
+  const groups = new Map<string, GeoJSON.Feature[]>([[POINTS, []], [SHAPES, []]]);
+  for (const src of Object.keys(map.getStyle().sources)) if (src.startsWith("lyr-")) groups.set(src, []);
+  for (const i of items) groups.get(featureSource(map, i))!.push(toFeature(i));
+  for (const [source, features] of groups) setData(map, source, features);
 }
+
+/** source ที่ feature นี้อยู่: ของ layer (ถ้ามี) ไม่งั้นรวมกลุ่ม "ไม่มี layer" */
+const featureSource = (map: MlMap, item: Pick<Item, "type" | "props">) => {
+  const own = item.props.layerId === undefined ? undefined : lyrSource(item.props.layerId);
+  return own && map.getSource(own) ? own : sourceOf(item.type);
+};
 
 export const setCrosshairData = (map: MlMap, features: GeoJSON.Feature[]) => setData(map, CROSSHAIR, features);
 
@@ -178,7 +188,144 @@ export function setTerrainEnabled(map: MlMap, on: boolean) {
 }
 
 /** ตั้ง/ล้าง feature-state ของ feature (hover / selected) */
-export function setItemState(map: MlMap, item: Pick<Item, "id" | "type">, state: Record<string, boolean>) {
-  if (!map.getSource(sourceOf(item.type))) return;
-  map.setFeatureState({ source: sourceOf(item.type), id: String(item.id) }, state);
+export function setItemState(map: MlMap, item: Pick<Item, "id" | "type" | "props">, state: Record<string, boolean>) {
+  const source = featureSource(map, item);
+  if (!map.getSource(source)) return;
+  map.setFeatureState({ source, id: String(item.id) }, state);
 }
+
+// ---------- ชั้นต่อ layer (z-order ส่วนตัวของผู้ใช้) ----------
+// แต่ละ layer มี source `lyr-<id>` + ชั้นย่อยตามชนิด วางติดกัน → ย้ายทั้งกลุ่มพร้อมกัน
+// ชั้นของ feature ที่ไม่มี layer (SHAPES/POINTS ด้านบน) อยู่ล่างสุดเสมอ; crosshair และ draw อยู่บนสุดเสมอ
+const lyrSource = (id: number) => `lyr-${id}`;
+const lyrIds = (id: number, suffixes: string[]) => suffixes.map((s) => `${lyrSource(id)}-${s}`);
+const SUFFIXES: Record<GeomType, string[]> = {
+  Polygon: ["fill", "halo", "line"],
+  LineString: ["halo", "line"],
+  Point: ["cluster", "cluster-count", "point-halo", "point"],
+};
+const TOP_ANCHOR = "crosshair-fill"; // ชั้นของเรา (layer ต่างๆ) วางใต้ชั้นนี้
+const noCluster: ExpressionSpecification = ["!", ["has", "point_count"]];
+const isCluster: ExpressionSpecification = ["has", "point_count"];
+
+function layerSpecs(id: number, geom: GeomType, color: string): LayerSpecification[] {
+  const src = lyrSource(id);
+  const at = (s: string) => `${src}-${s}`;
+  const lineLayout = { "line-cap": "round", "line-join": "round" } as const;
+  if (geom === "Polygon") {
+    return [
+      { id: at("fill"), type: "fill", source: src, paint: { "fill-color": layerColor, "fill-opacity": ["case", active, 0.32, 0.2] } },
+      { id: at("halo"), type: "line", source: src, layout: lineLayout, paint: { "line-color": layerColor, "line-width": 12, "line-opacity": ["case", active, 0.25, 0] } },
+      { id: at("line"), type: "line", source: src, layout: lineLayout, paint: { "line-color": layerColor, "line-width": ["case", hover, 5, selected, 5, 3] } },
+    ];
+  }
+  if (geom === "LineString") {
+    return [
+      { id: at("halo"), type: "line", source: src, layout: lineLayout, paint: { "line-color": layerColor, "line-width": 12, "line-opacity": ["case", active, 0.25, 0] } },
+      { id: at("line"), type: "line", source: src, layout: lineLayout, paint: { "line-color": layerColor, "line-width": ["case", hover, 5, selected, 5, 3] } },
+    ];
+  }
+  return [
+    {
+      id: at("cluster"),
+      type: "circle",
+      source: src,
+      filter: isCluster,
+      paint: {
+        "circle-color": color,
+        "circle-radius": ["step", ["get", "point_count"], 15, 10, 18, 100, 22],
+        "circle-stroke-width": 5,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-opacity": 0.6,
+      },
+    },
+    {
+      id: at("cluster-count"),
+      type: "symbol",
+      source: src,
+      filter: isCluster,
+      layout: { "text-field": ["get", "point_count_abbreviated"], "text-font": LABEL_FONT, "text-size": 12 },
+      paint: { "text-color": "#ffffff" },
+    },
+    { id: at("point-halo"), type: "circle", source: src, filter: noCluster, paint: { "circle-color": layerColor, "circle-radius": 16, "circle-opacity": ["case", active, 0.28, 0] } },
+    {
+      id: at("point"),
+      type: "circle",
+      source: src,
+      filter: noCluster,
+      paint: {
+        "circle-color": layerColor,
+        "circle-radius": ["case", hover, 10, selected, 10, 8],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+      },
+    },
+  ];
+}
+
+type Stack = { signature: string; hit: string[]; cluster: string[] };
+const stacks = new WeakMap<MlMap, Stack>();
+
+/**
+ * ทำให้ชั้นบนแผนที่ตรงกับ layer + ลำดับ (บนสุด → ล่างสุด) + การซ่อน ของผู้ใช้ — เรียกซ้ำได้ทุกครั้งที่เปลี่ยน
+ * เพิ่ม/ลบ source+ชั้นของ layer ที่มา/หาย, จัดลำดับด้วย moveLayer (เฉพาะเมื่อลำดับเปลี่ยน), ซ่อน/แสดงด้วย visibility
+ * ไม่แตะข้อมูล feature → ไม่ต้องสร้างใหม่
+ */
+export function syncLayerStack(map: MlMap, ordered: Layer[], hidden: Set<number>) {
+  if (!map.getSource(SHAPES)) return; // addFeatureLayers ยังไม่เสร็จ
+  const prev = stacks.get(map);
+  const wanted = new Map(ordered.map((l) => [l.id, l]));
+  const style = map.getStyle();
+
+  // ลบของ layer ที่หายไป / เปลี่ยนชนิด
+  for (const l of style.layers) {
+    const m = /^lyr-(-?\d+)-/.exec(l.id);
+    if (!m) continue;
+    const layer = wanted.get(Number(m[1]));
+    if (!layer || !SUFFIXES[layer.geomType].includes(l.id.slice(`lyr-${m[1]}-`.length))) map.removeLayer(l.id);
+  }
+  for (const id of Object.keys(style.sources)) {
+    const m = /^lyr-(-?\d+)$/.exec(id);
+    if (m && !wanted.has(Number(m[1]))) map.removeSource(id);
+  }
+
+  for (const layer of ordered) {
+    const src = lyrSource(layer.id);
+    if (!map.getSource(src)) {
+      map.addSource(
+        src,
+        layer.geomType === "Point"
+          ? { type: "geojson", data: empty, promoteId: "fid", cluster: true, clusterMaxZoom: 16, clusterRadius: 50 }
+          : { type: "geojson", data: empty, promoteId: "fid" },
+      );
+    }
+    for (const spec of layerSpecs(layer.id, layer.geomType, layer.color)) {
+      if (!map.getLayer(spec.id)) map.addLayer(spec, TOP_ANCHOR);
+    }
+    if (layer.geomType === "Point") map.setPaintProperty(`${src}-cluster`, "circle-color", layer.color);
+    const visibility = hidden.has(layer.id) ? "none" : "visible";
+    for (const id of lyrIds(layer.id, SUFFIXES[layer.geomType])) map.setLayoutProperty(id, "visibility", visibility);
+  }
+
+  // จัดลำดับ: ไล่จากล่างสุดขึ้นบน วางแต่ละชั้นใต้ TOP_ANCHOR → ตัวหลังๆ ทับตัวก่อนหน้า
+  const signature = ordered.map((l) => `${l.id}:${l.geomType}`).join(",");
+  if (signature !== prev?.signature) {
+    for (const layer of [...ordered].reverse()) {
+      for (const id of lyrIds(layer.id, SUFFIXES[layer.geomType])) map.moveLayer(id, TOP_ANCHOR);
+    }
+  }
+
+  // ชั้นที่ใช้ hit-test: เรียงจากบนลงล่างให้ queryRenderedFeatures ได้ตัวบนสุดก่อน (ชั้นที่ซ่อนอยู่ MapLibre ข้ามเอง)
+  const hit = [...HIT_LAYERS];
+  const cluster = [CLUSTER_LAYER];
+  for (const layer of ordered) {
+    const ids = lyrIds(layer.id, SUFFIXES[layer.geomType]);
+    hit.push(...ids.filter((id) => /-(fill|line|point)$/.test(id)));
+    if (layer.geomType === "Point") cluster.push(`${lyrSource(layer.id)}-cluster`);
+  }
+  stacks.set(map, { signature, hit, cluster });
+}
+
+/** ชั้นที่คลิก/hover แล้วถือว่าโดน feature (ของ layer ทั้งหมดที่อยู่บนแผนที่ตอนนี้) */
+export const hitLayerIds = (map: MlMap) => stacks.get(map)?.hit ?? HIT_LAYERS;
+export const clusterLayerIds = (map: MlMap) => stacks.get(map)?.cluster ?? [CLUSTER_LAYER];

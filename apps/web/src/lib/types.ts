@@ -14,7 +14,7 @@ export type Item = {
 
 export const FILTERS: (GeomType | "All")[] = ["All", "Point", "LineString", "Polygon"];
 
-/** เครื่องมือวาดใน Toolbar (ชื่อเดิมจากสมัยใช้ Geoman — "Line" ไม่ใช่ "LineString") */
+/** เครื่องมือวาด (DrawFab) (ชื่อเดิมจากสมัยใช้ Geoman — "Line" ไม่ใช่ "LineString") */
 export type DrawShape = "Marker" | "Line" | "Polygon";
 
 /** โหมดของ mapbox-gl-draw ที่ใช้วาดแต่ละชนิด */

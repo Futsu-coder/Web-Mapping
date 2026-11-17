@@ -2,6 +2,8 @@ import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  ArrowUpDownIcon,
+  CheckIcon,
   ChevronUpIcon,
   EyeIcon,
   EyeOffIcon,
@@ -13,17 +15,13 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { GEOM_LABEL, type Layer } from "../lib/layers";
-import { FILTERS, type GeomType, type Item } from "../lib/types";
+import { ListSkeleton } from "./LoadingPill";
+import type { GeomType, Item } from "../lib/types";
+import GeomFilter from "./GeomFilter";
+import LayerOrderList from "./LayerOrderList";
 
-const FILTER_LABEL: Record<GeomType | "All", string> = {
-  All: "ทั้งหมด",
-  Point: "Point",
-  LineString: "Line",
-  Polygon: "Polygon",
-};
 const TYPE_LABEL: Record<GeomType, string> = { Point: "Point", LineString: "Line", Polygon: "Polygon" };
 
 function RowButton({
@@ -133,6 +131,7 @@ export default function FeaturePanel({
   items,
   filter,
   onFilterChange,
+  counts,
   hoveredId,
   onHover,
   onFocus,
@@ -149,7 +148,10 @@ export default function FeaturePanel({
   onToggleLayer,
   onEditLayer,
   onAddLayer,
+  loading = false,
   onOpenTable,
+  onMoveLayer,
+  onSetLayerVisible,
 }: {
   /** layer ทั้งหมด: มี = จัดรายการเป็นกลุ่มตาม layer (+ กลุ่ม "ไม่มี layer") */
   layers?: Layer[];
@@ -157,10 +159,17 @@ export default function FeaturePanel({
   onToggleLayer?: (layer: Layer) => void;
   onEditLayer?: (layer: Layer) => void;
   onAddLayer?: () => void;
+  /** กำลังโหลดครั้งแรก: แสดง skeleton แทนข้อความ "ยังไม่มี..." */
+  loading?: boolean;
   onOpenTable?: (layer: Layer) => void;
+  /** ย้าย layer ไปตำแหน่ง toIndex (0 = บนสุด) / ตั้งซ่อน-แสดง — ของบัญชีนี้เท่านั้น */
+  onMoveLayer?: (layerId: number, toIndex: number) => void;
+  onSetLayerVisible?: (layerId: number, visible: boolean) => void;
   items: Item[];
   filter: GeomType | "All";
   onFilterChange: (f: GeomType | "All") => void;
+  /** จำนวน layer แต่ละชนิด (นับจากทั้งหมด) */
+  counts: Record<GeomType | "All", number>;
   hoveredId: number | null;
   onHover: (id: number | null) => void;
   onFocus: (item: Item) => void;
@@ -178,6 +187,12 @@ export default function FeaturePanel({
   onToggle: () => void;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
+  // โหมดเรียงลำดับ layer: แทนรายการ feature ด้วยแถว layer ที่ลาก/กด ↑↓ ได้ (เหลือ layer ≤ 1 = ไม่มีอะไรให้เรียง → ออกเอง)
+  const [reordering, setReordering] = useState(false);
+  const canReorder = !!layers && !!onMoveLayer && layers.length > 1;
+  // เหลือ layer ≤ 1 = ออกจากโหมดจริงๆ (ไม่งั้นพอมี layer ใหม่ โหมดจะเปิดกลับมาเอง)
+  if (reordering && !canReorder) setReordering(false);
+  const orderMode = reordering && canReorder;
   // handler คงที่ตลอดอายุ component (อ่านตัวล่าสุดผ่าน ref) → FeatureRow ที่ memo ไว้ไม่ render ใหม่โดยไม่จำเป็น
   const latest = useRef<RowHandlers>({ onFocus, onToggleVisible, onRemove, onHover });
   useEffect(() => {
@@ -189,8 +204,15 @@ export default function FeaturePanel({
     onRemove: (i) => latest.current.onRemove(i),
     onHover: (id) => latest.current.onHover(id),
   }));
-  // layer ที่พับรายการไว้
-  const [folded, setFolded] = useState<Set<number>>(new Set());
+  // layer ที่กางรายการไว้ — เริ่มต้นพับหมด (refresh แล้วเห็นแค่หัว layer)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // เลือก feature (เช่น คลิกบนแผนที่) → กาง layer ของมันให้เห็นแถว (ปรับ state ระหว่าง render ไม่ใช้ effect)
+  const [prevSelectedId, setPrevSelectedId] = useState(selectedId);
+  if (selectedId !== prevSelectedId) {
+    setPrevSelectedId(selectedId);
+    const lid = selectedId === null ? undefined : items.find((i) => i.id === selectedId)?.props.layerId;
+    if (lid !== undefined && !expanded.has(lid)) setExpanded(new Set(expanded).add(lid));
+  }
 
   // hover รูปบนแผนที่ → เลื่อนรายการนั้นให้เห็น
   // เลื่อนเฉพาะในรายการเอง ไม่ใช้ scrollIntoView เพราะมันเลื่อนกล่องแผนที่ด้านนอกด้วย
@@ -221,7 +243,7 @@ export default function FeaturePanel({
   // feature ที่ไม่มี layer (หรือ layer ถูกลบไปแล้ว)
   const noLayer = layers ? items.filter((i) => !layers.some((l) => l.id === i.props.layerId)) : [];
   const toggleFold = (id: number) =>
-    setFolded((s) => {
+    setExpanded((s) => {
       const next = new Set(s);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -233,7 +255,8 @@ export default function FeaturePanel({
       data-feature-panel
       className="absolute top-4 left-4 z-20 flex max-h-[calc(100%-7.5rem)] w-[22rem] flex-col rounded-xl border border-black/5 bg-card shadow-float"
     >
-      <div className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
+      {/* คลิกตรงไหนของแถบก็ย่อ/ขยายได้ (ปุ่มลูกศร bubble ขึ้นมาที่นี่ จึง toggle ครั้งเดียว) */}
+      <div className="flex shrink-0 cursor-pointer items-center gap-2 px-3 pt-3 pb-2 select-none" onClick={onToggle}>
         <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
           <MapIcon className="size-4" />
         </span>
@@ -245,7 +268,6 @@ export default function FeaturePanel({
           className="size-8"
           aria-expanded={open}
           aria-label={open ? "ย่อรายการ" : "ขยายรายการ"}
-          onClick={onToggle}
         >
           {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
         </Button>
@@ -254,31 +276,25 @@ export default function FeaturePanel({
       {/* ย่อการ์ด = ซ่อนส่วนเนื้อหา */}
       <div className={cn("flex min-h-0 flex-1 flex-col", !open && "hidden")}>
         <div className="shrink-0 px-3 pb-2">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={filter}
-            onValueChange={(v) => v && onFilterChange(v as GeomType | "All")}
-            aria-label="กรองตามชนิด"
-            className="flex-wrap justify-start gap-1"
-          >
-            {FILTERS.map((f) => (
-              <ToggleGroupItem
-                key={f}
-                value={f}
-                className="h-7 rounded-full px-3 text-xs data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-              >
-                {FILTER_LABEL[f]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <GeomFilter value={filter} onChange={onFilterChange} counts={counts} />
         </div>
 
         <div className="flex shrink-0 items-center justify-between border-t px-4 pt-2 text-sm font-semibold">
           <span>รายการ</span>
           <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
-            {items.length} รายการ{layers && ` · ${layers.length} layer`}
+            {canReorder && (
+              <Button
+                type="button"
+                variant={orderMode ? "default" : "ghost"}
+                size="sm"
+                aria-pressed={orderMode}
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => setReordering((r) => !r)}
+              >
+                {orderMode ? <CheckIcon className="size-3.5" /> : <ArrowUpDownIcon className="size-3.5" />}
+                {orderMode ? "เสร็จ" : "เรียงลำดับ"}
+              </Button>
+            )}
             {onAddLayer && (
               <Button type="button" variant="ghost" size="sm" className="h-7 gap-0.5 px-2 text-xs text-primary" onClick={onAddLayer}>
                 <PlusIcon className="size-3.5" />
@@ -289,24 +305,43 @@ export default function FeaturePanel({
         </div>
 
         <ul ref={listRef} className="relative flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
-          {!layers && items.length === 0 && (
+          <ListSkeleton loading={loading} className="flex flex-col gap-2 py-1" />
+          {!layers && items.length === 0 && !loading && (
             <li className="px-2 py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล ใช้เครื่องมือด้านล่างวาดบนแผนที่</li>
           )}
-          {layers ? (
+          {orderMode ? (
+            <li>
+              <LayerOrderList
+                layers={layers!}
+                hidden={hiddenLayers ?? new Set()}
+                onMove={onMoveLayer!}
+                onSetVisible={(id, visible) => onSetLayerVisible?.(id, visible)}
+                scrollRef={listRef}
+              />
+            </li>
+          ) : layers ? (
             <>
-              {layers.length === 0 && (
+              {layers.length === 0 && !loading && (
                 <li className="px-2 py-4 text-center text-sm text-muted-foreground">
                   {onAddLayer
-                    ? 'ยังไม่มี layer — กด "+ Layer" เพื่อสร้างกลุ่ม feature เช่น โรงเรียน / แม่น้ำ'
-                    : "ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง layer (วาด feature แบบไม่มี layer ได้)"}
+                    ? 'ยังไม่มี layer — กด "+ Layer" (หรือเลือกเครื่องมือวาด) เพื่อสร้าง layer ก่อนวาด เช่น โรงเรียน / แม่น้ำ'
+                    : "ยังไม่มี layer — ต้องให้เจ้าของ group สร้าง layer ก่อนถึงจะวาดได้"}
                 </li>
               )}
+              {filter !== "All" &&
+                layers.length > 0 &&
+                noLayer.length === 0 &&
+                !layers.some((l) => l.geomType === filter) && (
+                  <li className="px-2 py-4 text-center text-sm text-muted-foreground">
+                    ไม่มี {TYPE_LABEL[filter]} — เลือก "ทั้งหมด" เพื่อดูทุกชนิด
+                  </li>
+                )}
               {layers
                 .filter((l) => filter === "All" || l.geomType === filter)
                 .map((layer) => {
                   const members = items.filter((i) => i.props.layerId === layer.id);
                   const hidden = hiddenLayers?.has(layer.id) ?? false;
-                  const isFolded = folded.has(layer.id);
+                  const isFolded = !expanded.has(layer.id);
                   return (
                     <li key={`layer-${layer.id}`} className="flex flex-col gap-0.5">
                       <div className={cn("flex items-center gap-1.5 rounded-lg bg-muted/60 px-1.5 py-1", hidden && "opacity-55")}>
@@ -348,7 +383,7 @@ export default function FeaturePanel({
                       </div>
                       {!isFolded && (
                         <ul className="flex flex-col gap-0.5 pl-3">
-                          {members.length === 0 && (
+                          {members.length === 0 && !loading && (
                             <li className="px-2 py-1 text-xs text-muted-foreground">
                               ยังไม่มี feature — วาด {GEOM_LABEL[layer.geomType]} แล้วเลือก layer นี้
                             </li>

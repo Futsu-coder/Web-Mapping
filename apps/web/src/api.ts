@@ -1,5 +1,5 @@
 import { toStoredProps } from "./lib/featureMeta";
-import type { FieldValue, FieldValues, Layer, LayerField, RelatedRecord, RelatedTable } from "./lib/layers";
+import type { FieldValue, FieldValues, Layer, LayerField, LayerPref, RelatedRecord, RelatedTable } from "./lib/layers";
 import { accessToken, supabase } from "./lib/supabase";
 
 export type GeomType = "Point" | "LineString" | "Polygon";
@@ -85,7 +85,7 @@ export const createFeature = (geometry: GeoJSON.Geometry, props: FeatureProps) =
 
 /**
  * JSON Merge Patch: ส่งเฉพาะส่วนที่เปลี่ยน, null = ลบ key
- * layer_id = ย้าย layer (null = เอาออกจาก layer — ค่าของหัวข้อ layer เดิมถูกล้าง), f_xxxx = ค่าของหัวข้อ
+ * layer_id = ย้ายไป layer อื่น (server ไม่รับ null — ค่าของหัวข้อ layer เดิมถูกล้าง), f_xxxx = ค่าของหัวข้อ
  */
 export type FeaturePatch = {
   geometry?: GeoJSON.Geometry;
@@ -120,7 +120,7 @@ export const layerApi = {
     })),
   create: (body: Omit<Layer, "id">) => request<Layer>("/api/layers", json("POST", body)),
   patch: (id: number, body: LayerBody) => request<Layer>(`/api/layers/${id}`, json("PATCH", body)),
-  /** feature ใน layer ไม่ถูกลบ — กลายเป็น "ไม่มี layer" */
+  /** feature ใน layer ถูกลบด้วย */
   remove: (id: number) => request<void>(`/api/layers/${id}`, { method: "DELETE" }),
   /** ย้ายหัวข้อไปเป็นตารางย่อย (ค่าเดิมกลายเป็นแถวแรกของแต่ละ feature) */
   fieldToTable: (layerId: number, key: string, name?: string) =>
@@ -180,3 +180,11 @@ export const listNotifications = () =>
 export const markNotificationsRead = () => request<void>("/api/notifications/read", { method: "POST" });
 
 export const clearNotifications = () => request<void>("/api/notifications", { method: "DELETE" });
+
+// ---------- ลำดับ/การซ่อน layer ของตัวเอง (ทุกคนใน group ทำได้ ไม่ใช่แค่เจ้าของ) ----------
+export const layerPrefsApi = {
+  list: () => request<LayerPref[]>("/api/layer-preferences"),
+  /** แทนทั้งชุด (ลำดับใน array = บนสุดลงล่าง); keepalive = ยังส่งได้ตอนปิดหน้า */
+  save: (items: LayerPref[], keepalive = false) =>
+    request<LayerPref[]>("/api/layer-preferences", { ...json("PUT", { items }), keepalive }),
+};

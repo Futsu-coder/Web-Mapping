@@ -94,3 +94,32 @@ export function summarize(table: RelatedTable, records: RelatedRecord[], feature
   if (!table.countKey) return rows.length;
   return new Set(rows.map((r) => r.values[table.countKey!]).filter((v) => v !== undefined && v !== "")).size;
 }
+
+/** จำนวน layer แต่ละชนิด (ใช้แสดงบนตัวกรองชนิด — ไม่ใช่จำนวน feature) */
+export const layerCounts = (layers: Layer[]): Record<GeomType | "All", number> => ({
+  All: layers.length,
+  Point: layers.filter((l) => l.geomType === "Point").length,
+  LineString: layers.filter((l) => l.geomType === "LineString").length,
+  Polygon: layers.filter((l) => l.geomType === "Polygon").length,
+});
+
+// ---------- ลำดับ (z-order) + การซ่อน layer — ส่วนตัวของแต่ละบัญชี ----------
+/** ลำดับใน array = บนสุดลงล่างสุด; visible=false = ซ่อนจากแผนที่ (เฉพาะบนจอเรา) */
+export type LayerPref = { layerId: number; visible: boolean };
+
+/**
+ * เรียง layer บนสุด → ล่างสุดตาม prefs
+ * layer ที่ยังไม่มี pref (สร้างใหม่ / ยังไม่เคยจัด) อยู่บนสุด ใหม่สุดก่อน (id database มาก = ใหม่, id โหมดทดลองติดลบมาก = ใหม่)
+ */
+export function orderLayers(layers: Layer[], prefs: LayerPref[]): Layer[] {
+  const rank = new Map(prefs.map((p, i) => [p.layerId, i]));
+  const fresh = layers.filter((l) => !rank.has(l.id)).sort((a, b) => Math.abs(b.id) - Math.abs(a.id));
+  const known = layers.filter((l) => rank.has(l.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  return [...fresh, ...known];
+}
+
+/** prefs ครบทุก layer ตามลำดับที่ให้ (ใช้ส่งบันทึก) — คงค่า visible เดิม ไม่มี = แสดง */
+export function prefsFor(order: Layer[], prefs: LayerPref[]): LayerPref[] {
+  const visible = new Map(prefs.map((p) => [p.layerId, p.visible]));
+  return order.map((l) => ({ layerId: l.id, visible: visible.get(l.id) ?? true }));
+}

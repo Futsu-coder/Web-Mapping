@@ -31,7 +31,7 @@ apps/server/src/
   db/schema.ts                groups, profiles, invitations, notifications, features (geom = geometry 4326), layers, related_tables, related_records
   routes/layers.ts            layer + ตารางย่อย (/api/layers, /api/related-tables) — เขียนได้เฉพาะเจ้าของ group
   routes/records.ts           แถวของตารางย่อย (/api/related-records) — สิทธิ์เดียวกับ feature (checkModify)
-apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime), layers.sql (RLS + Realtime ของ layer, ล้าง feature เก่า) — รันใน Supabase SQL Editor
+apps/server/sql/              schema.sql (เปิด PostGIS), realtime.sql (RLS + Realtime), layers.sql (RLS + Realtime ของ layer, ล้าง feature เก่า — ห้ามรันซ้ำ) — รันใน Supabase SQL Editor
 apps/shared/                  ใช้ร่วม web+server: auth.ts, layers.ts (type หัวข้อ + checkValues / checkFields)
 apps/web/src/
   App.tsx                     state หลักทั้งหมด (items, selection, draw, guest, save/remove/edit) — ไฟล์ใหญ่
@@ -44,6 +44,8 @@ apps/web/src/
   lib/mapStyle.ts             URL style vector, style สำรอง, WORLD_BOUNDS
   components/SearchBox.tsx    ค้นหาสถานที่ผ่าน Nominatim
   components/mobile/          UI มือถือ: วาดด้วยกากบาทกลางจอ (CrosshairDraw + hooks/useCrosshairDraw), sheet ด้านล่าง
+  components/DrawFab.tsx      ปุ่มสร้าง feature ขวาล่าง (คอม+มือถือ) แบบ speed dial จุด/เส้น/พื้นที่ — ไอคอนปุ่มเปลี่ยนตามเครื่องมือที่ใช้อยู่ กดอีกครั้งสลับ/ยกเลิก
+  components/DrawHint.tsx     จอคอม: แถบคำแนะนำกลางล่างตอนวาด + คีย์ลัด P/L/G/Esc (lib/drawTools.ts = รายการเครื่องมือ)
   lib/featureMeta.ts          propsOf, sameGeometry, bbox/center ของ geometry
   lib/measure.ts              พื้นที่/ความยาว/ตัดกันเอง (จุดเป็น [lng, lat])
   lib/scaleControl.ts         สเกลบาร์ซ้ายล่าง (มือถือ+คอม) ความยาวคงที่ 96px เลขเปลี่ยนตามซูม
@@ -57,20 +59,23 @@ apps/web/src/
   ข้อยกเว้น: **สมาชิกทุกคนใน group ดับเบิลคลิกใส่/แก้ค่าหัวข้อ layer (PATCH เฉพาะ key `f_xxxx`) และค่าในแถวตารางย่อยที่มีอยู่ได้ทุก feature** — เพิ่ม/ลบแถว + จัดการ layer/คอลัมน์ = เจ้าของ group เท่านั้น
 - **PATCH = JSON Merge Patch (RFC 7396)**: ส่งเฉพาะที่เปลี่ยน, `null` ใน properties = ลบ key; เว็บส่งเฉพาะ diff (ดู `save` ใน App.tsx)
 - `name` เก็บเป็นคอลัมน์แยก, ฟิลด์อื่นอยู่ใน `properties` (jsonb); SYSTEM_KEYS (name, geom_type, owner_*, *_at) client เขียนทับไม่ได้
+- **เครื่องมือวาด**: สลับได้ทุกเมื่อผ่าน `requestTool` ใน App (DrawFab / คีย์ลัด / segmented ใน `DrawSheet` มือถือ) — วางจุดไปแล้วขึ้น AlertDialog ยืนยัน (จุดหาย); ชนิดไม่มี layer: เจ้าของ group ยกเลิกที่วาด+เปิดสร้าง layer / สมาชิกแจ้งเตือน; ไม่มีเครื่องมือ Move แล้ว
+- **ตัวกรองชนิด (`components/GeomFilter.tsx`)** ใช้ทั้งจอคอม/มือถือ: กรองทั้งรายการและ **แผนที่** (effect วาดใน App) — บันทึก feature ใหม่คนละชนิดกับตัวกรอง → กลับเป็น "ทั้งหมด"
 - Polygon ห้ามตัดกันเอง (เว็บตรวจด้วย `selfIntersects` ตอนวาด/ลากจุด/บันทึก, server ตรวจ ST_IsValid)
 - **โหมดทดลอง (guest)** = ยังไม่ login: id ติดลบ ไม่ยิง API ไม่ฟัง Realtime — เก็บใน localStorage (`lib/guestStore.ts`) ลบทั้งชุดเมื่อครบ 1 ชม. นับจากสิ่งแรกที่สร้าง (feature หรือ layer)
 - **ระบบ Layer + Attribute table + ตารางย่อย** (ใช้ทั้ง login และโหมดทดลอง — category ถูกเอาออกแล้ว)
   - login เก็บใน database ผ่าน API (`layerApi` ใน api.ts), โหมดทดลองเก็บ localStorage (`guestStore`) — ฟังก์ชันใน App แยก 2 ทาง (async, UI ครอบด้วย `attempt` → error ขึ้นแถบแดง)
   - โครงสร้าง (layer / ตารางย่อย / คอลัมน์) จัดการได้เฉพาะ `canManageLayers = guest || groupOwner` — คนอื่นไม่เห็นปุ่มจัดการ (server ตอบ 403) สมาชิกเห็นข้อความจาง "ให้เจ้าของ group …" แทน แต่ยังเพิ่ม/แก้ค่าในตารางของ feature ตัวเองได้
-  - **feature ไม่อยู่ใน layer ได้** (`layer_id` null) — ฟอร์มมี "— ไม่มี layer —", attribute table มีแท็บ "ไม่มี layer" (`NO_LAYER_ID`)
-    ลบ layer → feature ไม่ถูกลบ กลายเป็นไม่มี layer (FK `on delete set null` + ล้างค่าของหัวข้อ layer นั้น) — โหมดทดลองทำแบบเดียวกัน
+  - **feature ใหม่ต้องอยู่ใน layer** — กดเครื่องมือวาดแล้วยังไม่มี layer ชนิดนั้น: เจ้าของ group/โหมดทดลองเปิด `LayerDialog` (ล็อกชนิด, `thenDraw`) สร้างก่อนแล้วเริ่มวาดต่อเอง (`needsLayerFirst` ใน App) / สมาชิกทั่วไปขึ้นแถบแดงให้ไปบอกเจ้าของ group; server ปฏิเสธ POST ที่ไม่มี `layer_id` (422)
+    feature **เก่า**ที่ `layer_id` null ยังอยู่ได้ (แท็บ "ไม่มี layer" = `NO_LAYER_ID`, วาดสีเทาล่างสุด) ย้ายเข้า layer ได้แต่เอาออกจาก layer ไม่ได้
+    **ลบ layer = ลบ feature ใน layer ด้วย** (+ ตารางย่อย/แถว) ทั้ง server และ `removeGuestLayer`
   - layer = กลุ่ม feature: รูปทรงชนิดเดียว + สี + หัวข้อ property (`lib/layers.ts`) — key ของหัวข้อสุ่มให้ไม่เปลี่ยน (เปลี่ยน label ได้ ค่าไม่หาย)
   - ใน properties เก็บแบบแบน: `layer_id` + ค่าของแต่ละหัวข้อ (key = `f_xxxx`) — แปลงไป/กลับด้วย `propsOf` / `toStoredProps` (`lib/featureMeta.ts`)
-  - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ, ลบ layer = feature ใน layer ถูกลบด้วย
+  - ลบหัวข้อ/เปลี่ยนชนิดหัวข้อ = ค่าเดิมถูกลบ
   - UI: `LayerDialog` (สร้าง/แก้), `AttributeTable` (ตารางด้านล่างแผนที่ — ดับเบิลคลิกช่องแก้ค่า, ปุ่ม + เพิ่มคอลัมน์, ดินสอที่หัวคอลัมน์เปลี่ยนชื่อ), กลุ่มตาม layer ใน `FeaturePanel`
     ปุ่มเปิดตารางอยู่ใน `MapControls` — จอคอม: ตารางอยู่นอก `.map-area` แล้ว App หดพื้นที่แผนที่ขึ้น (`tableDocked`) การ์ด/ปุ่มที่ลอยบนแผนที่เลยขยับตามเอง
     `DetailCard` ยืดลงเกือบสุดจอเสมอ และ `MapControls` ย้ายไปซ้ายของการ์ดเมื่อมีฟอร์ม / มือถือ: ตารางเต็มจอ
-  - **การ์ดรายละเอียด (`FeatureEditor`) ไม่มีค่าคอลัมน์/ตารางย่อยของ layer แล้ว** — แก้ใน attribute table อย่างเดียว (การ์ดเก็บ `values` เดิมไว้ส่งกลับตอนบันทึก); เปิดตาราง = ปิดการ์ด + ย่อรายการ + ซ่อน Toolbar/DrawFab (`openTable`, `showTable` ใน App)
+  - **การ์ดรายละเอียด (`FeatureEditor`) ไม่มีค่าคอลัมน์/ตารางย่อยของ layer แล้ว** — แก้ใน attribute table อย่างเดียว (การ์ดเก็บ `values` เดิมไว้ส่งกลับตอนบันทึก); เปิดตาราง = ปิดการ์ด + ย่อรายการ + ซ่อน DrawFab/DrawHint (`openTable`, `showTable` ใน App)
   - **ตารางย่อย (related table)**: layer มีได้หลายตาราง (เช่น "ปลาที่พบ") 1 feature มีได้หลายแถว — `RelatedTable` / `RelatedRecord` ใน `lib/layers.ts`
     นิยามตาราง (หัวข้อ) เก็บเป็นข้อมูล ไม่ได้สร้างตารางจริง → ผู้ใช้สร้างเองได้โดยไม่ต้องแก้ DB (`related_tables` + `related_records`, ค่าเป็น jsonb)
     แถวแก้ใน attribute table (`RelatedTableView`), attribute table มีคอลัมน์สรุปที่ระบบนับเอง (`summarize`: จำนวนแถว หรือค่าไม่ซ้ำของ `countKey`)
@@ -89,18 +94,25 @@ apps/web/src/
   - ห้าม `<form>` ซ้อนใน `<form>`: ตารางย่อยอยู่ในฟอร์ม feature → `AddColumn` ใช้ div + จัดการ Enter เอง (form ซ้อนทำให้ browser ส่งฟอร์มจริง → หน้า reload)
   - server ตรวจค่าด้วย `checkValues` (apps/shared/layers.ts) → 422, key ที่ไม่มีในหัวข้อถูกตัดทิ้ง; ลบ/เปลี่ยนชนิดหัวข้อ = `properties - key` ใน transaction
   - แปลงคอลัมน์เป็นตารางย่อยตอน login ทำที่ server endpoint เดียว (`/api/layers/:id/fields/:key/to-table`) แล้วเว็บโหลดใหม่ (`reloadLayerData`)
+- **สถานะโหลด** (`lib/loadState.ts`): `useFeatureData`/`useLayerData` คืน `{ state, retry }` (loading / refreshing / ready / error; โหมดทดลอง = ready) → App รวมด้วย `mergeLoadState` → `LoadingPill` (กลางบนแผนที่, รอ 300ms ผ่าน `useDelayedFlag`, error = สีแดง + ลองใหม่) + `ListSkeleton` ใน FeaturePanel/MobileFeatureList/AttributeTable (prop `loading`) — ระหว่างโหลดครั้งแรกห้ามขึ้น "ยังไม่มี layer/ข้อมูล" และ `layerMissing` เป็น false
 - เปลี่ยนบัญชี/group → `viewKey` เปลี่ยน → ล้าง items แล้ว `useFeatureData` โหลดชุดใหม่
 - เทียบรูปทรงที่ 6 ทศนิยม (`sameGeometry`) เพราะ PostGIS ตอบละเอียดกว่าที่วาดบนเว็บ
 - **items ใน App คือข้อมูลจริง** แผนที่แค่วาดตาม (`setFeatureData`); รูปที่กำลังแก้/ย้ายอยู่ใน draw และถูกซ่อนจาก source ปกติ
-  id ใน draw: แก้ = `f<id>`, ย้าย (Move) = `m<id>`, วาดใหม่ = id ที่ draw สร้าง
+  id ใน draw: แก้ = `f<id>`, วาดใหม่ = id ที่ draw สร้าง
 - MapLibre 6: `maxBounds` กว้างครบ 360° ทำให้พัง (ใช้ ±179.99), ต้อง `setWorkerUrl` ไม่งั้น Vite หาไฟล์ worker ไม่เจอ (vector tile ไม่ถูกแปลง)
-- โหมด 3D (ปุ่มใน Toolbar): เอียง 60° + หมุนได้ + ภูเขา (raster-dem ของ AWS Terrarium + hillshade, โหลดเฉพาะตอนเปิด 3D)
+- โหมด 3D (ปุ่ม 3D ใน MapControls): เอียง 60° + หมุนได้ + ภูเขา (raster-dem ของ AWS Terrarium + hillshade, โหลดเฉพาะตอนเปิด 3D)
   + ตึก `building-3d` ที่มีใน style Liberty (ซูม ≥ 14)
-  ระหว่างวาด/แก้/Move แผนที่กลับเป็น 2D ชั่วคราว (`mustBeFlat` ใน App.tsx) เพราะ draw ทำงานคลาดเมื่อแผนที่เอียง
+  ระหว่างวาด/แก้ แผนที่กลับเป็น 2D ชั่วคราว (`mustBeFlat` ใน App.tsx) เพราะ draw ทำงานคลาดเมื่อแผนที่เอียง
 - ลดกระตุกตอนซูม: worker แปลง tile 2–4 ตัว (`setWorkerCount`) + cache 8 ระดับซูม (`maxTileCacheZoomLevels`) — เคยลองหน้า loading + โหลด tile ล่วงหน้าแล้ว ไม่จำเป็น เอาออก
 - ทดสอบใน tab ที่ถูกซ่อน (เช่น browser pane ที่ไม่ได้แสดง): requestAnimationFrame หยุด → MapLibre ไม่วาด / ไม่ยิง load — ไม่ใช่บั๊ก
 - Nominatim: ไม่เกิน 1 req/วินาที (`MIN_INTERVAL_MS` ใน SearchBox) — autocomplete ใช้ debounce + cache + AbortController ยกเลิกคำค้นเก่า
 - มือถือ: input ต้อง `text-base` (16px) กัน iOS ซูมเอง
+
+## ลำดับ layer (z-order) + ซ่อน layer — ส่วนตัวต่อบัญชี
+- เก็บใน `user_layer_preferences` (user_id, layer_id, position, visible) — API `GET/PUT /api/layer-preferences` (`routes/layerPrefs.ts`; PUT = แทนทั้งชุด ลำดับใน array = บนสุด→ล่างสุด, layer นอก group ถูกตัดทิ้ง) ไม่ใช่เจ้าของ group ก็เรียงได้; ลบ layer = cascade; รัน `apps/server/sql/layer_prefs.sql` (RLS) หลัง `db:push`
+- โหมดทดลองเก็บใน guestStore (`layerPrefs`); ฝั่งเว็บ `hooks/useLayerPrefs.ts` (optimistic + debounce 600ms + ย้อนกลับเมื่อพลาด, ไม่ poll/Realtime) และ `orderLayers` ใน `lib/layers.ts` (layer ที่ยังไม่มี pref อยู่บนสุด ใหม่สุดก่อน)
+- แผนที่: ต่อ layer มี source `lyr-<id>` + ชั้นย่อย (Polygon fill/halo/line, Line halo/line, Point cluster/cluster-count/point-halo/point) จัดลำดับด้วย `syncLayerStack` (`lib/mapLayers.ts`) วางใต้ `crosshair-fill`; feature ไม่มี layer อยู่ `shapes`/`points` ล่างสุด; ซ่อน = visibility ของชั้น (ไม่แตะข้อมูล)
+- hit-test ใช้ `hitLayerIds`/`clusterLayerIds` (ตัวบนสุดตรงจุดคลิกชนะ); UI: ปุ่ม "เรียงลำดับ" → `LayerOrderList` (ลาก ⠿ ด้วย `hooks/useSortable.ts` + ปุ่ม ↑↓ + ตา)
 
 ## งานที่วางแผนไว้
 แผนละเอียด: `~/.claude/plans/home-panapong-downloads-docx-mossy-nautilus.md`
