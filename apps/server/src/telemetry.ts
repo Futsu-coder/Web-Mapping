@@ -35,11 +35,13 @@ const accessLog = new Elysia({ name: 'access-log' })
   .onError({ as: 'global' }, ({ request, error }) => {
     failures.set(request, error)
   })
-  .onAfterResponse({ as: 'global' }, ({ request, route, set }) => {
+  .onAfterResponse({ as: 'global' }, ({ request, route, set, ...ctx }) => {
     const ms = performance.now() - (started.get(request) ?? performance.now())
     const status = typeof set.status === 'number' ? set.status : 200
     const path = new URL(request.url).pathname
     const failure = failures.get(request)
+    // route ที่ผ่าน auth (auth.ts) จะมี user -> รู้ว่าใครเรียก / route ที่ไม่ต้อง login ไม่มี
+    const user = (ctx as { user?: { id: string; username: string } }).user
 
     getLogger().emit({
       severityNumber: status >= 500 ? SeverityNumber.ERROR : status >= 400 ? SeverityNumber.WARN : SeverityNumber.INFO,
@@ -50,13 +52,28 @@ const accessLog = new Elysia({ name: 'access-log' })
         ...(route && { 'http.route': route }), // ไม่มี route ที่ตรง (เช่น 404) ก็ไม่ใส่ ตาม semconv
         'http.response.status_code': status,
         'url.path': path,
+        // semconv user.*: ใครเป็นคนเรียก (Error Tracking นับได้ว่ากี่คนเจอ)
+        ...(user && { 'user.id': user.id, 'user.name': user.username }),
         // semconv: ฝั่ง server นับเป็น error เฉพาะ 5xx
         ...(status >= 500 && { 'error.type': String(status) }),
-        ...(status >= 500 && failure instanceof Error && { 'exception.type': failure.name, 'exception.message': failure.message })
+        // semconv exceptions: type + message + stacktrace (stacktrace บอกว่าพังที่ไฟล์/บรรทัดไหน)
+        ...(status >= 500 &&
+          failure instanceof Error && {
+            'exception.type': failure.name,
+            'exception.message': failure.message,
+            ...(failure.stack && { 'exception.stacktrace': failure.stack })
+          })
       }
     })
   })
 
+// route ทดสอบ: GET /api/debug/error พังทุกครั้ง ไว้ลอง Error Tracking ของ Telemetry Collection Service
+// มีเฉพาะตอนเปิด telemetry (ตั้ง OTEL_EXPORTER_OTLP_ENDPOINT) — รันปกติ/Vercel ไม่มี route นี้
+function simulateFailure(): never {
+  throw new Error('debug: จำลอง error สำหรับทดสอบ Error Tracking')
+}
+const debugRoutes = new Elysia({ name: 'telemetry-debug' }).get('/debug/error', () => simulateFailure())
+
 export const telemetry = enabled
-  ? new Elysia({ name: 'telemetry' }).use(opentelemetry({ serviceName })).use(accessLog)
+  ? new Elysia({ name: 'telemetry' }).use(opentelemetry({ serviceName })).use(accessLog).use(debugRoutes)
   : new Elysia()
