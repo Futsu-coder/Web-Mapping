@@ -17,16 +17,22 @@ export function formatDistance(meters: number): string {
 export class FixedScaleControl implements IControl {
   private map?: MlMap;
   private el?: HTMLDivElement;
+  private label?: HTMLSpanElement;
 
   onAdd(map: MlMap): HTMLElement {
     this.map = map;
-    // ใช้ class เดิมของ MapLibre → ได้สไตล์ใน index.css และตำแหน่งยกเหนือแผ่นล่างบนมือถือ
+    // ใช้ class ของเราเอง (ไม่ใช้ maplibregl-ctrl-scale เพราะ css ของ MapLibre ทับสไตล์เรา) — ตำแหน่งยกเหนือแผ่นล่างบนมือถือผูกกับ .maplibregl-ctrl-bottom-left อยู่แล้ว
     const el = document.createElement("div");
-    el.className = "maplibregl-ctrl maplibregl-ctrl-scale";
-    el.style.width = `${WIDTH_PX}px`;
-    el.style.boxSizing = "border-box";
-    el.style.textAlign = "center";
+    el.className = "maplibregl-ctrl map-scale";
+    // การ์ดลอยแถวเดียว: เส้นสเกล (ขีดปลาย teal) + ตัวเลขข้างขวา (สไตล์อยู่ใน index.css)
+    const bar = document.createElement("div");
+    bar.className = "map-scale-bar";
+    bar.style.width = `${WIDTH_PX}px`;
+    const label = document.createElement("span");
+    label.className = "map-scale-label";
+    el.append(bar, label);
     this.el = el;
+    this.label = label;
     map.on("move", this.update);
     map.on("resize", this.update);
     map.on("terrain", this.update); // เปิด/ปิด 3D เปลี่ยนผล unproject แต่ไม่ยิง move
@@ -41,15 +47,16 @@ export class FixedScaleControl implements IControl {
     this.el?.remove();
     this.map = undefined;
     this.el = undefined;
+    this.label = undefined;
   }
 
   private update = () => {
-    const { map, el } = this;
-    if (!map || !el) return;
+    const { map, label } = this;
+    if (!map || !label) return;
     const c = map.getContainer();
     const y = c.clientHeight / 2;
     const x = c.clientWidth / 2;
     const meters = map.unproject([x - WIDTH_PX / 2, y]).distanceTo(map.unproject([x + WIDTH_PX / 2, y]));
-    el.textContent = formatDistance(meters);
+    label.textContent = formatDistance(meters);
   };
 }

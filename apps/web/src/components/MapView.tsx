@@ -108,10 +108,11 @@ export default function MapView({ className, onReady }: { className?: string; on
       maxTileCacheZoomLevels: 8,
       validateStyle: false, // style ของ OpenFreeMap เชื่อถือได้ ข้ามการตรวจเพื่อเริ่มวาดเร็วขึ้น
     });
+    // สเกลความยาวคงที่ (เลขเปลี่ยนตามซูม) ทั้งมือถือและคอม
+    // ลำดับ add สำคัญ: คอนโทรลที่ add ทีหลังอยู่ซ้ายสุด → add สเกลก่อน (i) จะได้อยู่ซ้าย สเกลอยู่ถัดไปทางขวา
+    map.addControl(new FixedScaleControl(), "bottom-left");
     // ย่อเป็นปุ่ม (i) ซ้ายล่าง — กันข้อความเครดิตบังแผนที่บนมือถือ และไม่เบียดปุ่ม 2D/3D ขวาล่าง
     map.addControl(new AttributionControl({ compact: true }), "bottom-left");
-    // สเกลความยาวคงที่ (เลขเปลี่ยนตามซูม) ทั้งมือถือและคอม
-    map.addControl(new FixedScaleControl(), "bottom-left");
     // MapLibre กาง credit เองตอน style โหลดครั้งแรก → ยุบกลับเป็นปุ่มวงกลมทันที (ครั้งเดียว) ให้ผู้ใช้กดเปิดเอง
     const collapseAttrib = () => {
       const el = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
