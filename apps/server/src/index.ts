@@ -7,6 +7,7 @@ import { layerPrefRoutes } from './routes/layerPrefs'
 import { layerRoutes } from './routes/layers'
 import { notificationRoutes } from './routes/notifications'
 import { recordRoutes } from './routes/records'
+import { telemetry } from './telemetry'
 
 // หน้า docs (/api/openapi) เปิดเฉพาะตอน dev — บน Vercel (NODE_ENV=production) ปิดไว้
 // ถ้าต้องการเปิดชั่วคราว (เช่น ตอนนำเสนอ) ตั้ง ENABLE_DOCS=true
@@ -21,6 +22,7 @@ const docs = docsEnabled
   : new Elysia()
 
 export const app = new Elysia({ prefix: '/api' })
+  .use(telemetry)
   .use(docs)
   .get('/health', () => ({ status: 'ok' }))
   .use(authRoutes)
