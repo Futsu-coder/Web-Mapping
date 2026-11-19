@@ -1,7 +1,7 @@
 // โหมดทดลอง (ยังไม่ login): เก็บ feature และ layer ไว้ใน localStorage ของเบราว์เซอร์นี้ — refresh แล้วยังอยู่
 // ลบทิ้งทั้งชุดเมื่อครบ 1 ชั่วโมงนับจากสิ่งแรกที่สร้าง (แก้ไขไม่ได้ต่อเวลา จะได้บอกเวลาลบที่แน่นอนได้)
 import type { ApiFeature } from "../api";
-import type { Layer, RelatedRecord, RelatedTable } from "./layers";
+import type { Layer, LayerPref, RelatedRecord, RelatedTable } from "./layers";
 
 export const GUEST_TTL_MS = 60 * 60 * 1000;
 /** key ใน localStorage — App ฟัง event `storage` ของ key นี้เพื่อซิงก์ระหว่างแถบ */
@@ -17,6 +17,7 @@ type Stored = {
   layers?: Layer[];
   tables?: RelatedTable[];
   records?: RelatedRecord[];
+  layerPrefs?: LayerPref[];
 };
 
 // id ติดลบ (ไม่ชนกับ id จริงจาก database) — สำรองไว้ในหน่วยความจำเผื่อ storage ใช้ไม่ได้
@@ -52,6 +53,7 @@ export const loadGuest = (): ApiFeature[] => read()?.features ?? [];
 export const loadGuestLayers = (): Layer[] => read()?.layers ?? [];
 export const loadGuestTables = (): RelatedTable[] => read()?.tables ?? [];
 export const loadGuestRecords = (): RelatedRecord[] => read()?.records ?? [];
+export const loadGuestLayerPrefs = (): LayerPref[] => read()?.layerPrefs ?? [];
 
 /** เขียนกลับ — ไม่เหลือทั้ง feature และ layer = ล้างทั้งชุด (สร้างใหม่ = เริ่มนับ 1 ชั่วโมงใหม่) */
 const save = (s: Stored) => write(s.features.length || s.layers?.length ? s : null);
@@ -105,26 +107,21 @@ export function upsertGuestLayer(layer: Layer) {
 }
 
 /**
- * ลบ layer — feature ใน layer ไม่ถูกลบ กลายเป็น "ไม่มี layer" (ค่าของหัวข้อ layer นี้ถูกล้าง) เหมือนฝั่ง API
- * ตารางย่อยของ layer + แถวในตารางเหล่านั้นถูกลบ
+ * ลบ layer — feature ใน layer ถูกลบด้วย เหมือนฝั่ง API
+ * ตารางย่อยของ layer + แถวของตารางเหล่านั้น + แถวของ feature ที่ถูกลบ
  */
 export function removeGuestLayer(id: number) {
   const s = read();
   if (!s) return;
-  const keys = s.layers?.find((l) => l.id === id)?.fields.map((f) => f.key) ?? [];
   const tableIds = new Set(s.tables?.filter((t) => t.layerId === id).map((t) => t.id));
+  const goneFeatures = new Set(s.features.filter((f) => f.properties.layer_id === id).map((f) => f.id));
   save({
     ...s,
     layers: (s.layers ?? []).filter((l) => l.id !== id),
-    features: s.features.map((f) => {
-      if (f.properties.layer_id !== id) return f;
-      const properties = { ...f.properties };
-      delete properties.layer_id;
-      for (const k of keys) delete properties[k];
-      return { ...f, properties };
-    }),
+    layerPrefs: s.layerPrefs?.filter((p) => p.layerId !== id),
+    features: s.features.filter((f) => !goneFeatures.has(f.id)),
     tables: s.tables?.filter((t) => !tableIds.has(t.id)),
-    records: s.records?.filter((r) => !tableIds.has(r.tableId)),
+    records: s.records?.filter((r) => !tableIds.has(r.tableId) && !goneFeatures.has(r.featureId)),
   });
 }
 
@@ -160,3 +157,9 @@ export function removeGuestRecord(id: number) {
 }
 
 export const clearGuest = () => write(null);
+
+/** บันทึกลำดับ/การซ่อน layer ของโหมดทดลอง (ไม่เริ่มนับเวลาใหม่ — ไม่มีข้อมูลก็ไม่เก็บ) */
+export function saveGuestLayerPrefs(layerPrefs: LayerPref[]) {
+  const s = read();
+  if (s) save({ ...s, layerPrefs });
+}

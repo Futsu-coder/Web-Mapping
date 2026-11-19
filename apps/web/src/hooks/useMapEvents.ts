@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { GeoJSONSource, MapMouseEvent, MapTouchEvent, PointLike } from "maplibre-gl";
 import type { MapCtx } from "../components/MapView";
-import { CLUSTER_LAYER, HIT_LAYERS, POINTS } from "../lib/mapLayers";
+import { clusterLayerIds, hitLayerIds } from "../lib/mapLayers";
 
 type DrawFeature = GeoJSON.Feature & { id: string };
 
@@ -13,7 +13,7 @@ export type MapHandlers = {
   onHover: (id: number | null) => void;
   /** วาดเสร็จ 1 ชิ้น (mapbox-gl-draw) */
   onDrawCreate: (f: DrawFeature) => void;
-  /** ลากจุด / ย้ายทั้งก้อนเสร็จ — action = "change_coordinates" | "move" */
+  /** ลากจุดเสร็จ — action = "change_coordinates" */
   onDrawUpdate: (f: DrawFeature, action: string) => void;
   /** สิ่งที่เลือกใน draw เปลี่ยน (เช่น คลิกพื้นที่ว่างระหว่างแก้ = ไม่มีอะไรถูกเลือก) */
   onDrawSelectionChange: (selected: DrawFeature[]) => void;
@@ -36,7 +36,7 @@ const around = (p: XY, r: number): PointLike | [PointLike, PointLike] =>
   r ? [[p.x - r, p.y - r], [p.x + r, p.y + r]] : [p.x, p.y];
 
 const fidOf = (p: XY, ctx: MapCtx, r = 0) => {
-  const f = ctx.map.queryRenderedFeatures(around(p, r), { layers: HIT_LAYERS })[0];
+  const f = ctx.map.queryRenderedFeatures(around(p, r), { layers: hitLayerIds(ctx.map) })[0];
   return f ? Number(f.properties.fid) : null;
 };
 
@@ -56,10 +56,11 @@ export function useMapEvents(ctx: MapCtx | null, handlers: MapHandlers) {
     const handleTap = async (point: XY, lngLat: { lng: number; lat: number }, touch: boolean) => {
       if (drawing()) return;
       const r = touch ? TOUCH_R : 0;
-      // คลิก cluster = ซูมเข้าจนกลุ่มแตก
-      const cluster = map.queryRenderedFeatures(around(point, r), { layers: [CLUSTER_LAYER] })[0];
+      // คลิก cluster = ซูมเข้าจนกลุ่มแตก — แต่ต้องเป็นตัวบนสุดตรงจุดนั้น (ถ้า polygon ของ layer ที่อยู่เหนือทับอยู่ = เลือก polygon)
+      const top = map.queryRenderedFeatures(around(point, r), { layers: [...clusterLayerIds(map), ...hitLayerIds(map)] })[0];
+      const cluster = top && top.properties.cluster_id !== undefined ? top : undefined;
       if (cluster) {
-        const source = map.getSource(POINTS) as GeoJSONSource;
+        const source = map.getSource(cluster.source) as GeoJSONSource;
         const zoom = await source.getClusterExpansionZoom(Number(cluster.properties.cluster_id));
         map.easeTo({ center: (cluster.geometry as GeoJSON.Point).coordinates as [number, number], zoom });
         return;
@@ -97,7 +98,7 @@ export function useMapEvents(ctx: MapCtx | null, handlers: MapHandlers) {
     let hovered: number | null = null;
     const onMove = (e: MapMouseEvent) => {
       const id = drawing() ? null : fidOf(e.point, ctx);
-      const overCluster = !drawing() && map.queryRenderedFeatures(e.point, { layers: [CLUSTER_LAYER] }).length > 0;
+      const overCluster = !drawing() && map.queryRenderedFeatures(e.point, { layers: clusterLayerIds(map) }).length > 0;
       map.getCanvas().style.cursor = id !== null || overCluster ? "pointer" : "";
       if (id === hovered) return;
       hovered = id;

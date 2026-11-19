@@ -1,21 +1,25 @@
 import type { Map as MlMap } from "maplibre-gl";
 import { LocateFixedIcon, PlusIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { DRAW_TOOLS } from "../../lib/drawTools";
+import type { DrawShape } from "../../lib/types";
 import type { MobileDraw } from "../../hooks/useCrosshairDraw";
 import { formatArea, formatLength, lineLength, polygonArea } from "../../lib/measure";
-
-const LABEL = { Marker: "Point", Line: "Line", Polygon: "Polygon" } as const;
 
 /** แผ่นล่างตอนวาด: ชนิด + ตัวเลขวัดแบบสด + ปุ่มเพิ่มจุด */
 export default function DrawSheet({
   draw,
   mapRef,
   onAdd,
+  onSwitch,
   onError,
 }: {
   draw: MobileDraw;
   mapRef: React.MutableRefObject<MlMap | null>;
   onAdd: (p: GeoJSON.Position) => void;
+  /** สลับชนิดที่วาด (ผู้เรียกถามยืนยันถ้ามีจุดแล้ว) */
+  onSwitch: (shape: DrawShape) => void;
   onError: (err: unknown) => void;
 }) {
   const n = draw.points.length;
@@ -52,10 +56,20 @@ export default function DrawSheet({
       <div className="pb-safe absolute inset-x-0 bottom-0 z-30 rounded-t-2xl border-t border-black/5 bg-card shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
         <div className="flex flex-col gap-3 px-4 pt-3.5 pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-primary" />
-              <span className="text-base leading-tight font-bold">{LABEL[draw.shape]}</span>
-            </div>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={draw.shape}
+              aria-label="ชนิดที่วาด"
+              onValueChange={(v) => v && v !== draw.shape && onSwitch(v as DrawShape)}
+            >
+              {DRAW_TOOLS.map(({ shape, label, Icon }) => (
+                <ToggleGroupItem key={shape} value={shape} aria-label={label} className="h-10 gap-1.5 px-3 text-sm data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+                  <Icon className="size-4" />
+                  {label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
             <span className="text-xs font-medium text-muted-foreground">{measure}</span>
           </div>
           {draw.warning && (

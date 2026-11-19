@@ -116,7 +116,9 @@ async function parseInput(user: CurrentUser, body: FeatureInput) {
   const geo = await validateGeometry(body.geometry)
   const name = body.properties.name.trim() || body.geometry.type
   const layerId = body.properties.layer_id ?? null
-  const layer = layerId === null ? null : await layerFor(db, user, layerId, body.geometry.type)
+  // feature ใหม่ต้องอยู่ใน layer (ต้องสร้าง layer ก่อน)
+  if (layerId === null) throw new InvalidInput('ต้องเลือก layer ก่อน — สร้าง layer ชนิดนี้ก่อนแล้วค่อยวาด')
+  const layer = await layerFor(db, user, layerId, body.geometry.type)
   return { name, ...geo, layerId, properties: buildProperties(body.properties, layer) }
 }
 
@@ -219,6 +221,8 @@ export const featuresRoutes = new Elysia({ prefix: '/features', tags: ['features
         // layer ปลายทาง: ส่ง layer_id มา = เปลี่ยน/เอาออกจาก layer (null), ไม่ส่ง = layer เดิม
         const patch = body.properties ?? {}
         const layerId = patch.layer_id !== undefined ? patch.layer_id : current.layerId
+        // feature เก่าที่ยังไม่มี layer แก้อย่างอื่นได้ แต่สั่งเอาออกจาก layer ไม่ได้
+        if (patch.layer_id === null) throw new InvalidInput('feature ต้องอยู่ใน layer — เลือก layer อื่นแทนการเอาออก')
         const layerChanged = layerId !== current.layerId
         // ย้าย layer = ค่าของหัวข้อ layer เดิมไม่มีความหมายแล้ว → เริ่มจาก description อย่างเดียว
         const merged: Record<string, unknown> = layerChanged
