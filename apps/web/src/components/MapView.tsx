@@ -5,7 +5,7 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import { addFeatureLayers } from "../lib/mapLayers";
-import { FixedScaleControl } from "../lib/scaleControl";
+import { ScaleRulerControl } from "../lib/scaleControl";
 import { INITIAL_ZOOM, OSM_RASTER_STYLE, VECTOR_STYLE, WORLD_BOUNDS } from "../lib/mapStyle";
 
 // MapLibre 6 แยกไฟล์ worker (ใช้แปลง vector tile) และหาที่อยู่เองจากไฟล์หลัก — แต่ Vite ย้ายไฟล์หลักไปไว้ที่อื่นตอน pre-bundle
@@ -108,10 +108,11 @@ export default function MapView({ className, onReady }: { className?: string; on
       maxTileCacheZoomLevels: 8,
       validateStyle: false, // style ของ OpenFreeMap เชื่อถือได้ ข้ามการตรวจเพื่อเริ่มวาดเร็วขึ้น
     });
+    // สเกลความยาวคงที่ (เลขเปลี่ยนตามซูม) ทั้งมือถือและคอม — ลากออกมาเป็นไม้บรรทัด ยืด/หมุนได้ (ดู lib/scaleControl.ts)
+    // ลำดับ add สำคัญ: คอนโทรลที่ add ทีหลังอยู่ซ้ายสุด → add สเกลก่อน (i) จะได้อยู่ซ้าย สเกลอยู่ถัดไปทางขวา
+    map.addControl(new ScaleRulerControl(), "bottom-left");
     // ย่อเป็นปุ่ม (i) ซ้ายล่าง — กันข้อความเครดิตบังแผนที่บนมือถือ และไม่เบียดปุ่ม 2D/3D ขวาล่าง
     map.addControl(new AttributionControl({ compact: true }), "bottom-left");
-    // สเกลความยาวคงที่ (เลขเปลี่ยนตามซูม) ทั้งมือถือและคอม
-    map.addControl(new FixedScaleControl(), "bottom-left");
     // MapLibre กาง credit เองตอน style โหลดครั้งแรก → ยุบกลับเป็นปุ่มวงกลมทันที (ครั้งเดียว) ให้ผู้ใช้กดเปิดเอง
     const collapseAttrib = () => {
       const el = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
