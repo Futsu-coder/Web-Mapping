@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { opentelemetry } from '@elysia/opentelemetry'
-import { metrics, trace } from '@opentelemetry/api'
+import { metrics, trace, SpanKind, SpanStatusCode, type Attributes } from '@opentelemetry/api'
 import { logs, SeverityNumber, type Logger } from '@opentelemetry/api-logs'
 
 // ส่ง traces + logs + metrics ไป Telemetry Collection Service ผ่าน OpenTelemetry (OTLP)
@@ -43,6 +43,23 @@ export async function flushTelemetry(timeoutMs = 5000) {
     providers.map((p) => ((p.getDelegate?.() ?? p) as Flushable).forceFlush?.())
   )
   await Promise.race([work, Bun.sleep(timeoutMs)])
+}
+
+// ครอบงานที่อาจช้า (เช่นคุยกับ Supabase / Postgres) เป็น span ลูกของ request -> ดูใน trace ได้ว่าช้าที่ขั้นไหน
+// ไม่ได้เปิด telemetry = tracer ว่าง (no-op) ไม่มีผลอะไร
+// ต้องขอ tracer ตอนเรียก ไม่ใช่ตอนโหลดไฟล์: ถ้าขอก่อน SDK เริ่ม (opentelemetry() ข้างล่าง) จะได้ tracer ว่างค้างไว้ตลอด
+export function traced<T>(name: string, opts: { kind?: SpanKind; attributes?: Attributes }, fn: () => Promise<T>): Promise<T> {
+  return trace.getTracer(serviceName).startActiveSpan(name, opts, async (span) => {
+    try {
+      return await fn()
+    } catch (e) {
+      if (e instanceof Error) span.recordException(e)
+      span.setStatus({ code: SpanStatusCode.ERROR })
+      throw e
+    } finally {
+      span.end()
+    }
+  })
 }
 
 // ขนาด body ที่ส่งกลับ (byte) สำหรับ semconv http.response.body.size — ใช้คิดบิลตามขนาด response
