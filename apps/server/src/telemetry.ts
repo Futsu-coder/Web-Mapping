@@ -25,6 +25,29 @@ function getLogger() {
   return logger
 }
 
+// ขนาด body ที่ส่งกลับ (byte) สำหรับ semconv http.response.body.size — ใช้คิดบิลตามขนาด response
+// รู้ไม่ได้ (stream, error ที่ Elysia แปลงเอง, Response ไม่มี content-length) -> undefined = ไม่ใส่ field
+// ห้ามเดาเป็น 0 ฝั่งระบบเก็บ log จะได้นับได้ว่ามีกี่ request ที่ไม่รู้ขนาด
+function bodySize(value: unknown, status: number): number | undefined {
+  // ไม่มีค่าที่คืนมา: 204/304 ไม่มี body ตามมาตรฐาน HTTP = 0 จริง / อย่างอื่น (เช่น error) Elysia สร้าง body เอง -> ไม่รู้
+  if (value === undefined || value === null) return status === 204 || status === 304 ? 0 : undefined
+  if (typeof value === 'string') return Buffer.byteLength(value)
+  if (typeof value === 'number' || typeof value === 'boolean') return Buffer.byteLength(String(value))
+  if (value instanceof Response) {
+    const len = value.headers.get('content-length')
+    return len === null ? undefined : Number(len)
+  }
+  if (value instanceof Blob) return value.size
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value.byteLength
+  if (value instanceof Error || value instanceof ReadableStream || typeof value === 'function') return undefined
+  if (typeof value === 'object' && Symbol.asyncIterator in value) return undefined
+  try {
+    return Buffer.byteLength(JSON.stringify(value)) // object/array Elysia ส่งเป็น JSON
+  } catch {
+    return undefined
+  }
+}
+
 const started = new WeakMap<Request, number>()
 const failures = new WeakMap<Request, unknown>()
 
@@ -42,6 +65,7 @@ const accessLog = new Elysia({ name: 'access-log' })
     const failure = failures.get(request)
     // route ที่ผ่าน auth (auth.ts) จะมี user -> รู้ว่าใครเรียก / route ที่ไม่ต้อง login ไม่มี
     const user = (ctx as { user?: { id: string; username: string } }).user
+    const size = bodySize((ctx as { responseValue?: unknown }).responseValue, status)
 
     getLogger().emit({
       severityNumber: status >= 500 ? SeverityNumber.ERROR : status >= 400 ? SeverityNumber.WARN : SeverityNumber.INFO,
@@ -51,6 +75,7 @@ const accessLog = new Elysia({ name: 'access-log' })
         'http.request.method': request.method,
         ...(route && { 'http.route': route }), // ไม่มี route ที่ตรง (เช่น 404) ก็ไม่ใส่ ตาม semconv
         'http.response.status_code': status,
+        ...(size !== undefined && { 'http.response.body.size': size }),
         'url.path': path,
         // semconv user.*: ใครเป็นคนเรียก (Error Tracking นับได้ว่ากี่คนเจอ)
         ...(user && { 'user.id': user.id, 'user.name': user.username }),
