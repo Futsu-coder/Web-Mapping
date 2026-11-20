@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { FeatureProps } from "../api";
 import { ListSkeleton } from "./LoadingPill";
@@ -345,7 +346,14 @@ export default function AttributeTable({
         <span className="shrink-0 text-sm font-bold">Attribute table</span>
         {!mobile && <span className="shrink-0 text-xs text-muted-foreground">ดับเบิลคลิกช่องเพื่อแก้</span>}
         <div className="no-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto px-1 py-0.5">
-          {layers.map((l) => (
+          {/* ระหว่างโหลด (รอครบทั้งชุด) แท็บ layer/ตารางย่อย + ตัวเลขนับยังไม่โชว์ — เป็นแถบเทาแทน */}
+          {loading ? (
+            <>
+              <Skeleton className="h-7 w-24 rounded-full" />
+              <Skeleton className="h-7 w-20 rounded-full" style={{ opacity: 0.7 }} />
+            </>
+          ) : null}
+          {(loading ? [] : layers).map((l) => (
             <Button
               key={l.id}
               type="button"
@@ -364,7 +372,7 @@ export default function AttributeTable({
               <span className="opacity-70">({items.filter((i) => i.props.layerId === l.id).length})</span>
             </Button>
           ))}
-          {noLayerItems.length > 0 && (
+          {!loading && noLayerItems.length > 0 && (
             <Button
               type="button"
               size="xs"
@@ -382,7 +390,7 @@ export default function AttributeTable({
               <span className="opacity-70">({noLayerItems.length})</span>
             </Button>
           )}
-          {layerTables.length > 0 && (
+          {!loading && layerTables.length > 0 && (
             <>
               <Separator orientation="vertical" className="mx-1 h-5 self-center" />
               <Button
@@ -431,7 +439,7 @@ export default function AttributeTable({
         </Alert>
       )}
 
-      {!layer && loading ? (
+      {loading ? (
         <ListSkeleton loading rows={4} className="flex flex-col gap-2 p-3" />
       ) : !layer ? (
         <p className="m-auto px-4 text-center text-sm text-muted-foreground">{canManage ? 'ยังไม่มี layer — สร้างจากปุ่ม "+ Layer" ในพาเนลรายการ' : "ยังไม่มี layer — เจ้าของ group เป็นคนสร้าง layer"}</p>

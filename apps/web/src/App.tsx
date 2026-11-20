@@ -251,8 +251,21 @@ export default function App() {
   }
   const featureLoad = useFeatureData(viewKey, guest, setItems, onError);
   const layerLoad = useLayerData(viewKey, guest, setLayers, setTables, setRecords, onError);
+  // ลำดับ (z-order) + การซ่อน layer: ส่วนตัวของบัญชีนี้ — orderedLayers เรียงบนสุด → ล่างสุด
+  // (อยู่ก่อน loadState เพราะต้องรอ prefs ด้วย ไม่งั้นโผล่ตามลำดับเริ่มต้นแล้วค่อยสลับ)
+  const {
+    ordered: orderedLayers,
+    hidden: hiddenLayers,
+    move: moveLayer,
+    setVisible: setLayerVisible,
+    ready: prefsReady,
+  } = useLayerPrefs(viewKey, guest, layers, onError);
   // สถานะโหลดรวม (โหมดทดลอง = ready เสมอ) — loading = ยังโหลดครั้งแรกไม่เสร็จ: ห้ามขึ้น "ยังไม่มี layer/ข้อมูล"
-  const loadState = accountFailed ? "error" : accountPending ? "loading" : mergeLoadState(featureLoad.state, layerLoad.state);
+  const loadState = accountFailed
+    ? "error"
+    : accountPending
+      ? "loading"
+      : mergeLoadState(featureLoad.state, layerLoad.state, prefsReady ? "ready" : "loading");
   const loadingFirst = loadState === "loading" || loadState === "error";
   const retryLoad = () => {
     if (accountFailed) {
@@ -263,14 +276,6 @@ export default function App() {
     featureLoad.retry();
     layerLoad.retry();
   };
-  // ลำดับ (z-order) + การซ่อน layer: ส่วนตัวของบัญชีนี้ — orderedLayers เรียงบนสุด → ล่างสุด
-  const {
-    ordered: orderedLayers,
-    hidden: hiddenLayers,
-    move: moveLayer,
-    setVisible: setLayerVisible,
-  } = useLayerPrefs(viewKey, guest, layers, onError);
-
   // จัดการโครงสร้าง (layer / ตารางย่อย / คอลัมน์) ได้: โหมดทดลอง (เป็นเจ้าของทุกอย่าง) หรือเจ้าของ group
   const canManageLayers = guest || groupOwner;
   const layerOf = (item: Item) =>
@@ -302,7 +307,8 @@ export default function App() {
     if (!ctx) return;
     setFeatureData(
       ctx.map,
-      items.filter(
+      // ระหว่างโหลด (รอครบทั้งชุด) ยังไม่วาด — ให้ทุกส่วนโผล่พร้อมกัน ไม่ใช่รูปมาก่อนแล้วแถบเทายังค้าง
+      (loadingFirst ? [] : items).filter(
         (i) =>
           (filter === "All" || i.type === filter) && // ตัวกรองชนิด: แผนที่แสดงเฉพาะชนิดที่เลือก
           !hiddenIds.has(i.id) &&
@@ -312,7 +318,7 @@ export default function App() {
       (i) => layers.find((l) => l.id === i.props.layerId)?.color,
     );
     // layer ที่ซ่อนไม่ได้ถูกกรองออกจากข้อมูล — ซ่อนด้วย visibility ของชั้น (syncLayerStack) สลับตาแล้วไม่ต้องสร้าง feature ใหม่
-  }, [ctx, items, filter, hiddenIds, hiddenOwners, layers, orderedLayers, editingId]);
+  }, [ctx, items, filter, hiddenIds, hiddenOwners, layers, orderedLayers, editingId, loadingFirst]);
 
   // hover จากรายการหรือบนแผนที่ → ไฮไลต์บนแผนที่ / ที่เลือกอยู่ → เส้นหนาขึ้น
   useEffect(() => {
@@ -854,8 +860,8 @@ export default function App() {
 
   /** ขอสลับเครื่องมือ (DrawFab / DrawSheet / คีย์ลัด) — ถ้ามีจุดที่วางไว้แล้วถามยืนยันก่อน */
   const requestTool = (shape: DrawShape) => {
+    if (loadingFirst) return; // ปุ่ม/คีย์ลัดปิดอยู่แล้ว — ด่านสำรองเงียบๆ
     if (shape === currentTool) return;
-    if (loadingFirst) return onError(new Error("กำลังโหลดข้อมูล รอสักครู่แล้วค่อยวาด")); // layer ยังมาไม่ครบ บันทึกไปจะไม่มี layer_id
     const blocked = layerMissing(shape) && !canManageLayers; // สมาชิกวาดชนิดนี้ไม่ได้ → แจ้งเตือนอย่างเดียว ไม่ทิ้งที่วาดอยู่
     if (currentTool && hasDrawnPoints() && !blocked) return setPendingTool(shape);
     startTool(shape);
@@ -1141,21 +1147,25 @@ export default function App() {
     <AccountMenu
       className={className}
       me={activeMe}
+      loading={loadingFirst}
+      failed={loadState === "error"}
       hiddenOwners={hiddenOwners}
       onToggleOwner={toggleOwner}
       onLogin={openLogin}
       onLogout={logout}
       onRefresh={() => refreshMe().catch(onError)}
+      // รู้ userId แล้วก็วางกระดิ่งจริงเลย (ไม่รอ me) — กระดิ่งไม่ถูก mount ใหม่ตอน me มาถึง กล่องที่เปิดค้างไว้เลยไม่ปิดเอง
       bell={
-        activeMe && (
+        userId ? (
           <NotificationBell
-            key={activeMe.user.id}
-            userId={activeMe.user.id}
+            key={userId}
+            userId={userId}
             invitations={inv.invitations}
             busyInvitationId={inv.busyId}
             onAnswer={(i, action) => void inv.answer(i, action)}
+            waiting={loadingFirst}
           />
-        )
+        ) : null
       }
     />
   );
@@ -1231,8 +1241,7 @@ export default function App() {
           );
           const layerHint: Partial<Record<DrawShape, string>> = {};
           for (const t of DRAW_TOOLS) {
-            if (loadingFirst) layerHint[t.shape] = "กำลังโหลด…";
-            else if (layerMissing(t.shape)) layerHint[t.shape] = canManageLayers ? "สร้าง layer ก่อน" : "ยังไม่มี layer";
+            if (layerMissing(t.shape)) layerHint[t.shape] = canManageLayers ? "สร้าง layer ก่อน" : "ยังไม่มี layer";
           }
           const fab = (className: string) => (
             <DrawFab
@@ -1240,6 +1249,8 @@ export default function App() {
               onSelect={requestTool}
               onCancel={cancelDrawing}
               layerHint={layerHint}
+              disabled={loadingFirst}
+              busy={loadState === "loading"}
               showKeys={!isMobile}
               className={className}
             />
@@ -1286,7 +1297,7 @@ export default function App() {
             activeTool={activeTool}
             onSelect={requestTool}
             onCancel={cancelDrawing}
-            shortcutsEnabled={!selection || selection.mode === "view"}
+            shortcutsEnabled={!loadingFirst && (!selection || selection.mode === "view")}
           />
         )}
 
@@ -1297,7 +1308,7 @@ export default function App() {
             <MobileSheet
               open={panelOpen}
               onOpenChange={setPanelOpen}
-              featureCount={items.length}
+              featureCount={loadingFirst ? null : items.length}
               hasDetails={!!editor && !creating}
               creating={creating}
               selectionKey={selectionKey}
@@ -1449,7 +1460,7 @@ export default function App() {
           onClose={() => setTableDialog(null)}
         />
       )}
-      {activeMe && (
+      {activeMe && !loadingFirst && (
         <InvitationToasts
           invitations={inv.invitations}
           busyId={inv.busyId}

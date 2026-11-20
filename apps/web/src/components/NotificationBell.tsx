@@ -23,6 +23,7 @@ import {
 } from "../api";
 import { message } from "../lib/featureMeta";
 import { subscribeNotifications } from "../lib/realtime";
+import { ListSkeleton } from "./LoadingPill";
 
 const ICON: Record<NotificationKind, LucideIcon> = {
   invitation: MailIcon,
@@ -68,8 +69,11 @@ export default function NotificationBell({
   invitations,
   busyInvitationId,
   onAnswer,
+  waiting = false,
 }: {
   userId: string;
+  /** ข้อมูลอื่นของหน้ายังโหลดไม่ครบ → กล่องเป็น skeleton ต่อไปแม้รายการของเราโหลดเสร็จแล้ว */
+  waiting?: boolean;
   /** คำเชิญที่ยังรอตอบ — ตอบจากในกระดิ่งได้เลย */
   invitations: Invitation[];
   busyInvitationId: number | null;
@@ -80,43 +84,56 @@ export default function NotificationBell({
   const [unread, setUnread] = useState(0);
   const [fresh, setFresh] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
-
+  /** โหลดรายการครั้งแรกเสร็จแล้ว (สำเร็จหรือ error) — ก่อนหน้านั้นโชว์ skeleton */
+  const [loaded, setLoaded] = useState(false);
+  /** กล่องเปิดอยู่ไหม (ไว้ให้ callback ของ request อ่านค่าล่าสุด) */
   const openRef = useRef(false);
-  /** ถือว่าอ่านแล้วทั้งหมด: บอก server + จำ id ที่เพิ่งเห็นไว้ไฮไลต์ */
-  const readAll = useCallback((list: AppNotification[]) => {
-    const unreadIds = list.filter((n) => !n.readAt).map((n) => n.id);
-    if (!unreadIds.length) return list;
-    setFresh((s) => new Set([...s, ...unreadIds]));
-    setUnread(0);
-    markNotificationsRead().catch((err) => setError(message(err)));
-    const now = new Date().toISOString();
-    return list.map((n) => (n.readAt ? n : { ...n, readAt: now }));
-  }, []);
 
   const load = useCallback(() => {
     listNotifications()
       .then((r) => {
-        // เปิดค้างไว้แล้วมีรายการใหม่เข้ามา → อ่านแล้วทันที
-        if (openRef.current) {
-          setItems(readAll(r.items));
-        } else {
-          setItems(r.items);
-          setUnread(r.unread);
-        }
+        setItems(r.items);
+        setUnread(r.unread);
+        setLoaded(true);
       })
-      .catch((err) => setError(message(err)));
-  }, [readAll]);
+      .catch((err) => {
+        setError(message(err));
+        setLoaded(true);
+      });
+  }, []);
 
   useEffect(() => {
     load();
     return subscribeNotifications(userId, load);
   }, [userId, load]);
 
-  // เปิด = ถือว่าอ่านทั้งหมด / ปิด = เลิกไฮไลต์รายการที่เพิ่งเห็น
+  const showSkeleton = !loaded || waiting;
+
+  /** เปิดอยู่ + เห็นรายการจริงแล้ว (ไม่ใช่แถบเทา) = ผู้ใช้เห็นข้อความแล้ว → ไฮไลต์/เลข badge เป็นอ่านแล้วทันที */
+  const seen = open && !showSkeleton;
+  const badge = seen || showSkeleton ? 0 : unread; // ยังโหลดไม่ครบ = ไม่โชว์เลข (จะโผล่พร้อมส่วนอื่น)
+
+  // บอก server ว่าอ่านแล้วเฉพาะตอน seen — เปิดตอนยังเป็นแถบเทาห้าม mark read เพราะผู้ใช้ยังไม่เห็นข้อความ
+  // (รวมกรณีเปิดค้างไว้แล้วมีรายการใหม่เข้ามา) setState ทำใน callback ของ request เท่านั้น ไม่ใช่ตรงๆ ใน effect
+  useEffect(() => {
+    if (!seen) return;
+    const unreadIds = items.filter((n) => !n.readAt).map((n) => n.id);
+    if (!unreadIds.length) return;
+    markNotificationsRead()
+      .then(() => {
+        const now = new Date().toISOString();
+        // ปิดกล่องไปก่อนที่ request จะตอบ → ไม่ไฮไลต์ (ไม่งั้นเปิดครั้งหน้ารายการเก่าจะไฮไลต์ค้าง)
+        if (openRef.current) setFresh((s) => new Set([...s, ...unreadIds]));
+        setUnread(0);
+        setItems((list) => list.map((n) => (n.readAt ? n : { ...n, readAt: now })));
+      })
+      .catch((err) => setError(message(err)));
+  }, [seen, items]);
+
+  // ปิด = เลิกไฮไลต์รายการที่เพิ่งเห็น
   const onOpenChange = (next: boolean) => {
     openRef.current = next;
-    if (next) setItems(readAll(items));
-    else setFresh(new Set());
+    if (!next) setFresh(new Set());
     setOpen(next);
   };
 
@@ -145,12 +162,12 @@ export default function NotificationBell({
             size="icon"
             className="relative size-8 rounded-full"
             title="การแจ้งเตือน"
-            aria-label={unread ? `การแจ้งเตือน (ยังไม่อ่าน ${unread})` : "การแจ้งเตือน"}
+            aria-label={badge ? `การแจ้งเตือน (ยังไม่อ่าน ${badge})` : "การแจ้งเตือน"}
           >
             <BellIcon />
-            {unread > 0 && (
+            {badge > 0 && (
               <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-red-600 px-1 text-center text-[0.625rem] leading-4 font-bold text-white">
-                {unread > 99 ? "99+" : unread}
+                {badge > 99 ? "99+" : badge}
               </span>
             )}
           </Button>
@@ -159,7 +176,7 @@ export default function NotificationBell({
         <PopoverContent align="end" sideOffset={12} className="menu-drop flex max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] flex-col gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
           <div className="flex items-center justify-between border-b border-black/5 px-4 py-3">
             <span className="font-semibold">การแจ้งเตือน</span>
-            {items.length > 0 && (
+            {!showSkeleton && items.length > 0 && (
               <Button variant="link" className="h-auto p-0 text-xs text-muted-foreground hover:text-destructive" onClick={() => setConfirmClear(true)}>
                 ล้างทั้งหมด
               </Button>
@@ -167,12 +184,17 @@ export default function NotificationBell({
           </div>
 
           <ul className="min-h-0 flex-1 divide-y divide-black/5 overflow-y-auto">
-            {items.length === 0 && <li className="px-4 py-8 text-center text-muted-foreground">ยังไม่มีการแจ้งเตือน</li>}
-            {items.map((n) => {
+            {showSkeleton && (
+              <li>
+                <ListSkeleton loading rows={3} delay={0} className="flex flex-col gap-2 p-3" />
+              </li>
+            )}
+            {!showSkeleton && items.length === 0 && <li className="px-4 py-8 text-center text-muted-foreground">ยังไม่มีการแจ้งเตือน</li>}
+            {(showSkeleton ? [] : items).map((n) => {
               const inv = n.kind === "invitation" && n.action === "invited" && n.refId !== null ? pending.get(n.refId) : undefined;
               const Icon = ICON[n.kind];
               return (
-                <li key={n.id} className={cn("flex gap-3 px-4 py-2.5", fresh.has(n.id) && "bg-primary/10")}>
+                <li key={n.id} className={cn("flex gap-3 px-4 py-2.5", (fresh.has(n.id) || (seen && !n.readAt)) && "bg-primary/10")}>
                   <Icon className="mt-0.5 size-5 shrink-0 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p>{describe(n)}</p>

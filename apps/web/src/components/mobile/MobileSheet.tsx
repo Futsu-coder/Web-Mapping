@@ -31,7 +31,8 @@ export default function MobileSheet({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  featureCount: number;
+  /** null = ยังโหลดไม่ครบ (โชว์แถบเทาแทนตัวเลข) */
+  featureCount: number | null;
   hasDetails: boolean;
   creating: boolean;
   /** เปลี่ยนเมื่อเลือก feature ใหม่ → สลับมาแท็บรายละเอียดอัตโนมัติ */
@@ -155,7 +156,11 @@ export default function MobileSheet({
               <TabsTrigger value="features" onClick={() => pick("features")} className="h-9 gap-1.5 text-[0.8125rem] font-semibold">
                 <ListIcon />
                 รายการทั้งหมด
-                <span className="rounded-full bg-primary px-1.5 text-[0.6875rem] font-bold text-primary-foreground">{featureCount}</span>
+                {featureCount === null ? (
+                  <span className="h-4 w-5 animate-pulse rounded-full bg-primary/30 motion-reduce:animate-none" aria-hidden />
+                ) : (
+                  <span className="rounded-full bg-primary px-1.5 text-[0.6875rem] font-bold text-primary-foreground">{featureCount}</span>
+                )}
               </TabsTrigger>
             </TabsList>
           </Tabs>

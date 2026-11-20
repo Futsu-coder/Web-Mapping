@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, LogInIcon, LogOutIcon, PencilIcon, UsersIcon } from "lucide-react";
+import { BellIcon, CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, LogInIcon, LogOutIcon, PencilIcon, UsersIcon } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +17,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { invite, leaveGroup, renameGroup, type Me } from "../api";
 import { message } from "../lib/featureMeta";
+import { ListSkeleton, ProfileMenuSkeleton } from "./LoadingPill";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * บัญชี: ยังไม่ login = ปุ่มเข้าสู่ระบบ / login แล้ว = กระดิ่ง + avatar เปิดเมนู
@@ -31,6 +33,8 @@ export default function AccountMenu({
   onLogout,
   onRefresh,
   bell,
+  loading = false,
+  failed = false,
   className,
 }: {
   /** กระดิ่งการแจ้งเตือน (แสดงเมื่อ login แล้ว) */
@@ -43,6 +47,10 @@ export default function AccountMenu({
   onLogout: () => void;
   /** โหลด me ใหม่ (หลังเชิญ / ออกจาก group / เปลี่ยนชื่อ) */
   onRefresh: () => Promise<void>;
+  /** ข้อมูลยังโหลดไม่ครบ (บัญชี/feature/layer) → กดเปิดเมนูได้ แต่เนื้อหาเป็น skeleton */
+  loading?: boolean;
+  /** โหลดไม่สำเร็จ (ค้างเป็นแถบเทา) → ใต้แถบเทามีปุ่มออกจากระบบ */
+  failed?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -61,6 +69,38 @@ export default function AccountMenu({
     }
   };
 
+  // บัญชียังไม่มา: แคปซูลหน้าตาเดียวกับของจริง กระดิ่ง/avatar กดเปิดได้ แต่ข้างในเป็นแถบเทา (ไม่แวบเป็นปุ่มเข้าสู่ระบบ)
+  // โครงเดียวกับ branch จริงด้านล่าง (bell → Popover ที่ใช้ open เดียวกัน) เมนูที่เปิดค้างไว้จะไม่ปิดเองตอนบัญชีมา
+  if (!me && loading) {
+    return (
+      <div className={cn("flex h-10 items-center gap-0.5 rounded-full border border-black/5 bg-card p-1 shadow-float", className)}>
+        {bell ?? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-8 rounded-full" title="การแจ้งเตือน" aria-label="การแจ้งเตือน">
+                <BellIcon />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" sideOffset={12} className="menu-drop w-[min(24rem,calc(100vw-1.5rem))] gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
+              <div className="border-b border-black/5 px-4 py-3 font-semibold">การแจ้งเตือน</div>
+              <ListSkeleton loading rows={3} delay={0} className="flex flex-col gap-2 p-3" />
+            </PopoverContent>
+          </Popover>
+        )}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" aria-label="บัญชีและกลุ่ม" className="h-8 gap-2 rounded-full pr-3 pl-0">
+              <Skeleton className="size-8 rounded-full" />
+              <Skeleton className="hidden h-4 w-20 sm:block" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" sideOffset={12} className="menu-drop w-[min(22rem,calc(100vw-2rem))] gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
+            <ProfileMenuSkeleton onLogout={failed ? onLogout : undefined} />
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  }
   if (!me) {
     return (
       <Button onClick={onLogin} className={cn("h-10 rounded-full px-4 shadow-float", className)}>
@@ -95,27 +135,41 @@ export default function AccountMenu({
       >
         <PopoverTrigger asChild>
           <Button variant="ghost" aria-label="บัญชีและกลุ่ม" className="h-8 gap-2 rounded-full pr-3 pl-0">
-            <span className="grid size-8 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-              {me.user.username.slice(0, 1).toUpperCase()}
-            </span>
-            <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">{me.user.username}</span>
+            {loading ? (
+              // บัญชีมาแล้วแต่ยังรอข้อมูลอื่น → แถบเทาต่อ (โผล่ชื่อจริงพร้อมส่วนอื่นเมื่อโหลดครบ)
+              <>
+                <Skeleton className="size-8 rounded-full" />
+                <Skeleton className="hidden h-4 w-20 sm:block" />
+              </>
+            ) : (
+              <>
+                <span className="grid size-8 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                  {me.user.username.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">{me.user.username}</span>
+              </>
+            )}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={12} className="menu-drop w-[min(22rem,calc(100vw-2rem))] gap-0 rounded-xl border-black/5 p-0 text-sm shadow-float">
-          <GroupMenu
-            me={me}
-            isOwner={isOwner}
-            hiddenOwners={hiddenOwners}
-            onToggleOwner={onToggleOwner}
-            onRefresh={onRefresh}
-            onCopyId={copyId}
-            copied={copied}
-            onAskLeave={() => {
-              setLeaveError(null);
-              setLeaveOpen(true);
-            }}
-            onLogout={onLogout}
-          />
+          {loading ? (
+            <ProfileMenuSkeleton onLogout={failed ? onLogout : undefined} />
+          ) : (
+            <GroupMenu
+              me={me}
+              isOwner={isOwner}
+              hiddenOwners={hiddenOwners}
+              onToggleOwner={onToggleOwner}
+              onRefresh={onRefresh}
+              onCopyId={copyId}
+              copied={copied}
+              onAskLeave={() => {
+                setLeaveError(null);
+                setLeaveOpen(true);
+              }}
+              onLogout={onLogout}
+            />
+          )}
         </PopoverContent>
       </Popover>
 

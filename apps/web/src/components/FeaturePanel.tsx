@@ -276,7 +276,7 @@ export default function FeaturePanel({
       {/* ย่อการ์ด = ซ่อนส่วนเนื้อหา */}
       <div className={cn("flex min-h-0 flex-1 flex-col", !open && "hidden")}>
         <div className="shrink-0 px-3 pb-2">
-          <GeomFilter value={filter} onChange={onFilterChange} counts={counts} />
+          <GeomFilter value={filter} onChange={onFilterChange} counts={counts} loading={loading} />
         </div>
 
         <div className="flex shrink-0 items-center justify-between border-t px-4 pt-2 text-sm font-semibold">
@@ -288,6 +288,7 @@ export default function FeaturePanel({
                 variant={orderMode ? "default" : "ghost"}
                 size="sm"
                 aria-pressed={orderMode}
+                disabled={loading}
                 className="h-7 gap-1 px-2 text-xs"
                 onClick={() => setReordering((r) => !r)}
               >
@@ -296,7 +297,7 @@ export default function FeaturePanel({
               </Button>
             )}
             {onAddLayer && (
-              <Button type="button" variant="ghost" size="sm" className="h-7 gap-0.5 px-2 text-xs text-primary" onClick={onAddLayer}>
+              <Button type="button" variant="ghost" size="sm" disabled={loading} className="h-7 gap-0.5 px-2 text-xs text-primary" onClick={onAddLayer}>
                 <PlusIcon className="size-3.5" />
                 Layer
               </Button>
@@ -305,11 +306,12 @@ export default function FeaturePanel({
         </div>
 
         <ul ref={listRef} className="relative flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
+          {/* ระหว่างโหลด (รอครบทั้งชุด) โชว์แค่ skeleton — ห้ามโชว์ layer/feature ที่มาก่อนใต้แถบเทา */}
           <ListSkeleton loading={loading} className="flex flex-col gap-2 py-1" />
           {!layers && items.length === 0 && !loading && (
             <li className="px-2 py-6 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูล ใช้เครื่องมือด้านล่างวาดบนแผนที่</li>
           )}
-          {orderMode ? (
+          {loading ? null : orderMode ? (
             <li>
               <LayerOrderList
                 layers={layers!}

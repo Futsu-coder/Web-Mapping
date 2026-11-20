@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PlusIcon, XIcon } from "lucide-react";
+import { Loader2Icon, PlusIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ export default function DrawFab({
   onCancel,
   layerHint,
   showKeys = false,
+  disabled = false,
+  busy = false,
   className,
 }: {
   activeTool: DrawShape | null;
@@ -26,11 +28,15 @@ export default function DrawFab({
   layerHint?: Partial<Record<DrawShape, string>>;
   /** จอคอม: โชว์คีย์ลัด + ปุ่มขนาด 48px */
   showKeys?: boolean;
+  /** ปิดปุ่ม (ระหว่างโหลดข้อมูล / โหลดไม่สำเร็จ) */
+  disabled?: boolean;
+  /** แสดง spinner แทนไอคอน (กำลังโหลดอยู่) */
+  busy?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const Active = activeTool ? toolOf(activeTool).Icon : null;
-  const label = activeTool ? `เครื่องมือ: ${toolOf(activeTool).label} — กดเพื่อเปลี่ยนหรือยกเลิก` : "เพิ่ม feature";
+  const label = disabled ? "กำลังโหลดข้อมูล…" : activeTool ? `เครื่องมือ: ${toolOf(activeTool).label} — กดเพื่อเปลี่ยนหรือยกเลิก` : "เพิ่ม feature";
 
   const pick = (shape: DrawShape) => {
     setOpen(false);
@@ -38,10 +44,12 @@ export default function DrawFab({
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open && !disabled} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button aria-label={label} className={cn("size-14 rounded-2xl shadow-float", className)}>
-          {open ? (
+        <Button aria-label={label} disabled={disabled} className={cn("size-14 rounded-2xl shadow-float", className)}>
+          {busy ? (
+            <Loader2Icon className="size-7 animate-spin motion-reduce:animate-none" />
+          ) : open ? (
             <XIcon className="size-7" />
           ) : Active ? (
             <Active className="size-7" />
