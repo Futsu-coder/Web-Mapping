@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { opentelemetry } from '@elysia/opentelemetry'
-import { metrics } from '@opentelemetry/api'
+import { metrics, trace, SpanKind, SpanStatusCode, type Attributes } from '@opentelemetry/api'
 import { logs, SeverityNumber, type Logger } from '@opentelemetry/api-logs'
 
 // ส่ง traces + logs + metrics ไป Telemetry Collection Service ผ่าน OpenTelemetry (OTLP)
@@ -12,17 +12,54 @@ import { logs, SeverityNumber, type Logger } from '@opentelemetry/api-logs'
 const enabled = !!process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 const serviceName = process.env.OTEL_SERVICE_NAME ?? 'web-mapping-api'
 
+// bun --hot (dev) โหลดไฟล์นี้ใหม่ทุกครั้งที่แก้โค้ด แต่ globalThis ไม่ถูกล้าง
+// ของที่ต้องมีครั้งเดียวต่อ process จึงจำไว้ใน globalThis ไม่งั้นจะส่ง metric ซ้ำเพิ่มทุกครั้งที่ reload
+// (ตัว SDK เองไม่ซ้ำ: plugin start SDK เฉพาะตอนยังไม่มี tracer provider ระดับ global)
+const once = globalThis as { __webMappingMemoryGauge?: true }
+
 // ขอ logger/meter ตอนใช้ครั้งแรก เพราะ SDK เริ่มทำงานตอน opentelemetry() ข้างล่างถูกเรียก
 let logger: Logger | undefined
 function getLogger() {
   if (!logger) {
     logger = logs.getLogger(serviceName)
-    metrics
-      .getMeter(serviceName)
-      .createObservableUpDownCounter('process.memory.usage', { unit: 'By', description: 'The amount of physical memory in use.' })
-      .addCallback((result) => result.observe(process.memoryUsage().rss))
+    if (!once.__webMappingMemoryGauge) {
+      once.__webMappingMemoryGauge = true
+      metrics
+        .getMeter(serviceName)
+        .createObservableUpDownCounter('process.memory.usage', { unit: 'By', description: 'The amount of physical memory in use.' })
+        .addCallback((result) => result.observe(process.memoryUsage().rss))
+    }
   }
   return logger
+}
+
+// ส่ง traces/logs/metrics ที่ยังค้างใน buffer ของ SDK ออกไปให้หมด ใช้ตอนปิด server (server.ts)
+// ไม่งั้นข้อมูลไม่กี่วินาทีสุดท้ายก่อนปิดจะหาย / รอไม่เกิน timeoutMs เผื่อ collector ล่ม จะได้ไม่ค้าง
+type Flushable = { forceFlush?: () => Promise<unknown>; getDelegate?: () => unknown }
+export async function flushTelemetry(timeoutMs = 5000) {
+  if (!enabled) return
+  const providers = [trace.getTracerProvider(), logs.getLoggerProvider(), metrics.getMeterProvider()] as Flushable[]
+  const work = Promise.allSettled(
+    providers.map((p) => ((p.getDelegate?.() ?? p) as Flushable).forceFlush?.())
+  )
+  await Promise.race([work, Bun.sleep(timeoutMs)])
+}
+
+// ครอบงานที่อาจช้า (เช่นคุยกับ Supabase / Postgres) เป็น span ลูกของ request -> ดูใน trace ได้ว่าช้าที่ขั้นไหน
+// ไม่ได้เปิด telemetry = tracer ว่าง (no-op) ไม่มีผลอะไร
+// ต้องขอ tracer ตอนเรียก ไม่ใช่ตอนโหลดไฟล์: ถ้าขอก่อน SDK เริ่ม (opentelemetry() ข้างล่าง) จะได้ tracer ว่างค้างไว้ตลอด
+export function traced<T>(name: string, opts: { kind?: SpanKind; attributes?: Attributes }, fn: () => Promise<T>): Promise<T> {
+  return trace.getTracer(serviceName).startActiveSpan(name, opts, async (span) => {
+    try {
+      return await fn()
+    } catch (e) {
+      if (e instanceof Error) span.recordException(e)
+      span.setStatus({ code: SpanStatusCode.ERROR })
+      throw e
+    } finally {
+      span.end()
+    }
+  })
 }
 
 // ขนาด body ที่ส่งกลับ (byte) สำหรับ semconv http.response.body.size — ใช้คิดบิลตามขนาด response

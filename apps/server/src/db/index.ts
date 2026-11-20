@@ -7,6 +7,9 @@ if (!process.env.DATABASE_URL) {
 }
 
 // Supabase transaction pooler (port 6543) ไม่รองรับ prepared statements
-const client = postgres(process.env.DATABASE_URL ?? '', { prepare: false })
+// bun --hot (dev) โหลดไฟล์ใหม่ทุกครั้งที่แก้โค้ดแต่ process เดิมยังอยู่ ถ้าสร้าง client ใหม่ทุกรอบ
+// connection ของ client เก่าจะค้างไม่ถูกปิด -> เก็บ client ไว้ใน globalThis ใช้ตัวเดิมตลอด process
+const shared = globalThis as { __webMappingPg?: ReturnType<typeof postgres> }
+const client = (shared.__webMappingPg ??= postgres(process.env.DATABASE_URL ?? '', { prepare: false }))
 
 export const db = drizzle(client, { schema })
