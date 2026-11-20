@@ -67,11 +67,14 @@ export default function MobileFeatureList({
   const q = query.trim().toLowerCase();
   const layerOf = (i: Item) => layers?.find((l) => l.id === i.props.layerId);
   const groupName = (i: Item) => layerOf(i)?.name ?? "";
-  const shown = items.filter(
-    (i) =>
-      (filter === "All" || i.type === filter) &&
-      (!q || i.props.name.toLowerCase().includes(q) || groupName(i).toLowerCase().includes(q)),
-  );
+  // ระหว่างโหลด (รอครบทั้งชุด) ไม่โชว์รายการที่มาก่อน — เหลือแค่ skeleton
+  const shown = loading
+    ? []
+    : items.filter(
+        (i) =>
+          (filter === "All" || i.type === filter) &&
+          (!q || i.props.name.toLowerCase().includes(q) || groupName(i).toLowerCase().includes(q)),
+      );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -93,7 +96,7 @@ export default function MobileFeatureList({
         </div>
       </div>
 
-      {layers && (
+      {layers && !loading && (
         <div className="no-scrollbar mb-3 flex shrink-0 gap-2 overflow-x-auto px-4">
           {canReorder && (
             <Button
@@ -101,6 +104,7 @@ export default function MobileFeatureList({
               variant={orderMode ? "default" : "outline"}
               size="sm"
               aria-pressed={orderMode}
+              disabled={loading}
               onClick={() => setReordering((r) => !r)}
               className="h-8 shrink-0 gap-1 rounded-lg text-xs"
             >
@@ -127,6 +131,7 @@ export default function MobileFeatureList({
               type="button"
               variant="outline"
               size="sm"
+              disabled={loading}
               onClick={onAddLayer}
               className="h-8 shrink-0 gap-0.5 rounded-lg border-dashed border-primary text-xs text-primary"
             >
@@ -147,10 +152,11 @@ export default function MobileFeatureList({
           value={filter}
           onChange={onFilterChange}
           counts={layerCounts(layers ?? [])}
+          loading={loading}
         />
       </div>
 
-      {orderMode && layers ? (
+      {orderMode && layers && !loading ? (
         <div ref={orderRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
           <LayerOrderList
             layers={layers}

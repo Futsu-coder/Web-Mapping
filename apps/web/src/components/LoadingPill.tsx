@@ -1,4 +1,4 @@
-import { AlertCircleIcon, Loader2Icon } from "lucide-react";
+import { AlertCircleIcon, Loader2Icon, LogOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDelayedFlag } from "../hooks/useDelayedFlag";
@@ -46,14 +46,52 @@ export function LoadingPill({ state, onRetry }: { state: LoadState; onRetry: () 
 }
 
 /** แถว skeleton แทนรายการ/ตารางระหว่างโหลดครั้งแรก (รอ 300ms เหมือน pill) */
-export function ListSkeleton({ loading, rows = 5, className }: { loading: boolean; rows?: number; className?: string }) {
-  const show = useDelayedFlag(loading);
+export function ListSkeleton({ loading, rows = 5, className, delay }: { loading: boolean; rows?: number; className?: string; delay?: number }) {
+  const show = useDelayedFlag(loading, delay);
   if (!show) return null;
   return (
     <div className={className ?? "flex flex-col gap-2 px-2 py-2"} role="status" aria-label="กำลังโหลดข้อมูล">
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} className="h-9 w-full" style={{ opacity: 1 - i * 0.14 }} />
       ))}
+    </div>
+  );
+}
+
+/** เนื้อเมนู profile แบบ skeleton (โครงเดียวกับ GroupMenu) — แสดงทันทีตอนเปิดเมนูระหว่างข้อมูลยังโหลดไม่ครบ */
+export function ProfileMenuSkeleton({ onLogout }: { onLogout?: () => void }) {
+  return (
+    <div role="status" aria-label="กำลังโหลดข้อมูล">
+      <div className="flex items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
+        <div className="flex flex-col gap-1.5">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <div className="flex flex-col gap-1.5 border-b border-black/5 px-4 py-3">
+        <Skeleton className="h-4 w-36" />
+        <Skeleton className="h-3 w-48" />
+      </div>
+      <div className="flex flex-col gap-2 py-3">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="mx-4 h-5" style={{ opacity: 1 - i * 0.2 }} />
+        ))}
+      </div>
+      <div className="flex flex-col gap-1.5 border-t border-black/5 px-4 py-3">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-9 w-full" />
+      </div>
+      {/* โหลดไม่สำเร็จ: session/บัญชีอาจเสีย กด "ลองใหม่" ไม่หาย → ต้องมีทางออกจากระบบ (แบบ Netflix/Teams) */}
+      {onLogout && (
+        <div className="flex items-center justify-between gap-2 border-t border-black/5 px-4 py-3">
+          <span className="text-xs text-muted-foreground">โหลดข้อมูลไม่สำเร็จ</span>
+          <Button type="button" variant="outline" size="sm" onClick={onLogout}>
+            <LogOutIcon data-icon="inline-start" />
+            ออกจากระบบ
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

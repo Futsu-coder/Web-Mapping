@@ -22,7 +22,10 @@ export default function GeomFilter({
   onChange,
   counts,
   size = "sm",
+  loading = false,
 }: {
+  /** ข้อมูลยังโหลดไม่ครบ → ซ่อนตัวเลข (จะโผล่พร้อมส่วนอื่นเมื่อโหลดครบ) */
+  loading?: boolean;
   value: GeomFilterValue;
   onChange: (f: GeomFilterValue) => void;
   /** จำนวน layer ของแต่ละชนิด (นับจากทั้งหมด ไม่ใช่เฉพาะที่กรองแล้ว) */
@@ -44,7 +47,7 @@ export default function GeomFilter({
           <ToggleGroupItem
             key={f}
             value={f}
-            aria-label={`${LABEL[f]} ${counts[f]} layer`}
+            aria-label={loading ? LABEL[f] : `${LABEL[f]} ${counts[f]} layer`}
             className={cn(
               "flex h-auto min-w-0 flex-col items-center gap-0 rounded-md! border-0 px-1 py-1 text-muted-foreground shadow-none transition-colors",
               "hover:bg-transparent hover:text-foreground",
@@ -54,7 +57,11 @@ export default function GeomFilter({
           >
             <span className="flex items-center gap-1">
               <Icon />
-              <span className="text-[0.6875rem] font-normal tabular-nums opacity-70">{counts[f]}</span>
+              {loading ? (
+                <span className="h-3 w-3 animate-pulse rounded bg-foreground/15 motion-reduce:animate-none" aria-hidden />
+              ) : (
+                <span className="text-[0.6875rem] font-normal tabular-nums opacity-70">{counts[f]}</span>
+              )}
             </span>
             <span className="max-w-full truncate text-xs font-semibold">{LABEL[f]}</span>
           </ToggleGroupItem>

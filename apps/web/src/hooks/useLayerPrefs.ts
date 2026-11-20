@@ -25,6 +25,9 @@ export function useLayerPrefs(
     setPrefs(guest ? loadGuestLayerPrefs() : []);
   }
 
+  // โหลดครั้งแรกของ viewKey นี้เสร็จแล้ว (สำเร็จหรือพัง) — App รวมเข้า loadState ให้ทุกส่วนโผล่พร้อมกัน
+  const [readyKey, setReadyKey] = useState<string | null>(null);
+
   const saved = useRef<LayerPref[]>([]); // ชุดที่บันทึกสำเร็จล่าสุด (ไว้ย้อนกลับ)
   const pending = useRef<LayerPref[] | null>(null); // ชุดที่รอบันทึก
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -61,8 +64,13 @@ export function useLayerPrefs(
         const items = list.map(({ layerId, visible }) => ({ layerId, visible }));
         saved.current = items;
         if (!pending.current) setPrefs(items);
+        setReadyKey(viewKey);
       })
-      .catch((e) => alive && latest.current.onError(e));
+      .catch((e) => {
+        if (!alive) return;
+        latest.current.onError(e);
+        setReadyKey(viewKey); // พัง = ใช้ลำดับเริ่มต้น (ไม่ให้ค้างทั้งหน้า)
+      });
     return () => {
       alive = false;
       void flush(true); // ออก/สลับบัญชีขณะยังมีที่ค้างบันทึก
@@ -132,5 +140,5 @@ export function useLayerPrefs(
     [commit],
   );
 
-  return { ordered, hidden, move, setVisible };
+  return { ordered, hidden, move, setVisible, ready: guest || readyKey === viewKey };
 }
