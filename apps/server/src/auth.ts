@@ -3,8 +3,6 @@ import { Elysia, status } from 'elysia'
 import { eq } from 'drizzle-orm'
 import { db } from './db'
 import { groups, profiles } from './db/schema'
-import { traced } from './telemetry'
-import { SpanKind } from '@opentelemetry/api'
 
 // secret key (service role) ข้ามทุก RLS — ใช้เฉพาะฝั่ง API ห้ามส่งไปหน้าเว็บ
 const url = process.env.SUPABASE_URL
@@ -30,24 +28,17 @@ export type CurrentUser = {
 
 /** โหลดข้อมูลผู้ใช้ปัจจุบันจาก database (เรียกซ้ำหลังย้าย group ได้) */
 export async function loadUser(id: string): Promise<CurrentUser | null> {
-  // span ตาม OTel semconv database: ชื่อ "{db.operation.name} {target}", kind CLIENT
-  const dbSpan = {
-    kind: SpanKind.CLIENT,
-    attributes: { 'db.system.name': 'postgresql', 'db.operation.name': 'SELECT', 'db.collection.name': 'profiles' }
-  }
-  const [row] = await traced('SELECT profiles', dbSpan, () =>
-    db
-      .select({
-        id: profiles.id,
-        userNo: profiles.userNo,
-        username: profiles.username,
-        groupId: profiles.groupId,
-        groupOwnerId: groups.ownerId
-      })
-      .from(profiles)
-      .innerJoin(groups, eq(groups.id, profiles.groupId))
-      .where(eq(profiles.id, id))
-  )
+  const [row] = await db
+    .select({
+      id: profiles.id,
+      userNo: profiles.userNo,
+      username: profiles.username,
+      groupId: profiles.groupId,
+      groupOwnerId: groups.ownerId
+    })
+    .from(profiles)
+    .innerJoin(groups, eq(groups.id, profiles.groupId))
+    .where(eq(profiles.id, id))
   if (!row) return null
   const { groupOwnerId, ...user } = row
   return { ...user, isGroupOwner: groupOwnerId === row.id }
@@ -65,8 +56,7 @@ export const auth = new Elysia({ name: 'auth' }).derive({ as: 'scoped' }, async 
   if (!supabaseAdmin) throw status(503, { detail: 'ยังไม่ได้ตั้งค่า Supabase บน server' })
 
   // getClaims ตรวจลายเซ็น JWT (แบบ asymmetric ตรวจในเครื่องด้วย JWKS, แบบเก่าถาม Supabase)
-  // span ของเราเอง (ไม่มี semconv สำหรับขั้นนี้) แยกเวลาตรวจ token ออกจากเวลา query DB
-  const { data, error } = await traced('auth.getClaims', {}, () => supabaseAdmin.auth.getClaims(token))
+  const { data, error } = await supabaseAdmin.auth.getClaims(token)
   const userId = data?.claims.sub
   if (error || !userId) throw unauthorized('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่')
 
