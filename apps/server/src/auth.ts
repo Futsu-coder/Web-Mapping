@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { Elysia, status } from 'elysia'
+import { setAttributes } from '@elysia/opentelemetry'
 import { eq } from 'drizzle-orm'
 import { db } from './db'
 import { groups, profiles } from './db/schema'
@@ -62,6 +63,8 @@ export const auth = new Elysia({ name: 'auth' }).derive({ as: 'scoped' }, async 
 
   const user = await loadUser(userId)
   if (!user) throw unauthorized('ไม่พบบัญชีผู้ใช้')
+  // telemetry: บอกว่าใครเป็นคนเรียก (หน้า log ของระบบกลางจะแสดง "ใคร ทำอะไร")
+  setAttributes({ 'user.id': user.id, 'user.name': user.username })
   return { user }
 })
 
