@@ -1,4 +1,6 @@
 import { Elysia } from 'elysia'
+import { opentelemetry } from '@elysia/opentelemetry'
+import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { openapi } from '@elysiajs/openapi'
 import { authRoutes } from './routes/auth'
 import { featuresRoutes } from './routes/features'
@@ -7,7 +9,6 @@ import { layerPrefRoutes } from './routes/layerPrefs'
 import { layerRoutes } from './routes/layers'
 import { notificationRoutes } from './routes/notifications'
 import { recordRoutes } from './routes/records'
-import { telemetry } from './telemetry'
 
 // หน้า docs (/api/openapi) เปิดเฉพาะตอน dev — บน Vercel (NODE_ENV=production) ปิดไว้
 // ถ้าต้องการเปิดชั่วคราว (เช่น ตอนนำเสนอ) ตั้ง ENABLE_DOCS=true
@@ -22,7 +23,19 @@ const docs = docsEnabled
   : new Elysia()
 
 export const app = new Elysia({ prefix: '/api' })
-  .use(telemetry)
+  // trace + metric: 1 trace ต่อ request (เปลี่ยน my-service เป็นชื่อแอปคุณ)
+  .use(opentelemetry({ serviceName: 'my-service' }))
+  // log: 1 บรรทัดต่อ request
+  .onAfterResponse({ as: 'global' }, ({ request, set }) => {
+    const status = typeof set.status === 'number' ? set.status : 200
+    const level = status >= 500 ? 'ERROR' : status >= 400 ? 'WARN' : 'INFO'
+    logs.getLogger('my-service').emit({
+      severityText: level,
+      severityNumber: SeverityNumber[level],
+      body: `${request.method} ${new URL(request.url).pathname} ${status}`,
+      attributes: { 'http.request.method': request.method, 'http.response.status_code': status }
+    })
+  })
   .use(docs)
   .get('/health', () => ({ status: 'ok' }))
   .use(authRoutes)
