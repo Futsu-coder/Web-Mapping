@@ -22,6 +22,9 @@ const docs = docsEnabled
     })
   : new Elysia()
 
+// เวลาที่ request เข้าถึง backend (ใช้เป็น Timestamp ของ log) เก็บต่อ request แล้วหายเองเมื่อ request ถูกทิ้ง
+const startedAt = new WeakMap<Request, number>()
+
 export const app = new Elysia({ prefix: '/api' })
   // trace + metric: 1 trace ต่อ request (เปลี่ยน my-service เป็นชื่อแอปคุณ)
   .use(
@@ -39,6 +42,10 @@ export const app = new Elysia({ prefix: '/api' })
   .onError({ as: 'global' }, ({ error, set }) => {
     if (error instanceof ElysiaCustomStatusResponse) set.status = error.code
   })
+  // จดเวลาที่ request เข้ามา (ละเอียดถึงเศษ ms)
+  .onRequest(({ request }) => {
+    startedAt.set(request, performance.timeOrigin + performance.now())
+  })
   // log: 1 บรรทัดต่อ request
   .onAfterResponse({ as: 'global' }, ({ request, set, server, responseValue }) => {
     const status = typeof set.status === 'number' ? set.status : 200
@@ -52,6 +59,7 @@ export const app = new Elysia({ prefix: '/api' })
         ? undefined
         : typeof raw === 'object' ? JSON.stringify(raw) : String(raw)
     logs.getLogger('my-service').emit({
+      timestamp: startedAt.get(request) ?? Date.now(), // Timestamp = เวลาที่ backend รับ request (ObservedTimestamp = ตอนเขียน log นี้ SDK ใส่ให้เอง)
       severityText: level,
       severityNumber: SeverityNumber[level],
       body: `${request.method} ${url.pathname} ${status}`,
